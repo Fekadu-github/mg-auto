@@ -1,22 +1,26 @@
+# Render Blueprint: one web service (API + React app). Render has no managed MySQL, so point DATABASE_URL at a MySQL 8 /
+# MariaDB you run or rent (Aiven, Railway, a VPS, ...). Hosted MySQL usually needs DB_SSL=true.
 services:
   - type: web
-    name: mg-auto-api
-    runtime: node
+    name: mg-auto
+    runtime: docker
     plan: free
-    rootDir: backend
-    buildCommand: npm install
-    startCommand: npm start
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     envVars:
-      - key: SUPABASE_URL
+      - key: DATABASE_URL        # mysql://user:password@host:3306/mg_auto
         sync: false
-      - key: SUPABASE_SERVICE_KEY
-        sync: false
-      - key: CORS_ORIGIN
-        sync: false
-      - key: ADMIN_USER
-        sync: false
-      - key: ADMIN_PASS
+      - key: DB_SSL
+        value: "true"
+      - key: DB_SSL_CA           # optional: the provider's CA certificate (PEM text)
         sync: false
       - key: JWT_SECRET
         generateValue: true
+      - key: ADMIN_USER
+        value: admin
+      - key: ADMIN_PASS
+        sync: false
+      - key: LABOUR_RATE
+        value: "350"
+      - key: VAT_RATE
+        value: "0.15"

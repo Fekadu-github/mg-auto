@@ -1,5 +1,17 @@
+# Optional: host the React app on Netlify and the API elsewhere. Set VITE_API_URL (Netlify site settings) to the API address,
+# and set CORS_ORIGIN on the API to this site's address. Skip this file if the API serves the app (Docker / Render).
 [build]
-  publish = "frontend"
+  base = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
 
 [[headers]]
   for = "/sw.js"

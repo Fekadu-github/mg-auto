@@ -1,0 +1,49 @@
+/* Printed documents: invoice (80 mm receipt for cash/credit, A4 for proforma) and delivery voucher (A4). Black on white. */
+#print { display: none; }
+@media print {
+  html, body { background: #fff !important; }
+  #root { display: none !important; }
+  #print { display: block; color: #000; background: #fff; }
+  #print * { color: #000 !important; text-shadow: none !important; }
+}
+
+.doc { font: 13px/1.4 Arial, Helvetica, sans-serif; color: #000; background: #fff; margin: 0 auto; }
+.doc h1, .doc h4 { font-family: Arial, Helvetica, sans-serif; letter-spacing: 0; margin: 0; }
+.doc table { width: 100%; border-collapse: collapse; }
+.doc th, .doc td { padding: 5px 6px; border: 0; border-bottom: 1px solid #999; text-align: left; white-space: normal; background: none; font-size: 13px; }
+.doc th { font-weight: 700; border-bottom: 2px solid #000; }
+.doc .r { text-align: right; }
+.doc .code { color: #444; font-size: 12px; }
+.doc .motto { text-align: center; font-style: italic; margin-top: 18px; }
+
+/* A4 */
+.doc.a4 { width: 186mm; }
+.lh { display: grid; grid-template-columns: 22mm 1fr auto; gap: 4mm; align-items: start; border-bottom: 2px solid #000; padding-bottom: 4mm; margin-bottom: 5mm; }
+.lh-logo { width: 22mm; height: 22mm; object-fit: cover; border-radius: 50%; }
+.lh-co b { font-size: 18px; }
+.lh-doc { text-align: right; }
+.lh-doc h1 { font-size: 18px; margin-bottom: 2mm; }
+.doc .two { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; margin-bottom: 5mm; }
+.doc h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #444; margin: 4mm 0 1mm; }
+.doc .two h4 { margin-top: 0; }
+.items tfoot td { border-bottom: 0; padding-top: 2px; padding-bottom: 2px; }
+.items tfoot .grand td { border-top: 2px solid #000; font-weight: 700; font-size: 15px; }
+.doc .fine { font-size: 11px; color: #444; margin-top: 6mm; }
+.doc .statement { margin-top: 8mm; }
+.sigs { display: grid; grid-template-columns: 1fr 1fr; gap: 12mm; margin-top: 14mm; font-size: 12px; }
+.sigs .line { border-bottom: 1px solid #000; height: 11mm; }
+.sigs .line + .line, .sigs .line:not(:first-child) { margin-top: 0; }
+
+/* 80 mm receipt */
+.doc.pos { width: 72mm; font: 12px/1.35 'Courier New', monospace; }
+.doc.pos .c { text-align: center; }
+.doc.pos .big { font-size: 15px; }
+.doc.pos hr { border: 0; border-top: 1px dashed #000; margin: 2mm 0; }
+.doc.pos .kv { display: flex; justify-content: space-between; gap: 4mm; }
+.doc.pos .kv span:last-child { text-align: right; }
+.doc.pos .ln { margin-bottom: 1mm; }
+.doc.pos .tot { font-weight: 700; font-size: 14px; }
+.doc.pos .sign { margin-top: 6mm; }
+
+/* on screen only: tidy preview if a document is ever shown inline */
+@media screen { .doc.a4 { padding: 10mm; } }

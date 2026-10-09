@@ -1,65 +1,73 @@
-# MG Auto Garage — Netlify + Render + Supabase
+# MADEG Garage · MG Auto
+
+Job cards, workshop clocks, parts stock, invoices and delivery vouchers for the garage.
 
 ```
-Netlify (frontend PWA)  →  Render (Express API)  →  Supabase (Postgres)
-```
-Repo layout: `frontend/` (static PWA), `backend/` (Node API), `supabase/schema.sql`, `render.yaml`, `netlify.toml`.
-
-## 1. Supabase (database)
-1. Create a project at supabase.com.
-2. SQL Editor → paste `supabase/schema.sql` → Run.
-3. Settings → API: copy the **Project URL** and the **service_role** key. The service_role key is secret: it goes only into Render, never into the frontend.
-
-## 2. GitHub
-```
-cd mg-auto
-git init && git add . && git commit -m "MG Auto garage app"
-git branch -M main
-git remote add origin https://github.com/<you>/mg-auto.git
-git push -u origin main
+React (Vite) app  →  Node.js API (Express)  →  MySQL 8 / MariaDB 10.5+
+frontend/             backend/                 backend/sql/schema.sql
 ```
 
-## 3. Render (backend)
-1. Render → New → Blueprint → pick the repo (it reads `render.yaml`). Or New → Web Service with root directory `backend`, build `npm install`, start `npm start`.
-2. Set environment variables (full list with comments in `backend/.env.example`):
-   - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` from step 1
-   - `JWT_SECRET` (the blueprint generates it)
-   - `ADMIN_USER`, `ADMIN_PASS` (first admin, created on first start; use 8+ characters)
-   - `CORS_ORIGIN` = your Netlify URL, e.g. `https://mg-auto.netlify.app` (set after step 4)
-   - Optional: `VAT_RATE`, `GARAGE_PHONE`, and the SMS / Telegram settings in section 6
-3. Open `https://<service>.onrender.com/health`. It should return `{"ok":true}`.
+The API can serve the built React app itself, so one service is enough (Docker, Render, a VPS).
 
-## 4. Netlify (frontend)
-1. Edit `frontend/config.js` and set `API_URL` to your Render URL. Commit and push.
-2. Netlify → Add new site → Import from GitHub. Netlify reads `netlify.toml` (publish folder `frontend`, no build step).
-3. Go back to Render and set `CORS_ORIGIN` to the Netlify URL.
+## Run it on your computer (development)
+Needs Node 20+ and a MySQL or MariaDB server.
 
-## 5. First use
-Sign in as the admin → **Staff** tab → create Service Advisor, Workshop Supervisor and Technician accounts. Open the Netlify site on a phone and choose "Add to Home Screen" / "Install".
+```
+# 1. database
+mysql -uroot -p -e "CREATE DATABASE mg_auto CHARACTER SET utf8mb4; CREATE USER 'mgauto'@'%' IDENTIFIED BY 'change-me'; GRANT ALL ON mg_auto.* TO 'mgauto'@'%';"
 
-## 6. "Vehicle ready" messages (SMS and/or Telegram)
-When the Service Advisor **closes** a job card (labour and parts checked), the customer is told the vehicle is ready. Each customer has a setting: SMS + Telegram, SMS only, Telegram only, or do not notify. Every attempt (sent, failed, or skipped and why) is listed on the job card, with a **Send again** button (one per minute). A channel that is not set up never blocks closing the job card.
+# 2. API  (http://localhost:3000)
+cd backend
+cp .env.example .env            # set DATABASE_URL, JWT_SECRET, ADMIN_USER, ADMIN_PASS
+npm install
+npm run dev                     # creates the tables and the admin account on first start
+npm run seed                    # optional: the 4 starter parts
 
-**SMS**: create an account with an SMS gateway that can send to Ethiopian numbers (the code is written for AfroMessage's API). Set `SMS_API_KEY`, and `SMS_IDENTIFIER` / `SMS_SENDER` if your account has them. Check `SMS_API_URL` and the field names in `sendSms()` against your provider's documentation, then close a test job card for a customer with your own number. Phone numbers such as `0980766566` are converted to `+251980766566`.
+# 3. React app  (http://localhost:5173, /api is proxied to port 3000)
+cd ../frontend
+npm install
+npm run dev
+```
+Sign in with `ADMIN_USER` / `ADMIN_PASS`, open **Staff** and create the Service Advisor, Workshop Supervisor and Technician accounts.
 
-**Telegram**: a bot cannot message someone who has not started it first.
-1. In Telegram, talk to **@BotFather**, create a bot, and put its token in `TELEGRAM_BOT_TOKEN` on Render. On start the API registers its own webhook (Render provides the public URL; otherwise set `PUBLIC_API_URL`).
-2. In **Customers**, press **Telegram link** on the customer. Send the link to them (or open it on their phone) and they tap **Start**. The customer list then shows "linked". The link works once. The customer can send `/stop` to opt out.
+## Deploy
+### A. Docker Compose (MySQL + app on one machine)
+Create a `.env` next to `docker-compose.yml`:
+```
+DB_PASSWORD=...        DB_ROOT_PASSWORD=...
+JWT_SECRET=...         # long random string
+ADMIN_PASS=...         # 8+ characters
+```
+`docker compose up -d --build`, then open `http://<machine>:3000`. Data lives in the `dbdata` volume; back it up with `docker compose exec db mysqldump -uroot -p mg_auto > backup.sql`. Put it behind HTTPS (Caddy, nginx or your host's proxy) before real use.
 
-Change the wording with `READY_MESSAGE` (placeholders `{name} {plate} {jc} {phone}`). Amharic text works, but an SMS in Ethiopic script carries fewer characters per message.
+### B. Render + hosted MySQL
+Render has no managed MySQL, so rent one (Aiven, Railway, a VPS) and create an empty database.
+1. Push the repo to GitHub. Render → New → Blueprint → pick the repo (it reads `render.yaml` and builds the `Dockerfile`).
+2. Set `DATABASE_URL` (`mysql://user:password@host:3306/mg_auto`) and `ADMIN_PASS`. Keep `DB_SSL=true` for hosted MySQL, and paste the provider's CA into `DB_SSL_CA` if it asks for one.
+3. Open `https://<service>.onrender.com/health`: `{"ok":true}` means the API reaches the database.
 
-## 7. Parts stock
-**Parts stock** tab: code, name, unit price (before VAT), stock, reorder level. The Service Advisor receives deliveries, does stock counts (a reason is required), and edits prices. Every change is in the part's **History**. On a job card, typing a code or name in *Part* picks from the list: the quantity leaves stock and the catalogue price is used. Removing the line puts it back. Anything not in the list is still accepted as free text and is not tracked. Stock cannot go below zero.
+### C. React app on Netlify, API elsewhere (optional)
+`netlify.toml` builds `frontend/`. Set `VITE_API_URL` in Netlify to the API address and `CORS_ORIGIN` on the API to the Netlify address.
 
-## 8. Reports
-**Reports** tab (Addis Ababa days, CSV download on each):
-- **Revenue** (Service Advisor, Administrator): cash and credit invoices by the day issued, with labour, parts, VAT and total. Credit is shown separately because it is still to be collected. Proformas are quotes and are not counted.
-- **Technician hours** (Service Advisor, Supervisor, Administrator; a technician sees only their own): time between clock-in and clock-out, by technician, by day and by section. A clock still running counts up to now and is flagged.
+Tables are created automatically when the API starts (`npm run migrate` does it by hand). The schema is safe to run again.
 
-## Workflow in the app
-Receive customer → maintain customer and vehicle → create job card (JC-0001…) and add labour per section → **Dispatch to workshop** (SA) → **Receive job card** (WS) → technicians clock in/out per labour (reasons: Completed, Lunch, End of work day, Supervisor command) → **Dispatch back to SA** (WS) → **Receive job card** (SA) → **Close** (SA) → proforma (A4 print, can be repeated), or one cash/credit invoice (POS print) → delivery voucher and hand-over.
+## Settings (environment variables)
+All of them, with comments, are in `backend/.env.example`. The important ones:
 
-If you ran an older `schema.sql` already: `alter table customers rename column home to house;` and then run the whole updated `supabase/schema.sql` again. It is safe to repeat and adds everything new (job card versioning, parts, notifications). **Run it before deploying the new backend.**
+| Variable | Meaning |
+|---|---|
+| `DATABASE_URL` or `DB_HOST` `DB_PORT` `DB_USER` `DB_PASSWORD` `DB_NAME` | MySQL connection. `DB_SSL=true` for TLS |
+| `JWT_SECRET` | signs sign-in tokens (16+ characters) |
+| `ADMIN_USER`, `ADMIN_PASS` | first administrator, created when there are no users |
+| `LABOUR_RATE` | ETB per hour; typing hours on a labour line fills the price (default 350) |
+| `VAT_RATE` | fraction, default `0.15`. Amounts are frozen on each invoice when it is issued |
+| `GARAGE_NAME` `GARAGE_ADDRESS` `GARAGE_PHONE` `GARAGE_TIN` `GARAGE_MOTTO` | printed on invoices and the voucher |
+| `FRONTEND_DIR` | folder of the built React app for the API to serve (set in the Docker image) |
+
+## Workflow
+Receive customer → customer and vehicle → job card (`TC-YYYYMMDD-0001`) with labour per section → **Dispatch to workshop** (SA) → **Receive job card** (WS) → technicians clock in/out per labour (Completed, Lunch, End of work day, Supervisor command) → **Dispatch back** (WS) → **Receive** (SA) → **Close** (SA; the customer is told the vehicle is ready) → **proforma** (A4, can be printed again and again) or one **cash / credit invoice** (`INV-YYYYMMDD-0001`, 80 mm receipt) → **delivery voucher** (A4, signature lines) and hand-over.
+
+Customers are `CUS-YYYYMMDD-0001`. Vehicles have Brand and Model. The job card dialog is in `frontend/src/dialogs/JobCardDialog.jsx`; the printed documents are `frontend/src/print/InvoiceDoc.jsx` and `VoucherDoc.jsx` (styles in `styles/print.css`). The browser's print dialog is used, so choose the receipt printer for POS documents.
 
 ## Roles
 | Role | Can do |
@@ -69,13 +77,34 @@ If you ran an older `schema.sql` already: `alter table customers rename column h
 | Technician | clock in/out on labour (own clocks only, one running clock at a time), own hours |
 | Administrator | everything, plus staff accounts |
 
-Every rule (role, status order, "completed labour cannot be clocked in again", all labour completed before dispatch back) is enforced in `backend/server.js`, not only in the UI.
+Every rule (role, status order, completed labour cannot be clocked in again, all labour completed before dispatch back) is enforced in `backend/rules.js` and `backend/app.js`, not only in the screens.
+
+## Parts stock
+**Parts stock** tab: code, name, unit price (before VAT), stock, reorder level. The Service Advisor receives deliveries, does stock counts (a reason is required) and edits prices; every change is in the part's **History**. On a job card, typing a code or name in *Part* picks from the list: the quantity leaves stock and the catalogue price is used. Removing the line puts it back. Anything not in the list is accepted as free text and not tracked. Stock cannot go below zero.
+
+## Reports
+**Reports** tab (Addis Ababa days, CSV download on each): **Revenue** (cash and credit invoices by the day issued; credit is shown separately; proformas are not counted) and **Technician hours** (clock-in to clock-out by technician, day and section; a technician sees only their own).
+
+## "Vehicle ready" messages (SMS and/or Telegram)
+When the Service Advisor closes a job card, the customer is told the vehicle is ready. Each customer is set to SMS + Telegram, SMS only, Telegram only, or do not notify. Every attempt (sent, failed, skipped and why) is listed on the job card with a **Send again** button (one per minute). A channel that is not set up never blocks closing.
+
+- **SMS**: set `SMS_API_KEY` (and `SMS_IDENTIFIER` / `SMS_SENDER`). The code is written for AfroMessage; check `SMS_API_URL` and the field names in `sendSms()` in `backend/notify.js` against your provider, then close a test job card for a customer with your own number. `0980766566` becomes `+251980766566`.
+- **Telegram**: create a bot with @BotFather and set `TELEGRAM_BOT_TOKEN` and `PUBLIC_API_URL` (https address of the API). The webhook registers itself on start. In **Customers** press **Telegram link**, send it to the customer, and they tap **Start**. The link works once; `/stop` opts out.
+- Wording: `READY_MESSAGE` with `{name} {plate} {jc} {phone}`.
+
+## Checks
+```
+cd backend  && npm test                      # business rules, VAT, reports, phone numbers (no database needed)
+cd backend  && TEST_DATABASE_URL=mysql://user:pw@127.0.0.1:3306/mg_auto_test npm test
+                                             # adds the end-to-end API test; use an empty throw-away database
+cd frontend && npm test                      # totals, invoice and voucher documents
+cd frontend && npm run build                 # production build into frontend/dist
+```
 
 ## Notes
-- Render's free plan sleeps after inactivity, so the first request can take about 50 seconds. A paid instance avoids this.
-- The installed app opens offline, but saving data needs a connection.
-- VAT is the `VAT_RATE` setting on Render (default `0.15`). The amounts are frozen on each invoice when it is issued, so changing the rate never alters old invoices or reports.
-- Two people saving the same job card at the same moment can no longer overwrite each other: the second save is retried on fresh data.
+- Times are stored in UTC and shown as Addis Ababa time.
+- The installed app (PWA) opens offline, but saving needs a connection.
+- Two people saving the same job card at once take turns (the row is locked), so no one overwrites the other.
 - Reports read the job cards table directly; if it grows to many thousands of rows, move them into SQL views.
-- Tests for the report, VAT and phone logic: `cd backend && npm test`.
-- Local run: `cd backend && cp .env.example .env`, fill it in, `npm install && node --env-file=.env server.js`.
+- Render's free plan sleeps after inactivity; the first request can take about 50 seconds.
+- Labour is priced per line when the job card is created; it is not recalculated from clocked hours.
