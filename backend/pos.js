@@ -153,7 +153,7 @@ export function mountStock({ app, db, cfg, auth, wrap }) {
         total = r2(total + l.qty * l.cost);
         out.push({ pid: p.id, code: p.code, name: p.name, qty: l.qty, cost: l.cost, price_before: +p.price, price_after: price });
       }
-      await c.q('INSERT INTO grns (id, supplier, ref, note, lines, total, created, by_name) VALUES (?,?,?,?,?,?, UTC_TIMESTAMP(3), ?)', [id, supplier, str(q.body.ref, 80), str(q.body.note, 500), sendJson(out), total, q.u.name]);
+      await c.q('INSERT INTO grns (id, supplier, ref, note, `lines`, total, created, by_name) VALUES (?,?,?,?,?,?, UTC_TIMESTAMP(3), ?)', [id, supplier, str(q.body.ref, 80), str(q.body.note, 500), sendJson(out), total, q.u.name]);
       return id;
     });
     s.json(grnRow((await db.q('SELECT * FROM grns WHERE id = ?', [grn]))[0]));
@@ -186,7 +186,7 @@ export function mountStock({ app, db, cfg, auth, wrap }) {
     if (!name) { if (kind === 'Credit') fail(400, 'A credit sale needs the customer name'); name = kind === 'Proforma' ? '' : 'Walk-in customer'; }
     const id = await numberFor(c, kind === 'Proforma' ? 'sale-proforma' : 'invoice', kind === 'Proforma' ? 'PRF-' : 'INV-');
     const totals = S.saleTotals(out, cfg.vat);
-    await c.q("INSERT INTO sales (id, kind, status, cid, cust_name, cust_phone, cust_tin, lines, totals, show_codes, note, created, by_name, from_pro) VALUES (?,?,'Issued',?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3), ?, ?)",
+    await c.q("INSERT INTO sales (id, kind, status, cid, cust_name, cust_phone, cust_tin, `lines`, totals, show_codes, note, created, by_name, from_pro) VALUES (?,?,'Issued',?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3), ?, ?)",
       [id, kind, cid || null, name, phone, tin, sendJson(out), sendJson(totals), showCodes ? 1 : 0, note, by, fromPro]);
     if (kind !== 'Proforma') for (const l of out) await stock(c, l.pid, -l.qty, 'Sold', id, by);
     return id;
