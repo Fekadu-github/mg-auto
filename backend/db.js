@@ -30,7 +30,7 @@ export const NEW_COLUMNS = [
 export function createDb(env = process.env) {
   const pool = mysql.createPool(poolOptions(env));
   // Keep every session in UTC. (Inserts below also write UTC_TIMESTAMP(3) themselves, so they are right even if this hook is skipped.)
-   pool.on('connection', c => { c.query("SET time_zone = '+00:00'", () => {}); });
+  pool.on('connection', c => { c.query("SET time_zone = '+00:00'", () => {}); });
 
   // Run one statement. Returns the rows (SELECT) or the result header (INSERT / UPDATE / DELETE).
   const run = (conn) => async (sql, params = []) => (await conn.query(sql, params))[0];

@@ -12,6 +12,7 @@
 .doc table { width: 100%; border-collapse: collapse; }
 .doc th, .doc td { padding: 5px 6px; border: 0; border-bottom: 1px solid #999; text-align: left; white-space: normal; background: none; font-size: 13px; }
 .doc th { font-weight: 700; border-bottom: 2px solid #000; }
+.doc th { text-transform: none; letter-spacing: 0; }
 .doc .r { text-align: right; }
 .doc .code { color: #444; font-size: 12px; }
 .doc .motto { text-align: center; font-style: italic; margin-top: 18px; }

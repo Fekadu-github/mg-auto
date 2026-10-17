@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useApp } from '../store.jsx';
+import ThemeToggle from './ThemeToggle.jsx';
 
 const B = { garage: 'MADEG', system: 'MG Auto', motto: 'Your car, our care', company: 'MADEG Garage · MG Auto', place: 'Gurdshola, around Top Ten Hotel', phone: '0980766566' };
 
@@ -30,9 +31,11 @@ export default function Cover() {
         <h1>{B.garage} <span>Garage</span></h1>
         <div className="sub">{B.system} · Workshop system</div>
         <p>Job cards, workshop clocks, parts stock and invoicing for {B.garage} Garage.</p>
+        <ul className="cv-chips" aria-label="What the system does"><li>Job cards</li><li>Workshop clocks</li><li>Parts stock</li><li>Proformas &amp; invoices</li><li>Delivery vouchers</li></ul>
         <div className="motto">{B.motto}</div><div className="bar" />
       </section>
       <section className="cv-r">
+        <div className="cv-top"><ThemeToggle /></div>
         <form className="in" onSubmit={submit}>
           <div className="cv-k">{B.garage} Garage</div>
           <h2>Sign in</h2>
