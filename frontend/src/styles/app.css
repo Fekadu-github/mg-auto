@@ -90,7 +90,7 @@ dialog[open] { animation: dlg-in .22s cubic-bezier(.2, .8, .2, 1); } @keyframes 
 /* ---- sidebar layout ---- */
 .app { display: grid; grid-template-columns: 276px minmax(0, 1fr); min-height: 100vh; align-items: start; }
 .sb { position: sticky; top: 0; height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: var(--sb); border-right: 1px solid var(--ln); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
-.sb-top { display: flex; align-items: center; gap: 12px; padding: 20px 18px 16px; }
+.sb-top { display: flex; align-items: center; gap: 12px; padding: 20px 18px 16px; } .sb-theme { margin-left: auto; flex: none; width: 34px; height: 34px; } .sb-top > div { min-width: 0; } .sb-top .sb-n2 { white-space: nowrap; letter-spacing: .01em; }
 .sb-logo { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px var(--ln2), 0 6px 20px color-mix(in srgb, var(--bl) 35%, transparent); }
 .sb-n1 { font: 700 22px 'Space Grotesk', sans-serif; letter-spacing: .02em; line-height: 1; }
 .sb-n2 { font: 600 12px 'Plus Jakarta Sans', sans-serif; color: var(--gr); margin-top: 4px; letter-spacing: .04em; }
@@ -105,7 +105,6 @@ dialog[open] { animation: dlg-in .22s cubic-bezier(.2, .8, .2, 1); } @keyframes 
 .av { width: 38px; height: 38px; border-radius: 50%; background: var(--grad); color: #fff; display: grid; place-items: center; font: 700 16px 'Space Grotesk', sans-serif; }
 .who { display: flex; flex-direction: column; gap: 1px; color: var(--mu); font-size: 12px; min-width: 0; } .who b { color: var(--tx); font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .so { width: 38px; height: 38px; display: inline-grid; place-items: center; background: none; border: 1px solid var(--ln2); border-radius: 12px; color: var(--tx); padding: 0; cursor: pointer; transition: background .15s, color .15s, border-color .15s; } .so:hover { background: color-mix(in srgb, var(--rd) 14%, transparent); color: var(--rd); border-color: color-mix(in srgb, var(--rd) 45%, transparent); } .so:focus-visible { outline: 2px solid var(--bl); outline-offset: 2px; }
-.tt.wide { grid-column: 1 / -1; width: auto; height: auto; justify-content: flex-start; gap: 10px; border-radius: 12px; padding: 9px 12px; font: 600 13.5px 'Plus Jakarta Sans', sans-serif; } .tt.wide:hover { transform: none; }
 .page { padding: 34px 40px 64px; min-width: 0; }
 .pg { animation: pg-in .35s cubic-bezier(.2, .8, .2, 1); } @keyframes pg-in { from { opacity: 0; transform: translateY(8px); } }
 .page h1 { font-size: 34px; font-weight: 700; background: linear-gradient(90deg, var(--tx), color-mix(in srgb, var(--tx) 70%, var(--bl))); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; }
@@ -117,7 +116,7 @@ dialog[open] { animation: dlg-in .22s cubic-bezier(.2, .8, .2, 1); } @keyframes 
   .sb-top { padding: 12px 16px 6px; } .sb-logo { width: 38px; height: 38px; }
   .sb-mid { flex-direction: row; overflow-x: auto; padding: 4px 10px 10px; gap: 6px; }
   .sb-mid button { padding: 8px 14px; border-radius: 99px; background: var(--th); } .sb-mid button.on::before { display: none; } .sb-mid button:hover { transform: none; }
-  .sb-bot { grid-template-columns: auto 1fr auto auto; margin: 0 10px 10px; padding: 8px 12px; } .tt.wide { grid-column: auto; order: 3; width: 38px; height: 38px; padding: 0; justify-content: center; border-radius: 50%; } .tt.wide span { display: none; } .so { order: 4; }
+  .sb-bot { grid-template-columns: auto 1fr auto; margin: 0 10px 10px; padding: 8px 12px; }
   .page { padding: 20px 16px 56px; } .page h1 { font-size: 28px; }
   th, td { padding: 11px 13px; }
   input, select, textarea { font-size: 16px; }

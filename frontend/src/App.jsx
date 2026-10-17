@@ -50,12 +50,11 @@ function Shell() {
   return (
     <div className="app">
       <aside className="sb">
-        <div className="sb-top"><img className="sb-logo" src="/madeg-logo.png" alt="" /><div><div className="sb-n1">MADEG</div><div className="sb-n2">Garage · MG Auto</div></div></div>
+        <div className="sb-top"><img className="sb-logo" src="/madeg-logo.png" alt="" /><div><div className="sb-n1">MADEG</div><div className="sb-n2">Garage · MG Auto</div></div><ThemeToggle className="sb-theme" /></div>
         <nav className="sb-mid" aria-label="Main">
           {menu.map(([k, n]) => <button key={k} type="button" className={tab === k ? 'on' : ''} aria-current={tab === k ? 'page' : undefined} onClick={() => go(k)}>{ICONS[k]}<span>{n}</span></button>)}
         </nav>
         <div className="sb-bot">
-          <ThemeToggle wide />
           <div className="av" aria-hidden="true">{(me.name || '?').slice(0, 1).toUpperCase()}</div>
           <div className="who"><b>{me.name}</b><span>{ROLES[me.role]}</span></div>
           <button type="button" className="so" onClick={signOut} aria-label="Sign out" title="Sign out">
