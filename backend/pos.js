@@ -165,7 +165,7 @@ export function mountStock({ app, db, cfg, auth, wrap }) {
 
   // Make one sale or proforma inside the caller's transaction. Prices always come from the stock list. Cash and credit take the parts out of stock;
   // a proforma is only a quote. When a part is short the whole sale is refused and the lost sales are recorded (see wrap).
-  async function makeSale(c, { kind, lines, cust, note, showCodes, by, fromPro = null }) {
+  async function makeSale(c, { kind, `lines`, cust, note, showCodes, by, fromPro = null }) {
     const rows = await c.q('SELECT * FROM inventory WHERE id IN (?) ORDER BY id FOR UPDATE', [lines.map(l => l.pid)]);
     const byId = new Map(rows.map(r => [r.id, r])), out = [], short = [];
     for (const l of lines) {
