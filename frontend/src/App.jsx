@@ -55,10 +55,12 @@ function Shell() {
           {menu.map(([k, n]) => <button key={k} type="button" className={tab === k ? 'on' : ''} aria-current={tab === k ? 'page' : undefined} onClick={() => go(k)}>{ICONS[k]}<span>{n}</span></button>)}
         </nav>
         <div className="sb-bot">
+          <ThemeToggle wide />
           <div className="av" aria-hidden="true">{(me.name || '?').slice(0, 1).toUpperCase()}</div>
           <div className="who"><b>{me.name}</b><span>{ROLES[me.role]}</span></div>
-          <ThemeToggle />
-          <button type="button" className="so" onClick={signOut}>Sign out</button>
+          <button type="button" className="so" onClick={signOut} aria-label="Sign out" title="Sign out">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 4H6a2 2 0 00-2 2v12a2 2 0 002 2h3" /><path d="M16 8l4 4-4 4M20 12H9" /></svg>
+          </button>
         </div>
       </aside>
       <main className="page">
