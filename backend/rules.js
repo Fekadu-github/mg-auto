@@ -1,0 +1,247 @@
+// Job card business rules. Pure functions (no database, no clock unless passed in) so they can be unit-tested: node --test
+// Each function changes the job object it is given and throws fail(status, message) when the rule is broken.
+import { fail } from './errors.js';
+import { totals } from './lib.js';
+
+export const SECTIONS = ['Regular Service', 'Mechanical Repairs', 'Body & Paints'];
+export const STATUSES = ['Created', 'Dispatched', 'At workshop', 'Work done', 'Back with SA', 'Closed', 'Invoiced', 'Delivered'];
+export const BEFORE_CLOSE = ['Created', 'Dispatched', 'At workshop', 'Work done', 'Back with SA'];
+export const REASONS = ['Completed', 'Lunch', 'End of work day', 'Supervisor command'];
+export const INVOICE_PREFIX = { Proforma: 'PF', Cash: 'CI', Credit: 'CR' };
+// target status -> [status it must come from, roles that may do it]
+export const FLOW = {
+  Dispatched: ['Created', ['SA']], 'At workshop': ['Dispatched', ['WS']], 'Work done': ['At workshop', ['WS']],
+  'Back with SA': ['Work done', ['SA']], Closed: ['Back with SA', ['SA']], Delivered: ['Invoiced', ['SA']]
+};
+
+export const str = (v, max = 200) => String(v ?? '').trim().slice(0, max);
+export const qn = v => Math.round(+v * 100) / 100;
+export const activeClock = l => (l.logs || []).find(x => !x.out);
+export const isAdminOr = (u, ...roles) => ['ADMIN', 'MGR', ...roles].includes(u.role);   // the Manager can take any step the Administrator can
+const findLabour = (j, id) => j.labours.find(l => l.id === id) || fail(404, 'Labour not found');
+// The labour lines of one service package (Type A / B / C) share `svc` and are clocked together, on the first of them. Every other task is clocked on its own line.
+const clockLead = (j, l) => (l.svc ? j.labours.find(x => x.svc === l.svc) || l : l);
+
+// The Service Advisor can add or remove labour while the vehicle is NOT in the workshop (before it goes, when it is sent back, or once it is back
+// with the advisor / closed), and only until the invoice is issued.
+export const LABOUR_OPEN = ['Created', 'Dispatched', 'Back with SA', 'Closed'];
+export const assertLabourOpen = (j, what = 'changed') => {
+  if (j.inv) fail(409, `Already invoiced (${j.inv.no}): labour can no longer be ${what}`);
+  if (!LABOUR_OPEN.includes(j.status)) fail(409, `Labour cannot be ${what} while the vehicle is in the workshop. Wait for it, or ask the workshop to send it back.`);
+};
+
+export function addLabour(j, b, rate, now = Date.now(), rnd = Math.random) {
+  assertLabourOpen(j, 'added');
+  if (!str(b.desc)) fail(400, 'Describe the work');
+  const price = Math.max(0, +b.price || qn((+b.hours || 0) * rate));   // a typed price wins, otherwise hours x labour rate
+  const late = ['Back with SA', 'Closed'].includes(j.status);           // added after the workshop finished: a billing line, not work to clock
+  j.labours.push({ id: 'L' + now.toString(36) + rnd().toString(36).slice(2, 5), desc: str(b.desc), section: SECTIONS.includes(b.section) ? b.section : SECTIONS[0], price, done: late, ...(late && { late: true }), logs: [] });
+}
+
+export function removeLabour(j, lid) {
+  assertLabourOpen(j, 'removed');
+  const l = j.labours.find(x => x.id === lid);
+  if (l && (l.logs || []).length) fail(409, 'This work has been clocked and cannot be removed');
+  j.labours = j.labours.filter(x => x.id !== lid);
+}
+
+// Parts can be issued and removed until the invoice, also on a closed card (the Service Advisor corrects it before invoicing)
+export function assertPartsOpen(j) { if (j.inv || !(BEFORE_CLOSE.includes(j.status) || j.status === 'Closed')) fail(409, 'Job card is closed'); }
+export const partQty = v => Math.max(0.01, qn(v) || 1);
+
+// A part typed in by hand (not from the stock list): not tracked in stock
+export function addFreePart(j, b) {
+  assertPartsOpen(j);
+  if (!str(b.name)) fail(400, 'Part name is required');
+  j.parts.push({ name: str(b.name), qty: partQty(b.qty), price: Math.max(0, +b.price || 0) });
+}
+
+// A part taken from stock. `part` is the inventory row; the caller takes the quantity out of stock.
+// `price` (optional) is the selling price typed by the Service Advisor; without it the catalogue price is used. The catalogue price is kept as `list` when they differ.
+export function addStockPart(j, part, qty, price) {
+  const list = +part.price, typed = price !== undefined && price !== null && price !== '';
+  const sell = typed ? Math.max(0, qn(price) || 0) : list;
+  j.parts.push({ pid: part.id, code: part.code, name: part.name, qty, price: sell, ...(sell !== list && { list }) });
+}
+
+export function removePartLine(j, index) {
+  assertPartsOpen(j);
+  const i = Number(index);
+  if (!Number.isInteger(i) || !j.parts[i]) fail(404, 'Part line not found');
+  return j.parts.splice(i, 1)[0];
+}
+
+export function transition(j, to, u, now = Date.now()) {
+  const f = FLOW[to];
+  if (!f || j.status !== f[0]) fail(409, `Job card is "${j.status}", cannot move to "${to}"`);
+  if (!isAdminOr(u, ...f[1])) fail(403, 'Your role cannot do this step');
+  if (to === 'Dispatched' && !j.labours.length) fail(400, 'Add at least one labour first');
+  if (to === 'Work done' && j.labours.some(l => !l.done)) fail(400, 'Every labour must be completed first');
+  if (to === 'Closed' && pendingRequests(j).length) fail(409, 'Issue or reject the pending part requests first');
+  j.status = to; j.log.push({ s: to, t: now, by: u.name });
+}
+
+// The Service Advisor sends a card back to the workshop (more tasks, more parts) from "Received by SA" or "Closed", before the invoice.
+// It goes to "Dispatched" again: the workshop receives it, clocks the new tasks and sends it back.
+export function returnToWorkshop(j, u, now = Date.now()) {
+  if (j.inv) fail(409, `Already invoiced (${j.inv.no}): it cannot go back to the workshop`);
+  if (!['Back with SA', 'Closed'].includes(j.status)) fail(409, `Job card is "${j.status}": only a card with the Service Advisor can go back to the workshop`);
+  if (!isAdminOr(u, 'SA')) fail(403, 'Your role cannot do this step');
+  j.status = 'Dispatched'; j.log.push({ s: 'Returned to workshop', t: now, by: u.name });
+}
+
+// `others` = the other job cards that are in the workshop (id + labours), so one person never has two clocks running
+export function clockIn(j, lid, u, others = [], now = Date.now()) {
+  if (j.status !== 'At workshop') fail(409, 'Job card is not in the workshop');
+  const l = clockLead(j, findLabour(j, lid));
+  if (l.done) fail(409, 'This labour is completed and cannot be clocked in again');
+  if (activeClock(l)) fail(409, 'Someone is already clocked in on this labour');
+  for (const o of [j, ...others.filter(o => o.id !== j.id)])
+    for (const x of o.labours) { const a = activeClock(x); if (a && a.tech === u.name) fail(409, `You are still clocked in on ${o.id} (${x.desc}). Clock out there first.`); }
+  l.logs = l.logs || [];
+  l.logs.push({ tech: u.name, in: now });
+}
+
+export function clockOut(j, lid, reason, u, now = Date.now()) {
+  const l = clockLead(j, findLabour(j, lid)), a = activeClock(l);
+  if (!REASONS.includes(reason)) fail(400, 'Choose a clock-out reason');
+  if (!a) fail(409, 'Nobody is clocked in on this labour');
+  if (reason === 'Supervisor command' && !isAdminOr(u, 'WS')) fail(403, 'Only the supervisor can do this');
+  if (u.role === 'TECH' && a.tech !== u.name) fail(403, 'This clock belongs to another technician');
+  a.out = now; a.reason = reason;
+  if (reason === 'Completed') for (const x of j.labours) if (x === l || (l.svc && x.svc === l.svc)) x.done = true;
+}
+
+// Cash and credit invoices are issued once and move the card to Invoiced; a proforma is a quote and can be printed again and again.
+// The amounts are frozen on the document, so a later VAT change never alters an issued invoice or old reports.
+export function checkInvoice(j, type) {
+  if (!INVOICE_PREFIX[type]) fail(400, 'Choose Proforma, Cash or Credit');
+  if (!['Closed', 'Invoiced'].includes(j.status)) fail(409, 'Close the job card before invoicing');
+  if (type !== 'Proforma' && j.inv) fail(409, `Already invoiced (${j.inv.no})`);
+}
+export function issueInvoice(j, type, vat, no, u, now = Date.now()) {
+  checkInvoice(j, type);
+  const doc = { type, no, date: now, totals: totals(j, vat) };
+  if (type === 'Proforma') { j.log.push({ s: 'Proforma printed', t: now, by: u.name, doc }); return doc; }
+  j.inv = doc; j.status = 'Invoiced'; j.log.push({ s: 'Invoiced', t: now, by: u.name, doc });
+  return doc;
+}
+
+// ---- selling prices: the Service Advisor can change a labour or part price until the invoice is issued ----
+export function assertPriceOpen(j) { if (j.inv) fail(409, `Already invoiced (${j.inv.no}): prices can no longer be changed`); }
+function price0(v) {
+  if (v === '' || v === null || v === undefined) fail(400, 'Enter a price');
+  const n = qn(v);
+  if (!(n >= 0)) fail(400, 'Enter a price of zero or more');
+  return n;
+}
+const priceNote = (j, what, from, to, u, now) => j.log.push({ s: 'Price changed', t: now, by: u.name, note: `${what}: ${from} to ${to}` });
+
+export function setPartPrice(j, index, price, u, now = Date.now()) {
+  assertPriceOpen(j);
+  const i = Number(index), p = Number.isInteger(i) && j.parts[i];
+  if (!p) fail(404, 'Part line not found');
+  const to = price0(price);
+  if (p.price === to) return;
+  if (p.pid && p.list === undefined) p.list = p.price;          // remember the catalogue price
+  priceNote(j, p.name, p.price, to, u, now); p.price = to;
+}
+
+export function setLabourPrice(j, lid, price, u, now = Date.now()) {
+  assertPriceOpen(j);
+  const l = findLabour(j, lid), to = price0(price);
+  if (l.price === to) return;
+  priceNote(j, l.desc, l.price, to, u, now); l.price = to;
+}
+
+// ---- mileage on the job card ----
+// `km` is the odometer reading typed in; `last` is the vehicle's last recorded reading (or null). The odometer cannot go backwards.
+export function cleanKm(v) {
+  const n = Math.round(Number(v));
+  return v !== '' && v !== null && v !== undefined && Number.isFinite(n) && n >= 0 && n <= 2_000_000 ? n : null;
+}
+export function checkMileage(km, last) {
+  if (km === null) fail(400, 'Enter the vehicle mileage in km');
+  if (last !== null && last !== undefined && km < last) fail(400, `Mileage cannot be lower than the last recorded ${last} km`);
+  return km;
+}
+
+// ---- service packages on the job card ----
+export function assertServiceOpen(j, code) {
+  if (!['Created', 'Dispatched'].includes(j.status)) fail(409, 'A service can only be added before the vehicle is received in the workshop');
+  if ((j.services || []).includes(code)) fail(409, `Service ${code} is already on this job card`);
+}
+
+// ---- additional parts: a mechanic REQUESTS, the Service Advisor ISSUES ----
+export const pendingRequests = j => (j.requests || []).filter(r => r.status === 'Requested');
+
+export function requestPart(j, ref, qty, u, now = Date.now(), rnd = Math.random) {
+  if (j.status !== 'At workshop') fail(409, 'Parts can only be requested while the job card is in the workshop');
+  if (!str(ref.name)) fail(400, 'Say which part you need');
+  j.requests = j.requests || [];
+  j.requests.push({ id: 'R' + now.toString(36) + rnd().toString(36).slice(2, 5), pid: ref.pid, code: ref.code, name: str(ref.name, 120), qty: partQty(qty), by: u.name, t: now, status: 'Requested' });
+}
+export function openRequest(j, rid) {
+  const r = (j.requests || []).find(x => x.id === rid) || fail(404, 'Part request not found');
+  if (r.status !== 'Requested') fail(409, `This request was already ${r.status.toLowerCase()}`);
+  return r;
+}
+export function settleRequest(j, r, status, u, now = Date.now()) { r.status = status; r.by2 = u.name; r.t2 = now; }
+
+// ---- estimates (body & paint) ----
+export const EST_SECTION = 'Body & Paints';
+
+// Clean the lines the screen sends. `catalogue` is a Map of stock parts by id: a part picked from the stock list takes its name and code
+// from there, and its price too unless a selling price was typed. Hours x labour rate fills a labour price that was left empty.
+export function normalizeEstimate(b, rate, catalogue = new Map()) {
+  const list = v => (Array.isArray(v) ? v.slice(0, 100) : []);
+  const labours = list(b.labours).map(l => {
+    const hours = Math.max(0, qn(l.hours) || 0), typed = Math.max(0, qn(l.price) || 0);
+    return { desc: str(l.desc), ...(SECTIONS.includes(l.section) && { section: l.section }), hours, price: typed || qn(hours * rate) };
+  }).filter(l => l.desc);
+  const parts = list(b.parts).map(p => {
+    const cat = p.pid ? catalogue.get(p.pid) : null, blank = p.price === '' || p.price === null || p.price === undefined;
+    return { ...(cat && { pid: cat.id, code: cat.code }), name: cat ? cat.name : str(p.name, 120), qty: partQty(p.qty), price: blank ? (cat ? +cat.price : 0) : Math.max(0, qn(p.price) || 0) };
+  }).filter(p => p.name);
+  return { note: str(b.note, 500), labours, parts };
+}
+export function assertDraft(e) { if (e.status !== 'Draft') fail(409, `${e.id} is finalized. Move it back to draft to change it.`); }
+export function checkFinalize(e) {
+  assertDraft(e);
+  if (!e.labours.length && !e.parts.length) fail(400, 'Add labour or parts before finalizing');
+}
+export function checkReopen(e) {
+  if (e.status !== 'Finalized') fail(409, `${e.id} is already a draft`);
+  if (e.used_in) fail(409, `${e.id} is already loaded on ${e.used_in}`);
+}
+// Loading an estimate on a job card (the number typed or picked): the card must still be open for labour, the estimate final, unused and for this vehicle.
+export function checkEstimateImport(j, e) {
+  if (!e) fail(404, 'Estimate number not found');
+  if (j.inv || !LABOUR_OPEN.includes(j.status)) fail(409, 'An estimate can only be loaded while the vehicle is not in the workshop, and before the invoice');
+  if (e.status !== 'Finalized') fail(409, `${e.id} is still a draft. Finalize it first.`);
+  if (e.used_in) fail(409, `${e.id} is already loaded on ${e.used_in}`);
+  if (e.vid !== j.vid) fail(409, `${e.id} was made for a different vehicle`);
+}
+
+// ---- first-hand (insurance) proforma: made before any job card; creating the job card turns it into a finalized estimate ----
+export const dateOk = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '') && !isNaN(Date.parse(v));
+export function assertProformaOpen(p) { if (p.status === 'Converted') fail(409, `${p.id} was already turned into job card ${p.job}`); }
+export function checkProformaIssue(p) {
+  assertProformaOpen(p);
+  if (!p.estimator) fail(400, 'Choose the estimator');
+  if (!dateOk(p.pdate)) fail(400, 'Enter the proforma date');
+  if (!p.labours.length && !p.parts.length) fail(400, 'Add labour or parts first');
+}
+export function checkConvert(p) {
+  assertProformaOpen(p);
+  if (p.status !== 'Issued') fail(409, 'Issue the proforma (and print it) before creating the job card');
+}
+
+// ---- who the invoice is made out to: the customer (payer null) or an insurance company; changeable until the invoice is issued ----
+export function setPayer(j, payer, policy, u, now = Date.now()) {
+  if (j.inv) fail(409, `Already invoiced (${j.inv.no}): who it is made out to can no longer be changed`);
+  const to = str(payer, 160) || null, pol = to ? str(policy, 60) || null : null;
+  if ((j.payer || null) === to && (j.policy_no || null) === pol) return;
+  j.log.push({ s: 'Bill-to changed', t: now, by: u.name, note: `${j.payer || 'Customer'} to ${to || 'Customer'}` });
+  j.payer = to; j.policy_no = pol;
+}

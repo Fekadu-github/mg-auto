@@ -1,0 +1,525 @@
+import express from 'express';
+import cors from 'cors';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { fail } from './errors.js';
+import { adjustStock, newId, numberFor, J } from './db.js';
+import { dayKey, range, hoursReport, revenueReport } from './lib.js';
+import { nextService, normalizeService, normalizeTask } from './services.js';
+import * as rules from './rules.js';
+import { str, qn } from './rules.js';
+import * as S from './stock.js';
+import { mountStock, recordLost, shortage } from './pos.js';
+
+const jobRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, created: r.created, mileage: r.mileage ?? null, est: r.est || null, payer: r.payer || null, policy_no: r.policy_no || null, services: J(r.services, []), requests: J(r.requests, []), labours: J(r.labours, []), parts: J(r.parts, []), inv: J(r.inv, null), log: J(r.log, []) });
+const estRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), created: r.created, finalized_at: r.finalized_at, by_name: r.by_name, used_in: r.used_in, pro: r.pro || null });
+const proRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, insurer_id: r.insurer_id || null, policy_no: r.policy_no, estimator_id: r.estimator_id || null, estimator: r.estimator, estimator_role: r.estimator_role, pdate: r.pdate, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), est: r.est || null, job: r.job || null, created: r.created, updated: r.updated });
+const CUS = 'id, name, phone, city, sub, woreda, house, dob, notify, insurer_id, policy_no, tin, (tg_chat IS NOT NULL) AS tg, created_at';   // never the Telegram chat id or link token
+const svcRow = r => r && ({ code: r.code, name: r.name, interval_km: r.interval_km, labours: J(r.labours, []), parts: J(r.parts, []) });
+const VEH = 'id, cid, plate, vin, eng, col, brand, model, mileage, next_km, next_type, created_at';
+const partRow = r => r && ({ ...r, price: +r.price, stock: +r.stock, reorder: +r.reorder, active: !!r.active });
+const sendJson = v => JSON.stringify(v);
+
+export function createApp({ cfg, db, notifier }) {
+  const S = cfg.jwtSecret, app = express();
+  app.set('trust proxy', 1);
+  app.use(express.json({ limit: '100kb' }));
+  app.use(cors({ origin: cfg.corsOrigin === '*' ? true : cfg.corsOrigin.split(',').map(s => s.trim()) }));
+
+  // async route wrapper: HTTP errors thrown with fail() are answered as they are; anything else is logged and answered as a plain 500
+  const wrap = f => (q, s) => f(q, s).catch(async e => {
+    if (e.lost) await recordLost(db, e.lost, q.u?.name).catch(err => console.error('lost sale', err.message));   // a refused sale or issue: the part that was not available is written down
+    if (Number.isInteger(e.code)) return s.status(e.code).json({ error: e.message });
+    if (e.code === 'ER_DUP_ENTRY') return s.status(409).json({ error: 'This record already exists' });
+    console.error(q.method, q.path, e);
+    s.status(500).json({ error: 'Server error. Please try again.' });
+  });
+  const auth = (...roles) => (q, s, n) => {
+    try { q.u = jwt.verify((q.headers.authorization || '').slice(7), S); }
+    catch { return s.status(401).json({ error: 'Sign in required' }); }
+    // the Administrator and the Manager can do everything a listed role can; a route listed for 'ADMIN' alone (staff accounts) stays with the Administrator
+    const open = roles.length === 1 && roles[0] === 'ADMIN' ? ['ADMIN'] : ['ADMIN', 'MGR', ...roles];
+    if (roles.length && !open.includes(q.u.role)) return s.status(403).json({ error: 'Your role cannot do this' });
+    n();
+  };
+
+  // ---- health, auth & staff ----
+  app.get('/health', async (q, s) => { try { await db.q('SELECT 1'); s.json({ ok: true }); } catch { s.status(503).json({ ok: false }); } });
+
+  const tries = new Map();
+  app.post('/api/auth/login', wrap(async (q, s) => {
+    const ip = q.ip, t = tries.get(ip) || { n: 0, at: Date.now() };
+    if (Date.now() - t.at > 15 * 60e3) { t.n = 0; t.at = Date.now(); }
+    if (t.n >= 10) fail(429, 'Too many attempts. Try again in 15 minutes.');
+    const [u] = await db.q('SELECT * FROM app_users WHERE username = ?', [str(q.body.username).toLowerCase()]);
+    if (!u || !(await bcrypt.compare(str(q.body.password, 100), u.pass_hash))) { t.n++; tries.set(ip, t); fail(401, 'Wrong username or password'); }
+    const user = { id: u.id, name: u.name, role: u.role };
+    s.json({ user, token: jwt.sign(user, S, { expiresIn: '12h' }) });
+  }));
+  app.get('/api/users', auth('ADMIN'), wrap(async (q, s) => s.json(await db.q('SELECT id, username, name, role FROM app_users ORDER BY created_at, username'))));
+  app.post('/api/users', auth('ADMIN'), wrap(async (q, s) => {
+    const { name, username, password, role } = q.body;
+    if (!str(name) || !str(username)) fail(400, 'Name and username are required');
+    if (!['SA', 'WS', 'TECH', 'MGR', 'ADMIN'].includes(role)) fail(400, 'Unknown role');
+    if (str(password, 100).length < 8) fail(400, 'Password needs at least 8 characters');
+    const u = { id: newId(), username: str(username, 60).toLowerCase(), name: str(name, 120), role };
+    await db.q('INSERT INTO app_users (id, username, name, role, pass_hash, created_at) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3))', [u.id, u.username, u.name, u.role, await bcrypt.hash(str(password, 100), 10)]);
+    s.json(u);
+  }));
+
+  // ---- everything the screens need, in one call ----
+  app.get('/api/data', auth(), wrap(async (q, s) => {
+    const staff = q.u.role !== 'TECH', mgr = ['ADMIN', 'MGR'].includes(q.u.role);
+    const [c, v, j, p, e, st, pr, ins, lt, people] = await Promise.all([
+      db.q(`SELECT ${CUS} FROM customers ORDER BY created_at, id`),
+      db.q(`SELECT ${VEH} FROM vehicles ORDER BY created_at, id`),
+      db.q('SELECT * FROM jobs ORDER BY created DESC, id DESC'),
+      staff ? db.q('SELECT * FROM inventory WHERE active = 1 ORDER BY name') : [],
+      staff ? db.q('SELECT * FROM estimates ORDER BY created DESC, id DESC') : [],
+      db.q('SELECT * FROM service_types WHERE active = 1 ORDER BY interval_km, code'),
+      staff ? db.q('SELECT * FROM proformas ORDER BY created DESC, id DESC') : [],
+      staff ? db.q('SELECT id, name, phone FROM insurers WHERE active = 1 ORDER BY name') : [],
+      staff ? db.q('SELECT id, name, section, hours, price FROM labour_tasks WHERE active = 1 ORDER BY section, name') : [],
+      staff ? db.q('SELECT id, name, role FROM app_users ORDER BY name') : []]);
+    s.json({ c: c.map(r => ({ ...r, tg: !!r.tg })), v, j: j.map(jobRow), p: p.map(r => S.partView(r, mgr)), e: e.map(estRow), st: st.map(svcRow), pr: pr.map(proRow), ins, lt: lt.map(t => ({ ...t, hours: +t.hours, price: +t.price })), staff: people,
+      cfg: { vat: cfg.vat, markup: S.DEFAULT_MARKUP, labourRate: cfg.labourRate, tgBot: notifier.botName, sms: notifier.smsReady, garage: cfg.garage } });
+  }));
+
+  // ---- customers & vehicles ----
+  const cf = b => ({ name: str(b.name), phone: str(b.phone, 30), city: str(b.city), sub: str(b.sub), woreda: str(b.woreda), house: str(b.house), dob: /^\d{4}-\d{2}-\d{2}$/.test(b.dob || '') ? b.dob : null, notify: ['both', 'sms', 'telegram', 'none'].includes(b.notify) ? b.notify : 'both', insurer_id: str(b.insurer_id, 36) || null, policy_no: str(b.policy_no, 60), tin: str(b.tin, 40) });
+  const vf = b => ({ plate: str(b.plate, 30), vin: str(b.vin, 40), eng: str(b.eng, 40), col: str(b.col, 30), brand: str(b.brand, 40), model: str(b.model, 60), mileage: rules.cleanKm(b.mileage) });
+  const customer = async id => (await db.q(`SELECT ${CUS} FROM customers WHERE id = ?`, [id]))[0];
+  const vehicle = async id => (await db.q(`SELECT ${VEH} FROM vehicles WHERE id = ?`, [id]))[0];
+
+  app.post('/api/customers', auth('SA'), wrap(async (q, s) => {
+    if (!str(q.body.name) || !str(q.body.phone)) fail(400, 'Name and phone are required');
+    const f = cf(q.body);
+    const id = await db.tx(async c => {
+      const id = await numberFor(c, 'customer', 'CUS-');
+      await c.q('INSERT INTO customers (id, name, phone, city, sub, woreda, house, dob, notify, insurer_id, policy_no, tin, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [id, f.name, f.phone, f.city, f.sub, f.woreda, f.house, f.dob, f.notify, f.insurer_id, f.policy_no, f.tin]);
+      return id;
+    });
+    const c = await customer(id);
+    s.json({ ...c, tg: !!c.tg });
+  }));
+  app.put('/api/customers/:id', auth('SA'), wrap(async (q, s) => {
+    if (!str(q.body.name) || !str(q.body.phone)) fail(400, 'Name and phone are required');
+    const f = cf(q.body);
+    const r = await db.q('UPDATE customers SET name=?, phone=?, city=?, sub=?, woreda=?, house=?, dob=?, notify=?, insurer_id=?, policy_no=?, tin=? WHERE id=?', [f.name, f.phone, f.city, f.sub, f.woreda, f.house, f.dob, f.notify, f.insurer_id, f.policy_no, f.tin, q.params.id]);
+    if (!r.affectedRows && !(await customer(q.params.id))) fail(404, 'Customer not found');   // MySQL counts "matched but unchanged" as 0 affected rows
+    s.json({ ok: true });
+  }));
+  app.post('/api/customers/:id/vehicles', auth('SA'), wrap(async (q, s) => {
+    if (!str(q.body.plate)) fail(400, 'Plate is required');
+    if (!(await customer(q.params.id))) fail(404, 'Customer not found');
+    const f = vf(q.body), id = newId();
+    if (f.mileage === null) fail(400, 'Enter the current mileage (km): it is registered with the vehicle');
+    await db.q('INSERT INTO vehicles (id, cid, plate, vin, eng, col, brand, model, mileage, created_at) VALUES (?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [id, q.params.id, f.plate, f.vin, f.eng, f.col, f.brand, f.model, f.mileage]);
+    s.json(await vehicle(id));
+  }));
+  app.put('/api/vehicles/:id', auth('SA'), wrap(async (q, s) => {
+    if (!str(q.body.plate)) fail(400, 'Plate is required');
+    const f = vf(q.body);
+    await db.q('UPDATE vehicles SET plate=?, vin=?, eng=?, col=?, brand=?, model=?, mileage = COALESCE(?, mileage) WHERE id=?', [f.plate, f.vin, f.eng, f.col, f.brand, f.model, f.mileage, q.params.id]);
+    const v = await vehicle(q.params.id);
+    if (!v) fail(404, 'Vehicle not found');
+    s.json(v);
+  }));
+
+  // ---- Telegram linking ----
+  app.post('/api/customers/:id/telegram-link', auth('SA'), wrap(async (q, s) => {
+    if (!notifier.botName) fail(409, 'The Telegram bot is not set up on the server');
+    if (!(await customer(q.params.id))) fail(404, 'Customer not found');
+    const token = randomBytes(12).toString('base64url');
+    await db.q('UPDATE customers SET tg_token = ? WHERE id = ?', [token, q.params.id]);
+    s.json({ url: `https://t.me/${notifier.botName}?start=${token}` });
+  }));
+  app.post('/api/telegram/webhook', (q, s) => {
+    if (!notifier.enabled || q.get('x-telegram-bot-api-secret-token') !== notifier.secret) return s.sendStatus(403);
+    s.sendStatus(200);
+    notifier.handleUpdate(q.body).catch(e => console.error('telegram webhook:', e.message));
+  });
+
+  // ---- parts inventory ----
+  // Stock only ever changes through adjustStock: atomic, never below zero, and every change is written to stock_moves.
+  const stock = async (c, id, d, reason, job, by, note) => {
+    const bal = await adjustStock(c, id, d, reason, job, by, note);
+    if (bal === null) fail(d > 0 ? 404 : 409, d > 0 ? 'Part not found' : 'Not enough stock');
+    return bal;
+  };
+  // Items (create, edit, Excel import, bulk price), GRN, point of sale, payments, lost sales and the stock reports: see pos.js. Manager-only where it touches cost or price.
+  mountStock({ app, db, cfg, auth, wrap });
+  app.post('/api/inventory/:id/receive', auth('SA'), wrap(async (q, s) => {
+    const n = qn(q.body.qty);
+    if (!(n > 0)) fail(400, 'Enter a quantity above zero');
+    s.json({ stock: await db.tx(c => stock(c, q.params.id, n, 'Received', null, q.u.name, str(q.body.note, 200))) });
+  }));
+  app.post('/api/inventory/:id/adjust', auth('SA'), wrap(async (q, s) => {
+    const cnt = qn(q.body.count);
+    if (!(cnt >= 0)) fail(400, 'Enter the counted quantity');
+    if (!str(q.body.note)) fail(400, 'Say why (for example: stock count, damaged)');
+    s.json({ stock: await db.tx(async c => {
+      const [p] = await c.q('SELECT id, stock FROM inventory WHERE id = ? FOR UPDATE', [q.params.id]);
+      if (!p) fail(404, 'Part not found');
+      const d = qn(cnt - p.stock);
+      return d ? stock(c, p.id, d, 'Adjusted', null, q.u.name, str(q.body.note, 200)) : +p.stock;
+    }) });
+  }));
+  app.get('/api/inventory/:id/moves', auth('SA', 'WS'), wrap(async (q, s) =>
+    s.json((await db.q('SELECT id, part_id, delta, balance, reason, job, by_name, note, `at` FROM stock_moves WHERE part_id = ? ORDER BY `at` DESC, id DESC LIMIT 100', [q.params.id])).map(m => ({ ...m, delta: +m.delta, balance: +m.balance })))));
+
+  // ---- job cards ----
+  app.post('/api/jobs', auth('SA'), wrap(async (q, s) => {
+    const { cid, vid } = q.body;
+    const [veh] = await db.q('SELECT id, mileage FROM vehicles WHERE id = ? AND cid = ?', [vid, cid]);
+    if (!veh) fail(400, 'Vehicle does not belong to this customer');
+    const km = rules.checkMileage(rules.cleanKm(q.body.mileage), veh.mileage);
+    const id = await db.tx(async c => {
+      const id = await numberFor(c, 'job', 'TC-');
+      await c.q('INSERT INTO jobs (id, cid, vid, note, status, created, labours, parts, inv, `log`, mileage, services, est, requests) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3), ?, ?, NULL, ?, ?, ?, NULL, ?)',
+        [id, cid, vid, str(q.body.note, 500), 'Created', '[]', '[]', sendJson([{ s: 'Created', t: Date.now(), by: q.u.name }]), km, '[]', '[]']);
+      return id;
+    });
+    s.json(jobRow((await db.q('SELECT * FROM jobs WHERE id = ?', [id]))[0]));
+  }));
+
+  // Lock the job row, let fn change it, save it, commit. Everything fn does to stock and counters is in the same transaction,
+  // so a failure anywhere undoes all of it and two people changing the same card at once simply take turns.
+  // fn(j, ctx) may push callbacks into ctx.after; they run once the change is committed.
+  const edit = (roles, fn) => [auth(...roles), wrap(async (q, s) => {
+    const { saved, after } = await db.tx(async c => {
+      const [row] = await c.q('SELECT * FROM jobs WHERE id = ? FOR UPDATE', [q.params.id]);
+      if (!row) fail(404, 'Job card not found');
+      const j = jobRow(row), after = [];
+      await fn(j, { q, c, u: q.u, body: q.body, params: q.params, after });
+      await c.q('UPDATE jobs SET labours = ?, parts = ?, status = ?, inv = ?, `log` = ?, mileage = ?, services = ?, est = ?, requests = ?, payer = ?, policy_no = ? WHERE id = ?',
+        [sendJson(j.labours), sendJson(j.parts), j.status, j.inv ? sendJson(j.inv) : null, sendJson(j.log), j.mileage, sendJson(j.services || []), j.est || null, sendJson(j.requests || []), j.payer || null, j.policy_no || null, j.id]);
+      return { saved: j, after };
+    });
+    after.forEach(f => Promise.resolve(f(saved)).catch(e => console.error(e.message)));
+    s.json(saved);
+  })];
+
+  // Issue one part line on a job card. A line that names a stock part (pid, or a code found in the stock list) leaves stock at the stock price,
+  // or at the selling price on the line when it has one; anything else is added as free text and is not tracked.
+  const issueLine = async (j, l, c, u) => {
+    const qty = rules.partQty(l.qty);
+    let p;
+    if (l.pid) [p] = await c.q('SELECT * FROM inventory WHERE id = ? AND active = 1 FOR UPDATE', [l.pid]);
+    else if (l.code) [p] = await c.q('SELECT * FROM inventory WHERE code = ? AND active = 1 FOR UPDATE', [str(l.code, 40).toUpperCase()]);
+    if (!p) return rules.addFreePart(j, { name: l.name || l.code, qty, price: l.price });
+    if (+p.stock < qty) throw shortage([{ p, qty }], 'Job card', j.id);     // refused; the lost sale is recorded once the change has been undone
+    await stock(c, p.id, -qty, 'Issued', j.id, u.name);
+    rules.addStockPart(j, p, qty, l.price);
+  };
+
+  app.post('/api/jobs/:id/labour', ...edit(['SA'], (j, { body }) => rules.addLabour(j, body, cfg.labourRate)));
+  app.delete('/api/jobs/:id/labour/:lid', ...edit(['SA'], (j, { params }) => rules.removeLabour(j, params.lid)));
+
+  // SA issues parts on the job card. A part picked from the stock list (pid) is taken out of stock; anything else is free text and not tracked.
+  app.post('/api/jobs/:id/parts', ...edit(['SA'], async (j, { body, c, u }) => {
+    rules.assertPartsOpen(j);
+    if (!body.pid) return rules.addFreePart(j, body);
+    const qty = rules.partQty(body.qty);
+    const [p] = await c.q('SELECT * FROM inventory WHERE id = ? AND active = 1 FOR UPDATE', [body.pid]);
+    if (!p) fail(404, 'Part not found in stock list');
+    if (+p.stock < qty) throw shortage([{ p, qty }], 'Job card', j.id);
+    await stock(c, p.id, -qty, 'Issued', j.id, u.name);
+    rules.addStockPart(j, p, qty, body.price);
+  }));
+  app.delete('/api/jobs/:id/parts/:i', ...edit(['SA'], async (j, { params, c, u }) => {
+    const p = rules.removePartLine(j, params.i);
+    if (p.pid) await stock(c, p.pid, p.qty, 'Returned', j.id, u.name);
+  }));
+
+  // Selling prices can be changed by the Service Advisor until the invoice is issued. Every change is written in the card's log.
+  app.put('/api/jobs/:id/parts/:i/price', ...edit(['SA'], (j, { params, body, u }) => rules.setPartPrice(j, params.i, body.price, u)));
+  app.put('/api/jobs/:id/labour/:lid/price', ...edit(['SA'], (j, { params, body, u }) => rules.setLabourPrice(j, params.lid, body.price, u)));
+
+  // Who the invoice is made out to: an insurance company from the list (with the policy no) or the customer. Open until the invoice is issued.
+  app.put('/api/jobs/:id/payer', ...edit(['SA'], async (j, { body, c, u }) => {
+    let name = null;
+    if (body.insurer_id) {
+      const [ins] = await c.q('SELECT name FROM insurers WHERE id = ? AND active = 1', [body.insurer_id]);
+      if (!ins) fail(400, 'Choose an insurance company from the list');
+      name = ins.name;
+    }
+    rules.setPayer(j, name, body.policy_no, u);
+  }));
+
+  // Mileage can be corrected while the card is still being prepared
+  app.put('/api/jobs/:id/mileage', ...edit(['SA'], async (j, { body, c }) => {
+    if (j.status !== 'Created') fail(409, 'Mileage can only be changed before dispatch');
+    const [v] = await c.q('SELECT mileage FROM vehicles WHERE id = ?', [j.vid]);
+    j.mileage = rules.checkMileage(rules.cleanKm(body.mileage), v?.mileage);
+  }));
+
+  // A service package (Type A / B / C) adds its labour and parts to the card in one step
+  app.post('/api/jobs/:id/service', ...edit(['SA'], async (j, { body, c, u }) => {
+    const [row] = await c.q('SELECT * FROM service_types WHERE code = ? AND active = 1', [str(body.code, 10).toUpperCase()]);
+    if (!row) fail(404, 'Service type not found');
+    const t = svcRow(row);
+    rules.assertServiceOpen(j, t.code);
+    for (const l of t.labours) {
+      rules.addLabour(j, { desc: `${t.name}: ${l.desc}`, hours: l.hours, price: l.price, section: rules.SECTIONS[0] }, cfg.labourRate);
+      j.labours[j.labours.length - 1].svc = t.code;
+    }
+    for (const p of t.parts) await issueLine(j, { code: p.code, name: p.name, qty: p.qty, price: p.price > 0 ? p.price : undefined }, c, u);
+    j.services = [...(j.services || []), t.code];
+    j.log.push({ s: 'Service added', t: Date.now(), by: u.name, note: t.name });
+  }));
+
+  // Load a finalized estimate (by its number) on the card: all its labour and parts at the estimate's prices
+  app.post('/api/jobs/:id/estimate', ...edit(['SA'], async (j, { body, c, u }) => {
+    const [row] = await c.q('SELECT * FROM estimates WHERE id = ? FOR UPDATE', [str(body.no, 40).toUpperCase()]);
+    const e = estRow(row);
+    rules.checkEstimateImport(j, e);
+    for (const l of e.labours) {
+      rules.addLabour(j, { desc: l.desc, hours: l.hours, price: l.price, section: l.section || rules.EST_SECTION }, cfg.labourRate);
+      j.labours[j.labours.length - 1].est = e.id;
+    }
+    for (const p of e.parts) await issueLine(j, p, c, u);
+    j.est = e.id;
+    await c.q('UPDATE estimates SET used_in = ? WHERE id = ?', [j.id, e.id]);
+    j.log.push({ s: 'Estimate loaded', t: Date.now(), by: u.name, note: e.id });
+  }));
+
+  // Additional parts: the workshop asks, only the Service Advisor issues (the stock and the price are the Service Advisor's)
+  app.post('/api/jobs/:id/requests', ...edit(['TECH', 'WS'], async (j, { body, c, u }) => {
+    let ref = { name: str(body.name, 120) };
+    if (body.pid) {
+      const [p] = await c.q('SELECT id, code, name FROM inventory WHERE id = ? AND active = 1', [body.pid]);
+      if (!p) fail(404, 'Part not found in stock list');
+      ref = { pid: p.id, code: p.code, name: p.name };
+    }
+    rules.requestPart(j, ref, body.qty, u);
+  }));
+  app.post('/api/jobs/:id/requests/:rid/issue', ...edit(['SA'], async (j, { params, body, c, u }) => {
+    const r = rules.openRequest(j, params.rid);
+    rules.assertPartsOpen(j);
+    await issueLine(j, { pid: body.pid || r.pid, name: r.name, qty: r.qty, price: body.price }, c, u);
+    rules.settleRequest(j, r, 'Issued', u);
+  }));
+  app.post('/api/jobs/:id/requests/:rid/reject', ...edit(['SA'], (j, { params, u }) => rules.settleRequest(j, rules.openRequest(j, params.rid), 'Rejected', u)));
+
+  // The advisor sends the card back to the workshop to add tasks and parts (from "Received by SA" or "Closed", before the invoice)
+  app.post('/api/jobs/:id/return', ...edit(['SA'], (j, { u }) => rules.returnToWorkshop(j, u)));
+
+  // Closing the card completes the visit: the vehicle's mileage moves forward and, if a service was done, the next service is suggested
+  app.post('/api/jobs/:id/status', ...edit([], async (j, { body, u, after, c }) => {
+    rules.transition(j, body.to, u);
+    if (body.to === 'Closed') {
+      const types = await c.q('SELECT code, name, interval_km FROM service_types WHERE active = 1');
+      const next = j.mileage != null && (j.services || []).length ? nextService(j.mileage, types) : null;
+      await c.q('UPDATE vehicles SET mileage = GREATEST(COALESCE(mileage, 0), ?), next_km = COALESCE(?, next_km), next_type = COALESCE(?, next_type) WHERE id = ?', [j.mileage ?? 0, next?.km ?? null, next?.code ?? null, j.vid]);
+      after.push(notifier.notifyReady);   // SA has checked labour and parts: the customer is told the vehicle is ready
+    }
+  }));
+  app.post('/api/jobs/:id/labour/:lid/clockin', ...edit(['TECH', 'WS'], async (j, { params, u, c }) => {
+    // one running clock per person, so technician hours are never counted twice; lock the person's row so two phones cannot both pass the check
+    await c.q('SELECT id FROM app_users WHERE id = ? FOR UPDATE', [u.id]);
+    const others = (await c.q("SELECT id, labours FROM jobs WHERE status = 'At workshop' AND id <> ?", [j.id])).map(o => ({ id: o.id, labours: J(o.labours, []) }));
+    rules.clockIn(j, params.lid, u, others);
+  }));
+  app.post('/api/jobs/:id/labour/:lid/clockout', ...edit(['TECH', 'WS'], (j, { params, body, u }) => rules.clockOut(j, params.lid, body.reason, u)));
+  app.post('/api/jobs/:id/invoice', ...edit(['SA'], async (j, { body, u, c }) => {
+    rules.checkInvoice(j, body.type);
+    rules.issueInvoice(j, body.type, cfg.vat, await numberFor(c, 'invoice', 'INV-'), u);
+  }));
+
+  // ---- estimates (body & paint): draft, then finalized ----
+  const catalogue = async c => new Map((await c.q('SELECT * FROM inventory WHERE active = 1')).map(r => { const p = partRow(r); return [p.id, p]; }));
+  app.post('/api/estimates', auth('SA'), wrap(async (q, s) => {
+    const { cid, vid } = q.body;
+    if (!(await db.q('SELECT id FROM vehicles WHERE id = ? AND cid = ?', [vid, cid])).length) fail(400, 'Vehicle does not belong to this customer');
+    const id = await db.tx(async c => {
+      const id = await numberFor(c, 'estimate', 'EST-');
+      await c.q('INSERT INTO estimates (id, cid, vid, note, status, labours, parts, created) VALUES (?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [id, cid, vid, str(q.body.note, 500), 'Draft', '[]', '[]']);
+      return id;
+    });
+    s.json(estRow((await db.q('SELECT * FROM estimates WHERE id = ?', [id]))[0]));
+  }));
+  const estEdit = fn => [auth('SA'), wrap(async (q, s) => {
+    const saved = await db.tx(async c => {
+      const [row] = await c.q('SELECT * FROM estimates WHERE id = ? FOR UPDATE', [q.params.id]);
+      if (!row) fail(404, 'Estimate not found');
+      const e = estRow(row);
+      await fn(e, { c, body: q.body, u: q.u });
+      await c.q('UPDATE estimates SET note = ?, status = ?, labours = ?, parts = ?, finalized_at = ?, by_name = ? WHERE id = ?',
+        [e.note, e.status, sendJson(e.labours), sendJson(e.parts), e.finalized_at || null, e.by_name || null, e.id]);
+      return e;
+    });
+    s.json(saved);
+  })];
+  app.put('/api/estimates/:id', ...estEdit(async (e, { c, body }) => { rules.assertDraft(e); Object.assign(e, rules.normalizeEstimate(body, cfg.labourRate, await catalogue(c))); }));
+  app.post('/api/estimates/:id/finalize', ...estEdit((e, { u }) => { rules.checkFinalize(e); e.status = 'Finalized'; e.finalized_at = new Date(); e.by_name = u.name; }));
+  app.post('/api/estimates/:id/draft', ...estEdit(e => { rules.checkReopen(e); e.status = 'Draft'; e.finalized_at = null; e.by_name = null; }));
+  app.delete('/api/estimates/:id', auth('SA'), wrap(async (q, s) => {
+    await db.tx(async c => {
+      const [row] = await c.q('SELECT * FROM estimates WHERE id = ? FOR UPDATE', [q.params.id]);
+      if (!row) fail(404, 'Estimate not found');
+      if (row.status !== 'Draft' || row.used_in) fail(409, 'Only a draft estimate can be deleted');
+      await c.q('DELETE FROM estimates WHERE id = ?', [q.params.id]);
+    });
+    s.json({ ok: true });
+  }));
+
+  // ---- insurance companies and the labour task list ----
+  const insForm = b => { const name = str(b.name, 160); if (!name) fail(400, 'Enter the insurance company name'); return { name, phone: str(b.phone, 30), active: b.active === false || b.active === 0 ? 0 : 1 }; };
+  app.post('/api/insurers', auth('SA'), wrap(async (q, s) => {
+    const f = insForm(q.body), id = newId();
+    if ((await db.q('SELECT id FROM insurers WHERE name = ?', [f.name])).length) fail(409, 'This insurance company is already registered');
+    await db.q('INSERT INTO insurers (id, name, phone, active) VALUES (?,?,?,1)', [id, f.name, f.phone]);
+    s.json({ id, name: f.name, phone: f.phone });
+  }));
+  app.put('/api/insurers/:id', auth('SA'), wrap(async (q, s) => {
+    const f = insForm(q.body);
+    if ((await db.q('SELECT id FROM insurers WHERE name = ? AND id <> ?', [f.name, q.params.id])).length) fail(409, 'This insurance company is already registered');
+    const r = await db.q('UPDATE insurers SET name = ?, phone = ?, active = ? WHERE id = ?', [f.name, f.phone, f.active, q.params.id]);
+    if (!r.affectedRows) fail(404, 'Insurance company not found');
+    s.json({ id: q.params.id, name: f.name, phone: f.phone });
+  }));
+
+  app.post('/api/labour-tasks', auth('SA'), wrap(async (q, s) => {
+    const f = normalizeTask(q.body, rules.SECTIONS), id = newId();
+    if ((await db.q('SELECT id FROM labour_tasks WHERE name = ? AND section = ?', [f.name, f.section])).length) fail(409, 'This task is already in the list');
+    await db.q('INSERT INTO labour_tasks (id, name, section, hours, price, active) VALUES (?,?,?,?,?,1)', [id, f.name, f.section, f.hours, f.price]);
+    s.json({ id, ...f });
+  }));
+  app.put('/api/labour-tasks/:id', auth('SA'), wrap(async (q, s) => {
+    const f = normalizeTask(q.body, rules.SECTIONS);
+    if ((await db.q('SELECT id FROM labour_tasks WHERE name = ? AND section = ? AND id <> ?', [f.name, f.section, q.params.id])).length) fail(409, 'This task is already in the list');
+    const r = await db.q('UPDATE labour_tasks SET name = ?, section = ?, hours = ?, price = ?, active = ? WHERE id = ?', [f.name, f.section, f.hours, f.price, f.active, q.params.id]);
+    if (!r.affectedRows) fail(404, 'Task not found');
+    s.json({ id: q.params.id, ...f });
+  }));
+
+  // ---- first-hand (insurance) proforma: draft, issued, then turned into a job card + estimate ----
+  app.post('/api/proformas', auth('SA'), wrap(async (q, s) => {
+    const { cid, vid } = q.body;
+    const [cu] = await db.q('SELECT insurer_id, policy_no FROM customers WHERE id = ?', [cid]);
+    if (!cu || !(await db.q('SELECT id FROM vehicles WHERE id = ? AND cid = ?', [vid, cid])).length) fail(400, 'Vehicle does not belong to this customer');
+    const id = await db.tx(async c => {
+      const id = await numberFor(c, 'proforma', 'PRO-');
+      await c.q('INSERT INTO proformas (id, cid, vid, insurer_id, policy_no, estimator_id, estimator, estimator_role, pdate, note, status, labours, parts, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))',
+        [id, cid, vid, cu.insurer_id || null, cu.policy_no || '', q.u.id, q.u.name, q.u.role, dayKey(Date.now()), str(q.body.note, 500), 'Draft', '[]', '[]']);   // starts with the customer's own insurance and the signed-in user as estimator
+      return id;
+    });
+    s.json(proRow((await db.q('SELECT * FROM proformas WHERE id = ?', [id]))[0]));
+  }));
+  const proEdit = fn => [auth('SA'), wrap(async (q, s) => {
+    const saved = await db.tx(async c => {
+      const [row] = await c.q('SELECT * FROM proformas WHERE id = ? FOR UPDATE', [q.params.id]);
+      if (!row) fail(404, 'Proforma not found');
+      const p = proRow(row);
+      await fn(p, { c, body: q.body, u: q.u });
+      await c.q('UPDATE proformas SET insurer_id = ?, policy_no = ?, estimator_id = ?, estimator = ?, estimator_role = ?, pdate = ?, note = ?, status = ?, labours = ?, parts = ?, updated = UTC_TIMESTAMP(3) WHERE id = ?',
+        [p.insurer_id, p.policy_no, p.estimator_id, p.estimator, p.estimator_role, p.pdate, p.note, p.status, sendJson(p.labours), sendJson(p.parts), p.id]);
+      return proRow((await c.q('SELECT * FROM proformas WHERE id = ?', [p.id]))[0]);
+    });
+    s.json(saved);
+  })];
+  // Saving is what the screen's auto-save calls every moment: header (insurance, estimator, date, notes) and all lines at once
+  app.put('/api/proformas/:id', ...proEdit(async (p, { c, body }) => {
+    rules.assertProformaOpen(p);
+    Object.assign(p, rules.normalizeEstimate(body, cfg.labourRate, await catalogue(c)));
+    if (body.insurer_id !== undefined) {
+      p.insurer_id = str(body.insurer_id, 36) || null;
+      if (p.insurer_id && !(await c.q('SELECT id FROM insurers WHERE id = ?', [p.insurer_id])).length) fail(400, 'Choose an insurance company from the list');
+    }
+    if (body.policy_no !== undefined) p.policy_no = str(body.policy_no, 60);
+    if (rules.dateOk(body.pdate)) p.pdate = body.pdate;
+    if (body.estimator_id && body.estimator_id !== p.estimator_id) {
+      const [u] = await c.q('SELECT id, name, role FROM app_users WHERE id = ?', [body.estimator_id]);
+      if (!u) fail(400, 'Choose the estimator from the staff list');
+      Object.assign(p, { estimator_id: u.id, estimator: u.name, estimator_role: u.role });
+    }
+  }));
+  app.post('/api/proformas/:id/issue', ...proEdit(p => { rules.checkProformaIssue(p); p.status = 'Issued'; }));
+  app.delete('/api/proformas/:id', auth('SA'), wrap(async (q, s) => {
+    await db.tx(async c => {
+      const [row] = await c.q('SELECT status FROM proformas WHERE id = ? FOR UPDATE', [q.params.id]);
+      if (!row) fail(404, 'Proforma not found');
+      if (row.status === 'Converted') fail(409, 'This proforma already became a job card');
+      await c.q('DELETE FROM proformas WHERE id = ?', [q.params.id]);
+    });
+    s.json({ ok: true });
+  }));
+  // Creating the job card: the proforma becomes a finalized estimate, which is loaded on the new card (stock parts leave stock now)
+  app.post('/api/proformas/:id/convert', auth('SA'), wrap(async (q, s) => {
+    const jobId = await db.tx(async c => {
+      const [row] = await c.q('SELECT * FROM proformas WHERE id = ? FOR UPDATE', [q.params.id]);
+      if (!row) fail(404, 'Proforma not found');
+      const p = proRow(row);
+      rules.checkConvert(p);
+      const [veh] = await c.q('SELECT mileage FROM vehicles WHERE id = ? AND cid = ?', [p.vid, p.cid]);
+      const km = rules.checkMileage(rules.cleanKm(q.body.mileage), veh?.mileage);
+      const jid = await numberFor(c, 'job', 'TC-'), eid = await numberFor(c, 'estimate', 'EST-');
+      const [ins] = p.insurer_id ? await c.q('SELECT name FROM insurers WHERE id = ?', [p.insurer_id]) : [];
+      const note = [ins && `Insurance: ${ins.name}${p.policy_no ? ` (policy ${p.policy_no})` : ''}`, p.note].filter(Boolean).join(' · ').slice(0, 500);
+      const j = { id: jid, vid: p.vid, status: 'Created', labours: [], parts: [], inv: null, services: [], requests: [], mileage: km, est: eid,
+        log: [{ s: 'Created', t: Date.now(), by: q.u.name, note: `from ${p.id}` }] };
+      for (const l of p.labours) {
+        rules.addLabour(j, { desc: l.desc, hours: l.hours, price: l.price, section: l.section || rules.EST_SECTION }, cfg.labourRate);
+        j.labours[j.labours.length - 1].est = eid;
+      }
+      for (const pt of p.parts) await issueLine(j, pt, c, q.u);
+      await c.q('INSERT INTO estimates (id, cid, vid, note, status, labours, parts, created, finalized_at, by_name, used_in, pro) VALUES (?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), ?, ?, ?)',
+        [eid, p.cid, p.vid, p.note, 'Finalized', sendJson(p.labours), sendJson(p.parts), p.estimator || q.u.name, jid, p.id]);
+      await c.q('INSERT INTO jobs (id, cid, vid, note, status, created, labours, parts, inv, `log`, mileage, services, est, requests, payer, policy_no) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3), ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)',
+        [jid, p.cid, p.vid, note, 'Created', sendJson(j.labours), sendJson(j.parts), sendJson(j.log), km, '[]', eid, '[]', ins ? ins.name : null, ins ? p.policy_no || null : null]);   // the invoice is made out to the insurance company
+      await c.q("UPDATE proformas SET status = 'Converted', est = ?, job = ?, updated = UTC_TIMESTAMP(3) WHERE id = ?", [eid, jid, p.id]);
+      return jid;
+    });
+    s.json({ ok: true, job: jobId });
+  }));
+
+  // ---- service packages (Type A / B / C) ----
+  app.put('/api/service-types/:code', auth('SA'), wrap(async (q, s) => {
+    const f = normalizeService(q.body);
+    if (!(await db.q('SELECT code FROM service_types WHERE code = ?', [q.params.code])).length) fail(404, 'Service type not found');
+    await db.q('UPDATE service_types SET name = ?, interval_km = ?, labours = ?, parts = ? WHERE code = ?', [f.name, f.interval_km, sendJson(f.labours), sendJson(f.parts), q.params.code]);
+    s.json(svcRow((await db.q('SELECT * FROM service_types WHERE code = ?', [q.params.code]))[0]));
+  }));
+
+  // ---- "vehicle ready" messages ----
+  const lastNotes = id => db.q('SELECT id, job, cid, channel, to_addr, status, error, `at` FROM notifications WHERE job = ? ORDER BY `at` DESC, id DESC LIMIT 20', [id]);
+  app.get('/api/jobs/:id/notifications', auth('SA', 'WS'), wrap(async (q, s) => s.json(await lastNotes(q.params.id))));
+  app.post('/api/jobs/:id/notify', auth('SA'), wrap(async (q, s) => {
+    const j = jobRow((await db.q('SELECT * FROM jobs WHERE id = ?', [q.params.id]))[0]);
+    if (!j) fail(404, 'Job card not found');
+    if (!['Closed', 'Invoiced'].includes(j.status)) fail(409, 'The vehicle is not waiting for pick-up');
+    const last = (await lastNotes(j.id))[0];
+    if (last && Date.now() - new Date(last.at).getTime() < 60e3) fail(429, 'A message was just sent. Wait a minute before sending again.');
+    await notifier.notifyReady(j);
+    s.json(await lastNotes(j.id));
+  }));
+
+  // ---- reports (Addis Ababa days) ----
+  app.get('/api/reports/revenue', auth('SA'), wrap(async (q, s) => {
+    const [a, b] = range(q.query);
+    const [js, cs, vs] = await Promise.all([db.q('SELECT id, cid, vid, labours, parts, inv FROM jobs WHERE inv IS NOT NULL'), db.q('SELECT id, name FROM customers'), db.q('SELECT id, plate FROM vehicles')]);
+    s.json({ ...revenueReport(js.map(jobRow), a, b, cfg.vat, Object.fromEntries(cs.map(c => [c.id, c.name])), Object.fromEntries(vs.map(v => [v.id, v.plate]))), from: a, to: b });
+  }));
+  app.get('/api/reports/hours', auth('SA', 'WS', 'TECH'), wrap(async (q, s) => {
+    const [a, b] = range(q.query);
+    const js = (await db.q("SELECT id, labours FROM jobs WHERE status <> 'Created'")).map(jobRow);
+    s.json({ ...hoursReport(js, a, b, Date.now(), q.u.role === 'TECH' ? q.u.name : null), from: a, to: b });
+  }));
+
+  // ---- optional: serve the built React app from this server (single-host deploys, Docker) ----
+  if (cfg.frontendDir && existsSync(join(cfg.frontendDir, 'index.html'))) {
+    app.use(express.static(cfg.frontendDir, { index: false, setHeaders: (res, p) => { if (p.endsWith('sw.js') || p.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
+    app.get(/^\/(?!api\/|health).*/, (q, s) => s.sendFile(join(cfg.frontendDir, 'index.html')));
+  }
+  app.use('/api', (q, s) => s.status(404).json({ error: 'Not found' }));
+  // body-parser errors (bad JSON, body too large) and anything else that escaped
+  app.use((e, q, s, next) => { // eslint-disable-line no-unused-vars
+    if (e.status && e.status < 500) return s.status(e.status).json({ error: e.type === 'entity.too.large' ? 'Request too large' : 'Bad request' });
+    console.error(e); s.status(500).json({ error: 'Server error. Please try again.' });
+  });
+  return app;
+}
