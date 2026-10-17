@@ -221,7 +221,7 @@ CREATE TABLE IF NOT EXISTS sales (
   cust_name VARCHAR(200) NOT NULL DEFAULT '',
   cust_phone VARCHAR(30) NOT NULL DEFAULT '',
   cust_tin VARCHAR(40) NOT NULL DEFAULT '',
-  lines JSON NOT NULL,
+ `lines` JSON NOT NULL,
   totals JSON NOT NULL,
   show_codes TINYINT(1) NOT NULL DEFAULT 1,   -- proforma: show or hide the part numbers
   note VARCHAR(500) NOT NULL DEFAULT '',
