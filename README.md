@@ -28,7 +28,7 @@ cd ../frontend
 npm install
 npm run dev
 ```
-Sign in with `ADMIN_USER` / `ADMIN_PASS`, open **Staff** and create the Service Advisor, Workshop Supervisor and Technician accounts.
+Sign in with `ADMIN_USER` / `ADMIN_PASS`, open **Staff** and create the Manager, Service Advisor, Workshop Supervisor and Technician accounts (only the Manager can set costs and prices).
 
 ## Deploy
 ### A. Docker Compose (MySQL + app on one machine)
@@ -69,18 +69,50 @@ Receive customer → customer and vehicle → job card (`TC-YYYYMMDD-0001`) with
 
 Customers are `CUS-YYYYMMDD-0001`. Vehicles have Brand and Model. The job card dialog is in `frontend/src/dialogs/JobCardDialog.jsx`; the printed documents are `frontend/src/print/InvoiceDoc.jsx` and `VoucherDoc.jsx` (styles in `styles/print.css`). The browser's print dialog is used, so choose the receipt printer for POS documents.
 
+## Garage workflow additions
+- **Selling price editable before the invoice.** On a job card the Service Advisor can press *Edit* next to any labour or part price until the invoice is issued. A part keeps its catalogue price as *list* for reference, and every change is written in the card's history. After a cash or credit invoice, prices are locked.
+- **Mileage first.** Mileage is required when a vehicle is registered and again on every job card (it cannot be lower than the last recorded reading). When a job card with a service is **closed**, the vehicle's mileage moves forward and the next service is suggested (shown on the card and in *Customers*).
+- **Type A / B / C services (Services screen).** Each type has a km interval and a labour and parts list. *Add Type A* on a job card adds its labour (priced from hours x `LABOUR_RATE`) and parts (issued from stock when the code is in the stock list). The suggested type is highlighted. The starting packages (5,000 / 10,000 / 20,000 km) are examples: edit them on the Services screen. The next milestone belongs to the type with the largest interval that divides it (A at 5,000 -> B at 10,000 -> A at 15,000 -> C at 20,000).
+- **Estimates (Body & Paints), draft and finalized.** *Estimates* screen, or *New estimate for this vehicle* on a job card. A draft can be changed; *Finalize* locks it; *Back to draft* is possible until it is used. In the job card's Labour section type or pick an estimate number and press *Load estimate*: all its labour and parts come onto the card at the estimate's prices (stock parts leave stock then). Or skip it and add labour and parts by hand. One estimate per job card, and an estimate can be loaded only once.
+- **Prices fill themselves.** Picking a stock part fills its price; typing hours fills the labour cost; typing a package labour description fills its hours and cost. All of them can be typed over.
+- **Additional parts are issued by the Service Advisor.** A technician or supervisor *asks* for a part on a job card in the workshop; only the Service Advisor *issues* it (matches it to stock, sets the selling price) or rejects it. A job card cannot be closed while a request is waiting.
+
+## Proformas, clocking and editing a job card
+- **Insurance proforma (first-hand, before the job card).** *Proformas* screen -> *New proforma*: choose the customer and vehicle. It starts with the customer's insurance and the signed-in user as estimator. Set the **date**, the **estimator** (picked from the staff list with their role), the **insurance company** (from the registered list on the *Insurance* screen, or "None: the customer pays") and the policy number. Pick **labour tasks** (BP body & paints, ME mechanical, SV service) and **parts** from the lists: section, hours, cost and part price fill themselves and can be typed over. *Print proforma (A4)* works at any time (a draft prints marked DRAFT). *Issue proforma*, print it for the insurance, then *Create job card from this proforma*: the job card is created, the proforma becomes a **finalized estimate** loaded on it (stock parts leave stock then), and the proforma shows which job card it became. An issued proforma can still be edited until the job card is created.
+- **Who the invoice is made out to.** A job card created from an insurance proforma carries the insurance company and policy number, and the invoice (A4 proforma and POS receipt) says *Bill to: the insurance company* with the vehicle owner named. A job card made directly for the customer is billed to the customer, as before. The Service Advisor can change it on the job card (*Invoice made out to: Change*: the customer, or any registered insurance company with a policy number) until the invoice is issued; each change is written in the card's history.
+- **Customer insurance.** The customer profile has an insurance company (registered list) and a policy number.
+- **Labour list.** The *Labour list* screen holds the tasks (BP / ME / SV) with hours and an optional fixed price (empty = hours x labour rate). On a job card, typing in *Labour task* offers the list; picking one fills section, hours and cost.
+- **Clocking.** Body (BP) and mechanical (ME) tasks are clocked **one task at a time**. A Type A / B / C service is clocked **once for the whole package** (on its first line; completing it completes the package).
+- **Back to the workshop.** From *Received by SA* or *Closed* (before the invoice) the Service Advisor presses *Return to workshop*, adds tasks (from the labour list) and parts, and the workshop receives, clocks the new tasks and sends it back. While the vehicle is in the workshop the advisor cannot add labour.
+- **Editing a closed card.** Until the invoice is issued the advisor can still add labour (as a billing line, not clocked), issue or remove parts, change prices, and load another estimate. A task that was already clocked cannot be removed.
+- **Nothing is lost.** Proformas and estimates save as drafts by themselves about a second after you stop typing, and every change is also copied to this device at once. After a power cut or a closed tab, reopening the proforma or estimate restores what was typed, and it is saved when the server is reachable (the screen says "Not saved yet ... will try again"). Half-filled forms (new customer, new labour, new part, new job card) are kept the same way until they are submitted. Actions on a job card (add labour, issue a part, a status change) are saved by the server immediately.
+
+Existing databases are upgraded on start: the new columns and tables are added automatically (`npm run migrate` does it by hand).
+
 ## Roles
 | Role | Can do |
 |---|---|
-| Service Advisor | customers, vehicles, job cards, labour, parts, dispatch, receive, close, invoices, delivery, stock, revenue and hours reports |
-| Workshop Supervisor | receive and dispatch back job cards, clock in/out, supervisor stop, view stock, hours report |
-| Technician | clock in/out on labour (own clocks only, one running clock at a time), own hours |
+| Service Advisor | customers, vehicles, job cards, labour, parts and part requests, prices, services, estimates, dispatch, receive, close, invoices, delivery, stock, revenue and hours reports |
+| Workshop Supervisor | receive and dispatch back job cards, clock in/out, supervisor stop, ask for parts, view stock, estimates and services, hours report |
+| Technician | clock in/out on labour (own clocks only, one running clock at a time), ask for parts, own hours |
+| Manager | everything the Service Advisor does, plus: create and edit items, cost and price, Excel import and export, change all prices, cancel sales, inventory-control and user-defined reports |
 | Administrator | everything, plus staff accounts |
 
 Every rule (role, status order, completed labour cannot be clocked in again, all labour completed before dispatch back) is enforced in `backend/rules.js` and `backend/app.js`, not only in the screens.
 
-## Parts stock
-**Parts stock** tab: code, name, unit price (before VAT), stock, reorder level. The Service Advisor receives deliveries, does stock counts (a reason is required) and edits prices; every change is in the part's **History**. On a job card, typing a code or name in *Part* picks from the list: the quantity leaves stock and the catalogue price is used. Removing the line puts it back. Anything not in the list is accepted as free text and not tracked. Stock cannot go below zero.
+## Parts stock, purchases, point of sale
+- **Part numbers** start with **S** (Suzuki), **T** (Toyota) or **B** (BYD); anything else is refused.
+- **Cost and price.** Only the manager creates items and sees the cost. Typing the cost fills the price as **cost x 1.3**; the manager can type another price. Other users see the price only and cannot change it.
+- **Excel.** *Parts stock → Import Excel* (manager) fills part number, description, quantity, cost, price, category and minimum from an .xlsx or .csv file (it checks the file first and shows what would change); *Export to Excel* downloads the list.
+- **Quantity** leaves stock by itself when a part is sold at the counter or issued on a job card (also when an estimate or Type A/B/C package is loaded), and goes back when the line is removed or the sale cancelled.
+- **Search by typing.** Job card *Add part*, requests, estimates, proformas, GRN and the point of sale all search the stock list by part number or any words of the description (no drop-down).
+- **Purchases (GRN).** Search parts, enter the quantity bought and the cost; stock goes up and the part's cost is kept (the price follows cost x 1.3 unless the manager set it by hand). Printable A4.
+- **Point of sale.** Cash sale, credit sale and proforma (with *show part numbers* on or off); only the manager can cancel a sale (parts return to stock). Cash and credit sales appear in **Invoices & payments** by themselves, together with job card invoices; credit invoices are paid there in one or more payments.
+- **Customer TIN** is kept on the customer, can be typed at the till, and is printed on invoices and proformas.
+- **Minimum stock reminder** pops up after sign-in for parts that are out of stock or at/below their minimum.
+- **Lost sales** are written down when a sale or job-card issue is refused for lack of stock, and by *Record as lost sale* when the part is not in the list at all.
+- **Change all prices** (manager): one percentage up or down, optionally only one make.
+- **Reports** (*Stock & sales reports*): sales, lost sales, inventory control (manager) and a user-defined report (manager: pick the data, columns, filter, sort and grouping; CSV and Excel).
 
 ## Reports
 **Reports** tab (Addis Ababa days, CSV download on each): **Revenue** (cash and credit invoices by the day issued; credit is shown separately; proformas are not counted) and **Technician hours** (clock-in to clock-out by technician, day and section; a technician sees only their own).
@@ -107,4 +139,4 @@ cd frontend && npm run build                 # production build into frontend/di
 - Two people saving the same job card at once take turns (the row is locked), so no one overwrites the other.
 - Reports read the job cards table directly; if it grows to many thousands of rows, move them into SQL views.
 - Render's free plan sleeps after inactivity; the first request can take about 50 seconds.
-- Labour is priced per line when the job card is created; it is not recalculated from clocked hours.
+- Labour is priced per line when it is added; it is not recalculated from clocked hours.
