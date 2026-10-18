@@ -1,5 +1,5 @@
 // Parts stock dialogs: edit an item (manager), import from Excel, change all prices, and the GRN (parts bought and added to stock).
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Table, useForm } from '../components/ui.jsx';
@@ -9,6 +9,7 @@ import { money, r2 } from '../lib/format.js';
 import { MAKES, makeOf, priceFromCost, readItemsFile, templateRows } from '../lib/stock.js';
 import { downloadXlsx } from '../lib/xlsx.js';
 import { usePrint } from '../print/PrintHost.jsx';
+import { clearDraft, usePersistedForm, usePersistedState } from '../lib/autosave.js';
 import GrnDoc from '../print/GrnDoc.jsx';
 
 const num = v => parseFloat(v) || 0;
@@ -111,9 +112,15 @@ export function BulkPriceDialog() {
 export function GrnDialog({ pid }) {
   const { db, me, run, closeModal } = useApp(), { print } = usePrint(), mgr = isMgr(me);
   const first = pid && db.p.find(x => x.id === pid);
-  const [h, bind] = useForm({ supplier: '', ref: '', note: '' });
-  const [lines, setLines] = useState(() => (first ? [{ pid: first.id, qty: '', cost: first.cost || '', price: '' }] : []));
+  // a purchase being typed is kept on this device (power cut, closed tab) until it is saved or cleared
+  const K = `grn:${me.id}`, HEAD = { supplier: '', ref: '', note: '' };
+  const [h, bind, setH] = usePersistedForm(K + ':head', HEAD);
+  const [lines, setLines, restored] = usePersistedState(K + ':lines', []);
   const [text, setText] = useState(''), [saved, setSaved] = useState(null);
+  // opened from a part's own button: that part is on the list (a restored draft keeps its lines and gets this one added)
+  useEffect(() => { if (first) setLines(ls => (ls.some(l => l.pid === first.id) ? ls : [...ls, { pid: first.id, qty: '', cost: first.cost || '', price: '' }])); }, [first?.id]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (db.p?.length) setLines(ls => (ls.every(l => db.p.some(x => x.id === l.pid)) ? ls : ls.filter(l => db.p.some(x => x.id === l.pid)))); }, [db.p, setLines]);   // a restored line for a part that has gone is dropped
+  const startOver = () => { setLines([]); setH(HEAD); };
   const part = id => db.p.find(x => x.id === id) || {};
   const set = (i, patch) => setLines(ls => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   const add = p => { setText(''); setLines(ls => (ls.some(l => l.pid === p.id) ? ls : [...ls, { pid: p.id, qty: '', cost: p.cost || '', price: '' }])); };
@@ -121,7 +128,7 @@ export function GrnDialog({ pid }) {
   const ready = h.supplier.trim() && lines.length && lines.every(l => num(l.qty) > 0 && l.cost !== '' && num(l.cost) >= 0);
   const save = async () => {
     const r = await run(() => api('/grns', 'POST', { ...h, lines: lines.map(l => ({ pid: l.pid, qty: num(l.qty), cost: num(l.cost), ...(mgr && l.price !== '' && { price: num(l.price) }) })) }));
-    if (r.ok) setSaved(r.data);
+    if (r.ok) { clearDraft(K + ':lines'); clearDraft(K + ':head'); setSaved(r.data); }   // the server has it: the copy on this device is not needed
   };
   const printIt = g => print(<GrnDoc grn={g} garage={db.cfg.garage} />, 'a4');
 
@@ -135,10 +142,11 @@ export function GrnDialog({ pid }) {
   );
 
   return (
-    <Dialog title="New GRN · purchase into stock" onClose={closeModal} actions={<><Btn kind="gr" onClick={save} disabled={!ready}>Save GRN and add to stock</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
+    <Dialog title="New GRN · purchase into stock" onClose={closeModal} actions={<><Btn kind="gr" onClick={save} disabled={!ready}>Save GRN and add to stock</Btn>{(lines.length > 0 || h.supplier || h.ref || h.note) && <Btn kind="ol" onClick={startOver}>Start over</Btn>}<Btn kind="ol" onClick={closeModal}>Close (draft is kept)</Btn></>}>
       <div className="row mt">
         <Field label="Supplier" grow="2 1 200px" {...bind('supplier')} /><Field label="Supplier invoice / delivery no" {...bind('ref')} /><Field label="Note" grow="2 1 200px" {...bind('note')} />
       </div>
+      {restored && lines.length > 0 && <p className="mu small" role="status">Your unfinished GRN was restored from this device. Check it, then save it, or press Start over.</p>}
       <div className="mt"><PartSearch label="Find the part to add (type the part number or description)" stock={db.p} value={text} onChange={setText} onPick={add} /></div>
       <p className="mu small">Only parts already in the stock list can be bought here. {mgr ? 'To buy a part that is not in the list, create the item first (Parts stock → New item or Import).' : 'A part that is not in the list is created by the manager.'}</p>
       <div className="mt"><Table head={['Part', { t: 'In stock', r: 1 }, { t: 'Quantity bought', r: 1 }, { t: 'Cost each (ETB)', r: 1 }, ...(mgr ? [{ t: 'New price', r: 1 }] : []), { t: 'Line total', r: 1 }, '']} empty={!lines.length && 'Search for a part above to add it.'}>

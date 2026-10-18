@@ -66,3 +66,13 @@ export function usePersistedForm(key, initial) {
   const bind = k => ({ value: v[k] ?? '', onChange: e => setV(s => ({ ...s, [k]: e.target.value })) });
   return [v, bind, patch => setV(s => ({ ...s, ...patch })), () => { setV(initial); if (key) clearDraft(key); }];
 }
+
+// Like useState, but the value is kept on this device until it goes back to `initial` (the sale is completed, the GRN saved, "Start over" pressed).
+// For work that has no server draft yet, such as the point-of-sale cart or a GRN being typed. Returns [value, setValue, restored]; key = null: not kept.
+export function usePersistedState(key, initial) {
+  const [v, setV] = useState(() => { if (!key) return initial; const d = readDraft(key); return d && d.v !== undefined ? d.v : initial; });
+  const empty = JSON.stringify(v) === JSON.stringify(initial);
+  const restored = useRef(!!key && !empty).current;   // true when the first value came from this device
+  useEffect(() => { if (!key) return; if (empty) clearDraft(key); else writeDraft(key, v); }, [v, empty, key]);
+  return [v, setV, restored];
+}

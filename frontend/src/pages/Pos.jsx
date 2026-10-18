@@ -7,6 +7,7 @@ import PartSearch from '../components/PartSearch.jsx';
 import { isMgr, isSA } from '../lib/constants.js';
 import { dt, money, pct, r2, today } from '../lib/format.js';
 import { usePrint } from '../print/PrintHost.jsx';
+import { usePersistedState } from '../lib/autosave.js';
 import SaleDoc, { saleSize } from '../print/SaleDoc.jsx';
 
 const num = v => parseFloat(v) || 0;
@@ -16,12 +17,16 @@ const salePill = s => (s.status === 'Cancelled' ? <Pill tone="a">cancelled</Pill
 
 export function PointOfSale() {
   const { db, me, run, say, refresh } = useApp(), { print } = usePrint(), mgr = isMgr(me);
-  const [f, setF] = useState(EMPTY), [lines, setLines] = useState([]), [text, setText] = useState(''), [busy, setBusy] = useState(false);
+  // the sale being typed is kept on this device (power cut, closed tab) until it is completed or cleared
+  const [f, setF, restoredF] = usePersistedState(`pos:${me.id}:sale`, EMPTY), [lines, setLines, restoredL] = usePersistedState(`pos:${me.id}:lines`, []);
+  const [text, setText] = useState(''), [busy, setBusy] = useState(false);
+  const restored = restoredF || restoredL;
   const [sales, setSales] = useState(null), [q, setQ] = useState('');
   const patch = p => setF(s => ({ ...s, ...p }));
   const loadSales = () => api('/sales').then(setSales).catch(e => say(e.message));
   useEffect(() => { loadSales(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [db.p]);   // stock changes whenever a sale is made or cancelled
 
+  useEffect(() => { if (db.p?.length) setLines(ls => (ls.every(l => db.p.some(x => x.id === l.pid)) ? ls : ls.filter(l => db.p.some(x => x.id === l.pid)))); }, [db.p, setLines]);   // a restored line for a part that has gone from the list is dropped
   const part = id => db.p.find(x => x.id === id) || {};
   const sub = r2(lines.reduce((s, l) => s + num(l.qty) * part(l.pid).price, 0)), vat = r2(sub * db.cfg.vat), total = r2(sub + vat);
   const add = p => { setText(''); setLines(ls => (ls.some(l => l.pid === p.id) ? ls.map(l => (l.pid === p.id ? { ...l, qty: num(l.qty) + 1 } : l)) : [...ls, { pid: p.id, qty: 1 }])); };
@@ -64,6 +69,7 @@ export function PointOfSale() {
           <Field label="Customer TIN" value={f.tin} onChange={e => patch({ tin: e.target.value })} />
         </div>
         <div className="mt"><PartSearch label="Sell a part (type the part number or description)" stock={db.p} value={text} onChange={setText} onPick={add} onMissing={lost} /></div>
+        {restored && lines.length > 0 && <p className="mu small" role="status">Your unfinished sale was restored from this device. Check it, then complete it, or press Start over.</p>}
         <div className="mt"><Table head={['Part number', 'Description', { t: 'In stock', r: 1 }, { t: 'Qty', r: 1 }, { t: 'Price', r: 1 }, { t: 'Amount', r: 1 }, '']} empty={!lines.length && 'Search for a part above to add it to the sale.'}>
           {lines.map((l, i) => {
             const p = part(l.pid), over = num(l.qty) > p.stock;
@@ -85,6 +91,7 @@ export function PointOfSale() {
         <div className="row mt">
           <div className="r" style={{ flex: 1 }}>Subtotal {money(sub)} · VAT {pct(db.cfg.vat)}% {money(vat)}<br /><b className="cn total">Total ETB {money(total)}</b></div>
           <Btn kind={f.kind === 'Proforma' ? 'ol' : 'gr'} onClick={complete} disabled={busy || !lines.length}>{label}</Btn>
+          {(lines.length > 0 || f.name || f.phone || f.tin || f.note) && <Btn kind="ol" onClick={() => { if (confirm('Clear this sale and start over?')) { setLines([]); setF(EMPTY); } }}>Start over</Btn>}
         </div>
         <p className="mu small">Prices come from the stock list. {f.kind === 'Proforma' ? 'A proforma is a quote: stock does not change and it is not counted in sales.' : f.kind === 'Cash' ? 'The parts leave stock, and the sale goes to Invoices & payments as paid.' : 'The parts leave stock, and the sale goes to Invoices & payments as unpaid until payments are recorded.'} If a part is not available the sale is refused and recorded as a lost sale.</p>
       </div>
