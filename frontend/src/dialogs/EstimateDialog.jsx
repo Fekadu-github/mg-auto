@@ -28,7 +28,7 @@ export default function EstimateDialog({ id, jid }) {
   const { state, flush } = useAutosave('est:' + id, { note, labours: labs, parts }, { enabled: !!e && isSA(me) && e.status === 'Draft', startDirty: init.restored, save: async v => { await api('/estimates/' + id, 'PUT', v); refresh().catch(() => {}); } });
   if (!e) return <Dialog title="Estimate" onClose={closeModal}><p className="mu">This estimate no longer exists.</p></Dialog>;
 
-  const sa = isSA(me), draft = e.status === 'Draft', edit = sa && draft, rate = db.cfg.labourRate, vat = db.cfg.vat;
+  const sa = isSA(me), draft = e.status === 'Draft', edit = sa && draft, rate = db.cfg.labourRates || db.cfg.labourRate, vat = db.cfg.vat;
   const c = cust(e.cid), v = veh(e.vid), jc = jid && job(jid);
   const shownLabs = edit ? labs : e.labours, shownParts = edit ? parts : e.parts;
   const t = tot({ labours: shownLabs.map(l => ({ price: num(l.price) })), parts: shownParts.map(p => ({ qty: num(p.qty), price: num(p.price) })) }, vat);

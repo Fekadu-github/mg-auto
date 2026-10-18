@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS app_users (
   id CHAR(36) NOT NULL PRIMARY KEY,
   username VARCHAR(60) NOT NULL,
   name VARCHAR(120) NOT NULL,
-  role ENUM('SA','WS','TECH','ADMIN') NOT NULL,
+  role ENUM('SA','WS','TECH','ADMIN','MGR') NOT NULL,   -- MGR = Manager (appended last so older databases can be upgraded in place)
   pass_hash VARCHAR(100) NOT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   UNIQUE KEY app_users_username (username)
@@ -73,6 +73,11 @@ CREATE TABLE IF NOT EXISTS jobs (
   requests JSON NULL,              -- additional parts asked for by the workshop, issued by the Service Advisor
   payer VARCHAR(160) NULL,         -- insurance company the invoice is made out to (job cards created from an insurance proforma); empty = the customer
   policy_no VARCHAR(60) NULL,
+  mileage_out INT NULL,            -- odometer (km) when the vehicle left the workshop (typed when the card is closed); the next service counts from it
+  claim_no VARCHAR(60) NULL,       -- insurance claim number
+  due_date DATE NULL,              -- expected finish / delivery date
+  priority VARCHAR(20) NULL,       -- Normal, Urgent ...
+  price_reqs JSON NULL,            -- price changes the Service Advisor asked for that need the manager's approval
   KEY jobs_status (status),
   KEY jobs_created (created),
   CONSTRAINT jobs_cid_fk FOREIGN KEY (cid) REFERENCES customers (id),
@@ -191,6 +196,10 @@ CREATE TABLE IF NOT EXISTS proformas (
   parts JSON NOT NULL,
   est VARCHAR(40) NULL,
   job VARCHAR(40) NULL,
+  claim_no VARCHAR(60) NOT NULL DEFAULT '',
+  priority VARCHAR(20) NOT NULL DEFAULT '',
+  due_date DATE NULL,
+  terms VARCHAR(1000) NOT NULL DEFAULT '',
   created DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   KEY proformas_status (status),
@@ -263,4 +272,10 @@ CREATE TABLE IF NOT EXISTS lost_sales (
   ref VARCHAR(40) NULL,
   by_name VARCHAR(120) NULL,
   KEY lost_sales_at (`at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Settings kept in the database (changed on screen by the manager): labour rate per section, ...
+CREATE TABLE IF NOT EXISTS settings (
+  k VARCHAR(60) NOT NULL PRIMARY KEY,
+  v JSON NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

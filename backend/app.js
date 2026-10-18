@@ -8,15 +8,16 @@ import { randomBytes } from 'node:crypto';
 import { fail } from './errors.js';
 import { adjustStock, newId, numberFor, J } from './db.js';
 import { dayKey, range, hoursReport, revenueReport } from './lib.js';
-import { nextService, normalizeService, normalizeTask } from './services.js';
+import { isServiceVisit, nextService, normalizeService, normalizeTask } from './services.js';
 import * as rules from './rules.js';
 import { str, qn } from './rules.js';
 import * as S from './stock.js';
 import { mountStock, recordLost, shortage } from './pos.js';
+import { closeRunningClocks } from './workday.js';
 
-const jobRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, created: r.created, mileage: r.mileage ?? null, est: r.est || null, payer: r.payer || null, policy_no: r.policy_no || null, services: J(r.services, []), requests: J(r.requests, []), labours: J(r.labours, []), parts: J(r.parts, []), inv: J(r.inv, null), log: J(r.log, []) });
+const jobRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, created: r.created, mileage: r.mileage ?? null, est: r.est || null, payer: r.payer || null, policy_no: r.policy_no || null, mileage_out: r.mileage_out ?? null, claim_no: r.claim_no || null, due_date: r.due_date || null, priority: r.priority || null, price_reqs: J(r.price_reqs, []), services: J(r.services, []), requests: J(r.requests, []), labours: J(r.labours, []), parts: J(r.parts, []), inv: J(r.inv, null), log: J(r.log, []) });
 const estRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), created: r.created, finalized_at: r.finalized_at, by_name: r.by_name, used_in: r.used_in, pro: r.pro || null });
-const proRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, insurer_id: r.insurer_id || null, policy_no: r.policy_no, estimator_id: r.estimator_id || null, estimator: r.estimator, estimator_role: r.estimator_role, pdate: r.pdate, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), est: r.est || null, job: r.job || null, created: r.created, updated: r.updated });
+const proRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, insurer_id: r.insurer_id || null, policy_no: r.policy_no, estimator_id: r.estimator_id || null, estimator: r.estimator, estimator_role: r.estimator_role, pdate: r.pdate, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), est: r.est || null, job: r.job || null, claim_no: r.claim_no || '', priority: r.priority || '', due_date: r.due_date || null, terms: r.terms || '', created: r.created, updated: r.updated });
 const CUS = 'id, name, phone, city, sub, woreda, house, dob, notify, insurer_id, policy_no, tin, (tg_chat IS NOT NULL) AS tg, created_at';   // never the Telegram chat id or link token
 const svcRow = r => r && ({ code: r.code, name: r.name, interval_km: r.interval_km, labours: J(r.labours, []), parts: J(r.parts, []) });
 const VEH = 'id, cid, plate, vin, eng, col, brand, model, mileage, next_km, next_type, created_at';
@@ -24,7 +25,7 @@ const partRow = r => r && ({ ...r, price: +r.price, stock: +r.stock, reorder: +r
 const sendJson = v => JSON.stringify(v);
 
 export function createApp({ cfg, db, notifier }) {
-  const S = cfg.jwtSecret, app = express();
+  const KEY = cfg.jwtSecret, app = express();
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '100kb' }));
   app.use(cors({ origin: cfg.corsOrigin === '*' ? true : cfg.corsOrigin.split(',').map(s => s.trim()) }));
@@ -38,12 +39,22 @@ export function createApp({ cfg, db, notifier }) {
     s.status(500).json({ error: 'Server error. Please try again.' });
   });
   const auth = (...roles) => (q, s, n) => {
-    try { q.u = jwt.verify((q.headers.authorization || '').slice(7), S); }
+    try { q.u = jwt.verify((q.headers.authorization || '').slice(7), KEY); }
     catch { return s.status(401).json({ error: 'Sign in required' }); }
     // the Administrator and the Manager can do everything a listed role can; a route listed for 'ADMIN' alone (staff accounts) stays with the Administrator
     const open = roles.length === 1 && roles[0] === 'ADMIN' ? ['ADMIN'] : ['ADMIN', 'MGR', ...roles];
     if (roles.length && !open.includes(q.u.role)) return s.status(403).json({ error: 'Your role cannot do this' });
     n();
+  };
+
+  // Settings kept in the database. Labour rate per section: the manager sets it on the Labour list screen; a section with no rate uses LABOUR_RATE.
+  const getSetting = async (c, k, d) => { const [r] = await c.q('SELECT v FROM settings WHERE k = ?', [k]); return r ? J(r.v, d) : d; };
+  const labourRates = async c => ({ default: cfg.labourRate, ...(await getSetting(c, 'labour_rates', {})) });
+  const rateMap = r => ({ default: r.default, ...Object.fromEntries(rules.SECTIONS.map(sec => [sec, rules.rateOf(r, sec)])) });
+  // A short fingerprint of the stock list. The screens send it back with each refresh, and the list is only sent again when it has changed.
+  const partsVersion = async () => {
+    const [r] = await db.q("SELECT COUNT(*) AS n, COALESCE(SUM(active),0) AS a, COALESCE(SUM(stock),0) AS s, COALESCE(SUM(price),0) AS pr, COALESCE(SUM(cost),0) AS co, COALESCE(SUM(reorder),0) AS re, COALESCE(SUM(CRC32(CONCAT(code, '|', name, '|', category))),0) AS h FROM inventory");
+    return [r.n, r.a, r.s, r.pr, r.co, r.re, r.h].join(':');
   };
 
   // ---- health, auth & staff ----
@@ -57,7 +68,7 @@ export function createApp({ cfg, db, notifier }) {
     const [u] = await db.q('SELECT * FROM app_users WHERE username = ?', [str(q.body.username).toLowerCase()]);
     if (!u || !(await bcrypt.compare(str(q.body.password, 100), u.pass_hash))) { t.n++; tries.set(ip, t); fail(401, 'Wrong username or password'); }
     const user = { id: u.id, name: u.name, role: u.role };
-    s.json({ user, token: jwt.sign(user, S, { expiresIn: '12h' }) });
+    s.json({ user, token: jwt.sign(user, KEY, { expiresIn: '12h' }) });
   }));
   app.get('/api/users', auth('ADMIN'), wrap(async (q, s) => s.json(await db.q('SELECT id, username, name, role FROM app_users ORDER BY created_at, username'))));
   app.post('/api/users', auth('ADMIN'), wrap(async (q, s) => {
@@ -73,19 +84,21 @@ export function createApp({ cfg, db, notifier }) {
   // ---- everything the screens need, in one call ----
   app.get('/api/data', auth(), wrap(async (q, s) => {
     const staff = q.u.role !== 'TECH', mgr = ['ADMIN', 'MGR'].includes(q.u.role);
+    const pv = staff ? await partsVersion() : '', sendParts = staff && String(q.query.pv || '') !== pv;
     const [c, v, j, p, e, st, pr, ins, lt, people] = await Promise.all([
       db.q(`SELECT ${CUS} FROM customers ORDER BY created_at, id`),
       db.q(`SELECT ${VEH} FROM vehicles ORDER BY created_at, id`),
       db.q('SELECT * FROM jobs ORDER BY created DESC, id DESC'),
-      staff ? db.q('SELECT * FROM inventory WHERE active = 1 ORDER BY name') : [],
+      sendParts ? db.q('SELECT * FROM inventory WHERE active = 1 ORDER BY name') : [],
       staff ? db.q('SELECT * FROM estimates ORDER BY created DESC, id DESC') : [],
       db.q('SELECT * FROM service_types WHERE active = 1 ORDER BY interval_km, code'),
       staff ? db.q('SELECT * FROM proformas ORDER BY created DESC, id DESC') : [],
       staff ? db.q('SELECT id, name, phone FROM insurers WHERE active = 1 ORDER BY name') : [],
       staff ? db.q('SELECT id, name, section, hours, price FROM labour_tasks WHERE active = 1 ORDER BY section, name') : [],
-      staff ? db.q('SELECT id, name, role FROM app_users ORDER BY name') : []]);
-    s.json({ c: c.map(r => ({ ...r, tg: !!r.tg })), v, j: j.map(jobRow), p: p.map(r => S.partView(r, mgr)), e: e.map(estRow), st: st.map(svcRow), pr: pr.map(proRow), ins, lt: lt.map(t => ({ ...t, hours: +t.hours, price: +t.price })), staff: people,
-      cfg: { vat: cfg.vat, markup: S.DEFAULT_MARKUP, labourRate: cfg.labourRate, tgBot: notifier.botName, sms: notifier.smsReady, garage: cfg.garage } });
+      staff ? db.q("SELECT id, name, role FROM app_users WHERE role IN ('SA','WS','MGR','ADMIN') ORDER BY name") : []]);   // estimators: advisors and above, not technicians
+    const rates = await labourRates(db);
+    s.json({ c: c.map(r => ({ ...r, tg: !!r.tg })), v, j: j.map(jobRow), ...(sendParts ? { p: p.map(r => S.partView(r, mgr)) } : {}), pv, e: e.map(estRow), st: st.map(svcRow), pr: pr.map(proRow), ins, lt: lt.map(t => ({ ...t, hours: +t.hours, price: +t.price })), staff: people,
+      cfg: { vat: cfg.vat, markup: S.DEFAULT_MARKUP, labourRate: cfg.labourRate, labourRates: rateMap(rates), priceLimitPct: cfg.priceLimitPct, workEnd: cfg.workEnd, tgBot: notifier.botName, sms: notifier.smsReady, garage: cfg.garage } });
   }));
 
   // ---- customers & vehicles ----
@@ -195,8 +208,9 @@ export function createApp({ cfg, db, notifier }) {
       if (!row) fail(404, 'Job card not found');
       const j = jobRow(row), after = [];
       await fn(j, { q, c, u: q.u, body: q.body, params: q.params, after });
-      await c.q('UPDATE jobs SET labours = ?, parts = ?, status = ?, inv = ?, `log` = ?, mileage = ?, services = ?, est = ?, requests = ?, payer = ?, policy_no = ? WHERE id = ?',
-        [sendJson(j.labours), sendJson(j.parts), j.status, j.inv ? sendJson(j.inv) : null, sendJson(j.log), j.mileage, sendJson(j.services || []), j.est || null, sendJson(j.requests || []), j.payer || null, j.policy_no || null, j.id]);
+      await c.q('UPDATE jobs SET labours = ?, parts = ?, status = ?, inv = ?, `log` = ?, mileage = ?, services = ?, est = ?, requests = ?, payer = ?, policy_no = ?, mileage_out = ?, claim_no = ?, due_date = ?, priority = ?, price_reqs = ? WHERE id = ?',
+        [sendJson(j.labours), sendJson(j.parts), j.status, j.inv ? sendJson(j.inv) : null, sendJson(j.log), j.mileage, sendJson(j.services || []), j.est || null, sendJson(j.requests || []), j.payer || null, j.policy_no || null,
+          j.mileage_out ?? null, j.claim_no || null, j.due_date || null, j.priority || null, sendJson(j.price_reqs || []), j.id]);
       return { saved: j, after };
     });
     after.forEach(f => Promise.resolve(f(saved)).catch(e => console.error(e.message)));
@@ -205,18 +219,21 @@ export function createApp({ cfg, db, notifier }) {
 
   // Issue one part line on a job card. A line that names a stock part (pid, or a code found in the stock list) leaves stock at the stock price,
   // or at the selling price on the line when it has one; anything else is added as free text and is not tracked.
-  const issueLine = async (j, l, c, u) => {
+  const issueLine = async (j, l, c, u, opts = {}) => {
     const qty = rules.partQty(l.qty);
     let p;
     if (l.pid) [p] = await c.q('SELECT * FROM inventory WHERE id = ? AND active = 1 FOR UPDATE', [l.pid]);
     else if (l.code) [p] = await c.q('SELECT * FROM inventory WHERE code = ? AND active = 1 FOR UPDATE', [str(l.code, 40).toUpperCase()]);
     if (!p) return rules.addFreePart(j, { name: l.name || l.code, qty, price: l.price });
-    if (+p.stock < qty) throw shortage([{ p, qty }], 'Job card', j.id);     // refused; the lost sale is recorded once the change has been undone
+    if (+p.stock < qty) {
+      if (opts.waiting) return rules.addWaitingPart(j, p, qty, l.price);   // an estimate, proforma or service package loads anyway: this part waits for stock
+      throw shortage([{ p, qty }], 'Job card', j.id);                       // refused; the lost sale is recorded once the change has been undone
+    }
     await stock(c, p.id, -qty, 'Issued', j.id, u.name);
     rules.addStockPart(j, p, qty, l.price);
   };
 
-  app.post('/api/jobs/:id/labour', ...edit(['SA'], (j, { body }) => rules.addLabour(j, body, cfg.labourRate)));
+  app.post('/api/jobs/:id/labour', ...edit(['SA'], async (j, { body, c }) => rules.addLabour(j, body, await labourRates(c))));
   app.delete('/api/jobs/:id/labour/:lid', ...edit(['SA'], (j, { params }) => rules.removeLabour(j, params.lid)));
 
   // SA issues parts on the job card. A part picked from the stock list (pid) is taken out of stock; anything else is free text and not tracked.
@@ -226,18 +243,37 @@ export function createApp({ cfg, db, notifier }) {
     const qty = rules.partQty(body.qty);
     const [p] = await c.q('SELECT * FROM inventory WHERE id = ? AND active = 1 FOR UPDATE', [body.pid]);
     if (!p) fail(404, 'Part not found in stock list');
-    if (+p.stock < qty) throw shortage([{ p, qty }], 'Job card', j.id);
+    if (+p.stock < qty) {
+      if (body.waiting) return rules.addWaitingPart(j, p, qty, body.price);   // the advisor chose to add it as waiting for stock
+      throw shortage([{ p, qty }], 'Job card', j.id);
+    }
     await stock(c, p.id, -qty, 'Issued', j.id, u.name);
     rules.addStockPart(j, p, qty, body.price);
   }));
   app.delete('/api/jobs/:id/parts/:i', ...edit(['SA'], async (j, { params, c, u }) => {
     const p = rules.removePartLine(j, params.i);
-    if (p.pid) await stock(c, p.pid, p.qty, 'Returned', j.id, u.name);
+    if (p.pid && !p.waiting) await stock(c, p.pid, p.qty, 'Returned', j.id, u.name);   // a part that was only waiting never left stock
+  }));
+  // A waiting part arrives: it leaves stock now (refused again while the stock is still short)
+  app.post('/api/jobs/:id/parts/:i/receive', ...edit(['SA'], async (j, { params, c, u }) => {
+    const line = rules.waitingLine(j, params.i);
+    const [p] = await c.q('SELECT * FROM inventory WHERE id = ? AND active = 1 FOR UPDATE', [line.pid]);
+    if (!p) fail(404, 'Part not found in stock list');
+    if (+p.stock < line.qty) fail(409, `Still not enough stock of ${p.name} (${+p.stock} on hand, ${line.qty} needed)`);
+    await stock(c, p.id, -line.qty, 'Issued', j.id, u.name);
+    delete line.waiting;
+    j.log.push({ s: 'Waiting part received', t: Date.now(), by: u.name, note: `${p.name} x ${line.qty}` });
   }));
 
   // Selling prices can be changed by the Service Advisor until the invoice is issued. Every change is written in the card's log.
-  app.put('/api/jobs/:id/parts/:i/price', ...edit(['SA'], (j, { params, body, u }) => rules.setPartPrice(j, params.i, body.price, u)));
-  app.put('/api/jobs/:id/labour/:lid/price', ...edit(['SA'], (j, { params, body, u }) => rules.setLabourPrice(j, params.lid, body.price, u)));
+  // A change of more than PRICE_LIMIT_PCT from the list price is a request the manager approves or rejects; the manager's own change is immediate.
+  app.put('/api/jobs/:id/parts/:i/price', ...edit(['SA'], (j, { params, body, u }) => rules.submitPartPrice(j, params.i, body.price, u, cfg.priceLimitPct)));
+  app.put('/api/jobs/:id/labour/:lid/price', ...edit(['SA'], (j, { params, body, u }) => rules.submitLabourPrice(j, params.lid, body.price, u, cfg.priceLimitPct)));
+  app.post('/api/jobs/:id/price-requests/:rid/approve', ...edit(['MGR'], (j, { params, u }) => rules.decidePrice(j, params.rid, true, u)));
+  app.post('/api/jobs/:id/price-requests/:rid/reject', ...edit(['MGR'], (j, { params, u }) => rules.decidePrice(j, params.rid, false, u)));
+
+  // Claim number, expected finish date and priority on the card
+  app.put('/api/jobs/:id/details', ...edit(['SA'], (j, { body, u }) => rules.setDetails(j, body, u)));
 
   // Who the invoice is made out to: an insurance company from the list (with the policy no) or the customer. Open until the invoice is issued.
   app.put('/api/jobs/:id/payer', ...edit(['SA'], async (j, { body, c, u }) => {
@@ -263,11 +299,12 @@ export function createApp({ cfg, db, notifier }) {
     if (!row) fail(404, 'Service type not found');
     const t = svcRow(row);
     rules.assertServiceOpen(j, t.code);
+    const rates = await labourRates(c);
     for (const l of t.labours) {
-      rules.addLabour(j, { desc: `${t.name}: ${l.desc}`, hours: l.hours, price: l.price, section: rules.SECTIONS[0] }, cfg.labourRate);
+      rules.addLabour(j, { desc: `${t.name}: ${l.desc}`, hours: l.hours, price: l.price, section: rules.SECTIONS[0] }, rates);
       j.labours[j.labours.length - 1].svc = t.code;
     }
-    for (const p of t.parts) await issueLine(j, { code: p.code, name: p.name, qty: p.qty, price: p.price > 0 ? p.price : undefined }, c, u);
+    for (const p of t.parts) await issueLine(j, { code: p.code, name: p.name, qty: p.qty, price: p.price > 0 ? p.price : undefined }, c, u, { waiting: true });
     j.services = [...(j.services || []), t.code];
     j.log.push({ s: 'Service added', t: Date.now(), by: u.name, note: t.name });
   }));
@@ -277,11 +314,12 @@ export function createApp({ cfg, db, notifier }) {
     const [row] = await c.q('SELECT * FROM estimates WHERE id = ? FOR UPDATE', [str(body.no, 40).toUpperCase()]);
     const e = estRow(row);
     rules.checkEstimateImport(j, e);
+    const rates = await labourRates(c);
     for (const l of e.labours) {
-      rules.addLabour(j, { desc: l.desc, hours: l.hours, price: l.price, section: l.section || rules.EST_SECTION }, cfg.labourRate);
+      rules.addLabour(j, { desc: l.desc, hours: l.hours, price: l.price, section: l.section || rules.EST_SECTION }, rates);
       j.labours[j.labours.length - 1].est = e.id;
     }
-    for (const p of e.parts) await issueLine(j, p, c, u);
+    for (const p of e.parts) await issueLine(j, p, c, u, { waiting: true });   // a part that is short waits for stock instead of stopping the whole load
     j.est = e.id;
     await c.q('UPDATE estimates SET used_in = ? WHERE id = ?', [j.id, e.id]);
     j.log.push({ s: 'Estimate loaded', t: Date.now(), by: u.name, note: e.id });
@@ -310,12 +348,15 @@ export function createApp({ cfg, db, notifier }) {
 
   // Closing the card completes the visit: the vehicle's mileage moves forward and, if a service was done, the next service is suggested
   app.post('/api/jobs/:id/status', ...edit([], async (j, { body, u, after, c }) => {
+    if (body.to === 'Closed') rules.setMileageOut(j, body.mileage_out);   // the reading when the vehicle leaves; checked before the status moves
     rules.transition(j, body.to, u);
     if (body.to === 'Closed') {
       const types = await c.q('SELECT code, name, interval_km FROM service_types WHERE active = 1');
-      const next = j.mileage != null && (j.services || []).length ? nextService(j.mileage, types) : null;
-      await c.q('UPDATE vehicles SET mileage = GREATEST(COALESCE(mileage, 0), ?), next_km = COALESCE(?, next_km), next_type = COALESCE(?, next_type) WHERE id = ?', [j.mileage ?? 0, next?.km ?? null, next?.code ?? null, j.vid]);
-      after.push(notifier.notifyReady);   // SA has checked labour and parts: the customer is told the vehicle is ready
+      const at = rules.completionKm(j);
+      const next = at != null && isServiceVisit(j) ? nextService(at, types) : null;   // any service work counts, counted from the mileage when the vehicle leaves
+      await c.q('UPDATE vehicles SET mileage = GREATEST(COALESCE(mileage, 0), ?), next_km = COALESCE(?, next_km), next_type = COALESCE(?, next_type) WHERE id = ?', [at ?? 0, next?.km ?? null, next?.code ?? null, j.vid]);
+      // SA has checked labour and parts: the customer is told the vehicle is ready. Only the first time: a card sent back and closed again does not message the customer twice (Send again is still there).
+      if (j.log.filter(x => x.s === 'Closed').length === 1) after.push(notifier.notifyReady);
     }
   }));
   app.post('/api/jobs/:id/labour/:lid/clockin', ...edit(['TECH', 'WS'], async (j, { params, u, c }) => {
@@ -354,7 +395,7 @@ export function createApp({ cfg, db, notifier }) {
     });
     s.json(saved);
   })];
-  app.put('/api/estimates/:id', ...estEdit(async (e, { c, body }) => { rules.assertDraft(e); Object.assign(e, rules.normalizeEstimate(body, cfg.labourRate, await catalogue(c))); }));
+  app.put('/api/estimates/:id', ...estEdit(async (e, { c, body }) => { rules.assertDraft(e); Object.assign(e, rules.normalizeEstimate(body, await labourRates(c), await catalogue(c))); }));
   app.post('/api/estimates/:id/finalize', ...estEdit((e, { u }) => { rules.checkFinalize(e); e.status = 'Finalized'; e.finalized_at = new Date(); e.by_name = u.name; }));
   app.post('/api/estimates/:id/draft', ...estEdit(e => { rules.checkReopen(e); e.status = 'Draft'; e.finalized_at = null; e.by_name = null; }));
   app.delete('/api/estimates/:id', auth('SA'), wrap(async (q, s) => {
@@ -403,7 +444,7 @@ export function createApp({ cfg, db, notifier }) {
     const [cu] = await db.q('SELECT insurer_id, policy_no FROM customers WHERE id = ?', [cid]);
     if (!cu || !(await db.q('SELECT id FROM vehicles WHERE id = ? AND cid = ?', [vid, cid])).length) fail(400, 'Vehicle does not belong to this customer');
     const id = await db.tx(async c => {
-      const id = await numberFor(c, 'proforma', 'PRO-');
+      const id = await numberFor(c, 'estimate', 'EST-');   // one number: the proforma keeps it when it becomes the estimate
       await c.q('INSERT INTO proformas (id, cid, vid, insurer_id, policy_no, estimator_id, estimator, estimator_role, pdate, note, status, labours, parts, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))',
         [id, cid, vid, cu.insurer_id || null, cu.policy_no || '', q.u.id, q.u.name, q.u.role, dayKey(Date.now()), str(q.body.note, 500), 'Draft', '[]', '[]']);   // starts with the customer's own insurance and the signed-in user as estimator
       return id;
@@ -416,8 +457,8 @@ export function createApp({ cfg, db, notifier }) {
       if (!row) fail(404, 'Proforma not found');
       const p = proRow(row);
       await fn(p, { c, body: q.body, u: q.u });
-      await c.q('UPDATE proformas SET insurer_id = ?, policy_no = ?, estimator_id = ?, estimator = ?, estimator_role = ?, pdate = ?, note = ?, status = ?, labours = ?, parts = ?, updated = UTC_TIMESTAMP(3) WHERE id = ?',
-        [p.insurer_id, p.policy_no, p.estimator_id, p.estimator, p.estimator_role, p.pdate, p.note, p.status, sendJson(p.labours), sendJson(p.parts), p.id]);
+      await c.q('UPDATE proformas SET insurer_id = ?, policy_no = ?, estimator_id = ?, estimator = ?, estimator_role = ?, pdate = ?, note = ?, status = ?, labours = ?, parts = ?, claim_no = ?, priority = ?, due_date = ?, terms = ?, updated = UTC_TIMESTAMP(3) WHERE id = ?',
+        [p.insurer_id, p.policy_no, p.estimator_id, p.estimator, p.estimator_role, p.pdate, p.note, p.status, sendJson(p.labours), sendJson(p.parts), p.claim_no || '', p.priority || '', p.due_date || null, p.terms || '', p.id]);
       return proRow((await c.q('SELECT * FROM proformas WHERE id = ?', [p.id]))[0]);
     });
     s.json(saved);
@@ -425,16 +466,20 @@ export function createApp({ cfg, db, notifier }) {
   // Saving is what the screen's auto-save calls every moment: header (insurance, estimator, date, notes) and all lines at once
   app.put('/api/proformas/:id', ...proEdit(async (p, { c, body }) => {
     rules.assertProformaOpen(p);
-    Object.assign(p, rules.normalizeEstimate(body, cfg.labourRate, await catalogue(c)));
+    Object.assign(p, rules.normalizeEstimate(body, await labourRates(c), await catalogue(c)));
     if (body.insurer_id !== undefined) {
       p.insurer_id = str(body.insurer_id, 36) || null;
       if (p.insurer_id && !(await c.q('SELECT id FROM insurers WHERE id = ?', [p.insurer_id])).length) fail(400, 'Choose an insurance company from the list');
     }
     if (body.policy_no !== undefined) p.policy_no = str(body.policy_no, 60);
     if (rules.dateOk(body.pdate)) p.pdate = body.pdate;
+    if (body.claim_no !== undefined) p.claim_no = str(body.claim_no, 60);
+    if (body.priority !== undefined) p.priority = rules.PRIORITIES.includes(body.priority) && body.priority !== 'Normal' ? body.priority : '';
+    if (body.due_date !== undefined) p.due_date = rules.dateOk(body.due_date) ? body.due_date : null;
+    if (body.terms !== undefined) p.terms = str(body.terms, 1000);
     if (body.estimator_id && body.estimator_id !== p.estimator_id) {
-      const [u] = await c.q('SELECT id, name, role FROM app_users WHERE id = ?', [body.estimator_id]);
-      if (!u) fail(400, 'Choose the estimator from the staff list');
+      const [u] = await c.q("SELECT id, name, role FROM app_users WHERE id = ? AND role IN ('SA','WS','MGR','ADMIN')", [body.estimator_id]);
+      if (!u) fail(400, 'Choose the estimator from the list (a technician cannot be the estimator)');
       Object.assign(p, { estimator_id: u.id, estimator: u.name, estimator_role: u.role });
     }
   }));
@@ -457,24 +502,51 @@ export function createApp({ cfg, db, notifier }) {
       rules.checkConvert(p);
       const [veh] = await c.q('SELECT mileage FROM vehicles WHERE id = ? AND cid = ?', [p.vid, p.cid]);
       const km = rules.checkMileage(rules.cleanKm(q.body.mileage), veh?.mileage);
-      const jid = await numberFor(c, 'job', 'TC-'), eid = await numberFor(c, 'estimate', 'EST-');
+      const rates = await labourRates(c);
+      const jid = await numberFor(c, 'job', 'TC-'), eid = String(p.id).startsWith('EST-') ? p.id : await numberFor(c, 'estimate', 'EST-');   // the proforma's own EST number becomes the estimate's
       const [ins] = p.insurer_id ? await c.q('SELECT name FROM insurers WHERE id = ?', [p.insurer_id]) : [];
       const note = [ins && `Insurance: ${ins.name}${p.policy_no ? ` (policy ${p.policy_no})` : ''}`, p.note].filter(Boolean).join(' · ').slice(0, 500);
       const j = { id: jid, vid: p.vid, status: 'Created', labours: [], parts: [], inv: null, services: [], requests: [], mileage: km, est: eid,
         log: [{ s: 'Created', t: Date.now(), by: q.u.name, note: `from ${p.id}` }] };
       for (const l of p.labours) {
-        rules.addLabour(j, { desc: l.desc, hours: l.hours, price: l.price, section: l.section || rules.EST_SECTION }, cfg.labourRate);
+        rules.addLabour(j, { desc: l.desc, hours: l.hours, price: l.price, section: l.section || rules.EST_SECTION }, rates);
         j.labours[j.labours.length - 1].est = eid;
       }
-      for (const pt of p.parts) await issueLine(j, pt, c, q.u);
+      for (const pt of p.parts) await issueLine(j, pt, c, q.u, { waiting: true });
       await c.q('INSERT INTO estimates (id, cid, vid, note, status, labours, parts, created, finalized_at, by_name, used_in, pro) VALUES (?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), ?, ?, ?)',
         [eid, p.cid, p.vid, p.note, 'Finalized', sendJson(p.labours), sendJson(p.parts), p.estimator || q.u.name, jid, p.id]);
-      await c.q('INSERT INTO jobs (id, cid, vid, note, status, created, labours, parts, inv, `log`, mileage, services, est, requests, payer, policy_no) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3), ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)',
-        [jid, p.cid, p.vid, note, 'Created', sendJson(j.labours), sendJson(j.parts), sendJson(j.log), km, '[]', eid, '[]', ins ? ins.name : null, ins ? p.policy_no || null : null]);   // the invoice is made out to the insurance company
+      await c.q('INSERT INTO jobs (id, cid, vid, note, status, created, labours, parts, inv, `log`, mileage, services, est, requests, payer, policy_no, claim_no, due_date, priority) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3), ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [jid, p.cid, p.vid, note, 'Created', sendJson(j.labours), sendJson(j.parts), sendJson(j.log), km, '[]', eid, '[]', ins ? ins.name : null, ins ? p.policy_no || null : null, p.claim_no || null, p.due_date || null, p.priority || null]);   // the invoice is made out to the insurance company
       await c.q("UPDATE proformas SET status = 'Converted', est = ?, job = ?, updated = UTC_TIMESTAMP(3) WHERE id = ?", [eid, jid, p.id]);
       return jid;
     });
     s.json({ ok: true, job: jobId });
+  }));
+
+  // ---- labour rate per section (manager) ----
+  app.put('/api/settings/labour-rates', auth('MGR'), wrap(async (q, s) => {
+    const out = {};
+    for (const sec of rules.SECTIONS) {
+      const v = q.body.rates?.[sec];
+      if (v === undefined || v === null || String(v).trim() === '') continue;           // empty = use the standard rate
+      const n = qn(v);
+      if (!(n >= 0 && n <= 100000)) fail(400, `Enter the hourly rate for ${sec} as a number`);
+      out[sec] = n;
+    }
+    await db.q('INSERT INTO settings (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)', ['labour_rates', sendJson(out)]);
+    s.json(rateMap(await labourRates(db)));
+  }));
+
+  // ---- end of the working day: every running clock is closed (also done by itself at WORK_END when that is set) ----
+  app.post('/api/workshop/end-of-day', auth('WS'), wrap(async (q, s) => s.json({ closed: await closeRunningClocks(db, Date.now(), null, q.u.name) })));
+
+  // ---- search the stock by typing: part number or any words of the description (a technician sees names only, no prices or quantities) ----
+  app.get('/api/parts/search', auth(), wrap(async (q, s) => {
+    const sql = S.partSearchSql(q.query.q);
+    if (!sql) return s.json([]);
+    const limit = Math.min(30, Math.max(1, parseInt(q.query.limit, 10) || 8));
+    const rows = await db.q(`SELECT id, code, name, price, stock, reorder FROM inventory WHERE active = 1 AND ${sql.where} LIMIT 200`, sql.params);
+    s.json(S.rankParts(rows, q.query.q, limit).map(p => S.searchView(p, q.u.role === 'TECH')));
   }));
 
   // ---- service packages (Type A / B / C) ----

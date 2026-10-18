@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import mysql from 'mysql2/promise';
-import { splitSql } from './sql.js';
+import { splitSql, ROLE_ENUM, lacksManagerRole } from './sql.js';
 import { DEFAULT_LABOUR, DEFAULT_SERVICES } from './services.js';
 
 // Connection settings: DATABASE_URL (mysql://user:pass@host:3306/name) or DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME.
@@ -24,8 +24,11 @@ export const NEW_COLUMNS = [
   ['vehicles', 'mileage', 'INT NULL'], ['vehicles', 'next_km', 'INT NULL'], ['vehicles', 'next_type', 'VARCHAR(10) NULL'],
   ['customers', 'insurer_id', 'CHAR(36) NULL'], ['customers', 'policy_no', 'VARCHAR(60) NULL'], ['estimates', 'pro', 'VARCHAR(40) NULL'],
   ['jobs', 'mileage', 'INT NULL'], ['jobs', 'services', 'JSON NULL'], ['jobs', 'est', 'VARCHAR(40) NULL'], ['jobs', 'requests', 'JSON NULL'], ['jobs', 'payer', 'VARCHAR(160) NULL'], ['jobs', 'policy_no', 'VARCHAR(60) NULL'],
-  ['customers', 'tin', "VARCHAR(40) NOT NULL DEFAULT ''"], ['inventory', 'category', "VARCHAR(60) NOT NULL DEFAULT ''"], ['inventory', 'cost', 'DECIMAL(12,2) NOT NULL DEFAULT 0']
+  ['customers', 'tin', "VARCHAR(40) NOT NULL DEFAULT ''"], ['inventory', 'category', "VARCHAR(60) NOT NULL DEFAULT ''"], ['inventory', 'cost', 'DECIMAL(12,2) NOT NULL DEFAULT 0'],
+  ['jobs', 'mileage_out', 'INT NULL'], ['jobs', 'claim_no', 'VARCHAR(60) NULL'], ['jobs', 'due_date', 'DATE NULL'], ['jobs', 'priority', 'VARCHAR(20) NULL'], ['jobs', 'price_reqs', 'JSON NULL'],
+  ['proformas', 'claim_no', "VARCHAR(60) NOT NULL DEFAULT ''"], ['proformas', 'priority', "VARCHAR(20) NOT NULL DEFAULT ''"], ['proformas', 'due_date', 'DATE NULL'], ['proformas', 'terms', "VARCHAR(1000) NOT NULL DEFAULT ''"]
 ];
+
 
 export function createDb(env = process.env) {
   const pool = mysql.createPool(poolOptions(env));
@@ -61,6 +64,8 @@ export function createDb(env = process.env) {
       const [rows] = await pool.query('SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?', [table, col]);
       if (!rows.length) await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${col}\` ${ddl}`);
     }
+    const [roleCol] = (await pool.query("SELECT COLUMN_TYPE AS t FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_users' AND COLUMN_NAME = 'role'"))[0];
+    if (roleCol && lacksManagerRole(roleCol.t)) await pool.query(`ALTER TABLE app_users MODIFY COLUMN role ${ROLE_ENUM} NOT NULL`);
     const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM service_types');
     const [[{ m }]] = await pool.query('SELECT COUNT(*) AS m FROM labour_tasks');
     if (!m) for (const t of DEFAULT_LABOUR) await pool.query('INSERT IGNORE INTO labour_tasks (id, name, section, hours, price) VALUES (UUID(),?,?,?,?)', [t.name, t.section, t.hours, t.price]);

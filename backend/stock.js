@@ -18,6 +18,26 @@ export const partView = (r, mgr = true) => {
   return o;
 };
 
+// ---- search by typing (server side) ----
+// Words typed in any order must all appear in the part number or the description. Returns the SQL pieces and the ranking.
+export const searchWords = text => String(text || '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 6).map(w => w.slice(0, 40));
+const likeEsc = w => w.replace(/[\\%_]/g, c => '\\' + c);
+export function partSearchSql(text) {
+  const words = searchWords(text);
+  if (!words.length) return null;
+  return { where: words.map(() => "CONCAT(LOWER(code), ' ', LOWER(name)) LIKE ?").join(' AND '), params: words.map(w => `%${likeEsc(w)}%`), words };
+}
+// Part numbers that start with the typed text come first, then part numbers that contain it, then descriptions (same order as the old on-screen list)
+export function rankParts(rows, text, limit = 8) {
+  const words = searchWords(text), w0 = words[0] || '';
+  return rows.map(p => {
+    const code = String(p.code).toLowerCase(), name = String(p.name).toLowerCase();
+    return [code === w0 ? 0 : code.startsWith(w0) ? 1 : code.includes(w0) ? 2 : name.startsWith(w0) ? 3 : 4, code, p];
+  }).sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)).slice(0, limit).map(x => x[2]);
+}
+// What a search result shows. A technician sees the part and whether it is in stock, never prices or quantities.
+export const searchView = (p, tech) => (tech ? { id: p.id, code: p.code, name: p.name, in_stock: +p.stock > 0 } : { id: p.id, code: p.code, name: p.name, price: +p.price, stock: +p.stock, reorder: +p.reorder, make: makeOf(p.code) });
+
 // ---- price = cost x markup (1.3), unless the manager types another price ----
 export const DEFAULT_MARKUP = 1.3;
 export const priceFromCost = (cost, markup = DEFAULT_MARKUP) => r2(Math.max(0, +cost || 0) * markup);

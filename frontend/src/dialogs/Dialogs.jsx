@@ -19,7 +19,7 @@ export const NotifySelect = ({ bind }) => (
 
 export function NewJobDialog() {
   const { db, run, openModal, closeModal } = useApp();
-  const [f, bind, set] = useForm({ cid: db.c[0]?.id || '', vid: '', note: '', km: '' });
+  const [f, bind, set, reset] = usePersistedForm('form:new-job', { cid: db.c[0]?.id || '', vid: '', note: '', km: '' });
   const vehicles = db.v.filter(v => v.cid === f.cid), cur = vehicles.find(v => v.id === f.vid) || vehicles[0], vid = cur?.id || '';
   const kmShown = f.km !== '' ? f.km : cur?.mileage ?? '';                       // the vehicle's last mileage until the advisor types the reading
   const sug = kmShown !== '' ? suggestService(cur, +kmShown, db.st) : null;
@@ -27,7 +27,7 @@ export function NewJobDialog() {
     if (!vid) return;
     if (kmShown === '') return alert('Enter the vehicle mileage (km).');
     const r = await run(() => api('/jobs', 'POST', { cid: f.cid, vid, note: f.note, mileage: parseFloat(kmShown) }));
-    if (r.ok) openModal('job', { id: r.data.id });
+    if (r.ok) { reset(); openModal('job', { id: r.data.id }); }
   };
   return (
     <Dialog title="New job card" onClose={closeModal} actions={<><Btn onClick={create} disabled={!vid}>Create job card</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
@@ -79,13 +79,13 @@ const VEHICLE_FIELDS = [['plate', 'Plate'], ['vin', 'VIN'], ['eng', 'Engine numb
 export function VehicleDialog({ cid, id }) {
   const { db, cust, veh, run, closeModal } = useApp();
   const v = id ? veh(id) : {};
-  const [f, bind] = useForm({ ...Object.fromEntries(VEHICLE_FIELDS.map(([k]) => [k, v[k] || ''])), mileage: v.mileage ?? '' });
+  const [f, bind, , reset] = usePersistedForm(id ? null : `form:new-vehicle:${cid}`, { ...Object.fromEntries(VEHICLE_FIELDS.map(([k]) => [k, v[k] || ''])), mileage: v.mileage ?? '' });   // a new vehicle is kept until saved; editing one is not
   const next = v.next_km ? db.st.find(t => t.code === v.next_type) : null;
   const save = async () => {
     if (!f.plate.trim()) return;
     if (!id && f.mileage === '') return alert('Enter the current mileage (km): it is registered with the vehicle.');
     const r = await run(() => (id ? api('/vehicles/' + id, 'PUT', f) : api(`/customers/${cid}/vehicles`, 'POST', f)));
-    if (r.ok) closeModal();
+    if (r.ok) { reset(); closeModal(); }
   };
   return (
     <Dialog title={id ? `Edit vehicle ${v.plate}` : `Add vehicle for ${cust(cid).name}`} onClose={closeModal} actions={<><Btn onClick={save}>{id ? 'Save changes' : 'Save vehicle'}</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
@@ -182,12 +182,12 @@ export function LabourTaskDialog({ id }) {
 // Start an estimate for a customer's vehicle (Body & Paints). It opens as a draft.
 export function NewEstimateDialog() {
   const { db, run, openModal, closeModal } = useApp();
-  const [f, bind, set] = useForm({ cid: db.c[0]?.id || '', vid: '', note: '' });
+  const [f, bind, set, reset] = usePersistedForm('form:new-estimate', { cid: db.c[0]?.id || '', vid: '', note: '' });
   const vehicles = db.v.filter(v => v.cid === f.cid), vid = vehicles.some(v => v.id === f.vid) ? f.vid : vehicles[0]?.id || '';
   const create = async () => {
     if (!vid) return;
     const r = await run(() => api('/estimates', 'POST', { cid: f.cid, vid, note: f.note }));
-    if (r.ok) openModal('estimate', { id: r.data.id });
+    if (r.ok) { reset(); openModal('estimate', { id: r.data.id }); }
   };
   return (
     <Dialog title="New estimate" onClose={closeModal} actions={<><Btn onClick={create} disabled={!vid}>Create draft estimate</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>

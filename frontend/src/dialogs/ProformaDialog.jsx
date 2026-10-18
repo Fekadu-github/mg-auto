@@ -5,7 +5,7 @@ import { Btn, Dialog, Field, Pill, SaveState } from '../components/ui.jsx';
 import { LabourLines, PartLines } from '../components/Lines.jsx';
 import { ROLES, isSA } from '../lib/constants.js';
 import { restoreDraft, useAutosave } from '../lib/autosave.js';
-import { dt, km, money, pct, tot, vehicleName } from '../lib/format.js';
+import { dt, km, money, pct, rateOf, tot, vehicleName } from '../lib/format.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import ProformaDoc from '../print/ProformaDoc.jsx';
 
@@ -18,15 +18,15 @@ export default function ProformaDialog({ id }) {
   const { db, me, run, say, refresh, openModal, closeModal, cust, veh } = useApp();
   const { print } = usePrint();
   const p = db.pr.find(x => x.id === id);
-  const fromServer = p && { insurer_id: p.insurer_id || '', policy_no: p.policy_no || '', estimator_id: p.estimator_id || '', pdate: p.pdate, note: p.note || '', labours: p.labours, parts: p.parts };
+  const fromServer = p && { insurer_id: p.insurer_id || '', policy_no: p.policy_no || '', estimator_id: p.estimator_id || '', pdate: p.pdate, note: p.note || '', claim_no: p.claim_no || '', priority: p.priority || '', due_date: p.due_date || '', terms: p.terms || '', labours: p.labours, parts: p.parts };
   const open = !!p && p.status !== 'Converted' && isSA(me);
-  const [init] = useState(() => restoreDraft('pro:' + id, fromServer));
+  const [init] = useState(() => restoreDraft('pro:' + id, fromServer, p?.updated ? Date.parse(p.updated) : 0));   // a copy on this PC older than the server's is dropped
   const [f, setF] = useState(() => (init.value ? { ...init.value, labours: init.value.labours.map(l => ({ ...l })), parts: init.value.parts.map(x => ({ ...x })) } : null));
   const [km2, setKm] = useState('');
   const { state, flush } = useAutosave('pro:' + id, f, { enabled: open && !!f, startDirty: init.restored, save: async v => { await api('/proformas/' + id, 'PUT', v); refresh().catch(() => {}); } });
   if (!p || !f) return <Dialog title="Proforma" onClose={closeModal}><p className="mu">This proforma no longer exists.</p></Dialog>;
 
-  const c = cust(p.cid), v = veh(p.vid), rate = db.cfg.labourRate, vat = db.cfg.vat, converted = p.status === 'Converted';
+  const c = cust(p.cid), v = veh(p.vid), rate = db.cfg.labourRates || db.cfg.labourRate, vat = db.cfg.vat, converted = p.status === 'Converted';
   const insurer = db.ins.find(x => x.id === f.insurer_id), estimator = db.staff.find(x => x.id === f.estimator_id);
   const set = patch => setF(s => ({ ...s, ...patch }));
   const setLabs = fn => setF(s => ({ ...s, labours: fn(s.labours) })), setParts = fn => setF(s => ({ ...s, parts: fn(s.parts) }));
@@ -36,7 +36,7 @@ export default function ProformaDialog({ id }) {
   // What is printed: exactly what is on the screen (an empty labour cost counts hours x rate, as the server does when saving)
   const doc = () => ({
     ...p, ...f, estimator: estimator?.name || p.estimator, estimator_role: estimator?.role || p.estimator_role,
-    labours: f.labours.filter(l => l.desc?.trim()).map(l => ({ ...l, price: num(l.price) || r2(num(l.hours) * rate) })), parts: f.parts.filter(x => x.name?.trim())
+    labours: f.labours.filter(l => l.desc?.trim()).map(l => ({ ...l, price: num(l.price) || r2(num(l.hours) * rateOf(rate, l.section)) })), parts: f.parts.filter(x => x.name?.trim())
   });
   const printIt = async () => { if (open && !(await saved())) return; print(<ProformaDoc pro={doc()} customer={c} vehicle={v} insurer={insurer} garage={db.cfg.garage} vat={vat} roleName={r => ROLES[r] || r} />, 'a4'); };
   const issue = async () => { if (await saved()) await run(() => api(`/proformas/${id}/issue`, 'POST')); };
@@ -73,8 +73,14 @@ export default function ProformaDialog({ id }) {
           {c.insurer_id ? <>Customer profile insurance: {db.ins.find(x => x.id === c.insurer_id)?.name || 'not in the list'}{c.policy_no ? `, policy ${c.policy_no}` : ''}. <button type="button" className="lnk" onClick={() => set({ insurer_id: c.insurer_id, policy_no: c.policy_no || '' })}>Use it</button></> : 'The customer has no insurance in the profile.'}
         </div>
         <Field label="Damage / work description" value={f.note} onChange={e => set({ note: e.target.value })} />
+        <div className="row">
+          <Field label="Insurance claim no" value={f.claim_no} onChange={e => set({ claim_no: e.target.value })} />
+          <Field label="Priority"><select value={f.priority} onChange={e => set({ priority: e.target.value })}><option value="">Normal</option><option>Urgent</option></select></Field>
+          <Field label="Expected delivery date" type="date" value={f.due_date} onChange={e => set({ due_date: e.target.value })} />
+        </div>
+        <Field label="Terms and conditions (printed on the proforma)" value={f.terms} onChange={e => set({ terms: e.target.value })} placeholder="For example: valid for 15 days; parts availability may change the delivery date" />
       </> : (
-        <div className="box mt">Estimation date <b>{p.pdate}</b> · Estimator <b>{p.estimator || 'not chosen'}</b> · Insurance <b>{db.ins.find(x => x.id === p.insurer_id)?.name || 'none (customer pays)'}</b>{p.policy_no ? ` · policy ${p.policy_no}` : ''}{p.note ? <><br /><span className="mu">{p.note}</span></> : null}</div>
+        <div className="box mt">Estimation date <b>{p.pdate}</b> · Estimator <b>{p.estimator || 'not chosen'}</b> · Insurance <b>{db.ins.find(x => x.id === p.insurer_id)?.name || 'none (customer pays)'}</b>{p.policy_no ? ` · policy ${p.policy_no}` : ''}{p.claim_no ? ` · claim ${p.claim_no}` : ''}{p.priority ? ` · ${p.priority}` : ''}{p.due_date ? ` · delivery ${p.due_date}` : ''}{p.note ? <><br /><span className="mu">{p.note}</span></> : null}</div>
       )}
 
       <h3 className="mt">Labour</h3>

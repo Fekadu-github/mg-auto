@@ -50,16 +50,15 @@ function Shell() {
   return (
     <div className="app">
       <aside className="sb">
-        <div className="sb-top"><img className="sb-logo" src="/madeg-logo.png" alt="" /><div><div className="sb-n1">MADEG</div><div className="sb-n2">Garage · MG Auto</div></div><ThemeToggle className="sb-theme" /></div>
+        <div className="sb-top"><img className="sb-logo" src="/madeg-logo.png" alt="" /><div><div className="sb-n1">MADEG</div><div className="sb-n2">Garage · MG Auto</div></div></div>
         <nav className="sb-mid" aria-label="Main">
           {menu.map(([k, n]) => <button key={k} type="button" className={tab === k ? 'on' : ''} aria-current={tab === k ? 'page' : undefined} onClick={() => go(k)}>{ICONS[k]}<span>{n}</span></button>)}
         </nav>
         <div className="sb-bot">
           <div className="av" aria-hidden="true">{(me.name || '?').slice(0, 1).toUpperCase()}</div>
           <div className="who"><b>{me.name}</b><span>{ROLES[me.role]}</span></div>
-          <button type="button" className="so" onClick={signOut} aria-label="Sign out" title="Sign out">
-            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 4H6a2 2 0 00-2 2v12a2 2 0 002 2h3" /><path d="M16 8l4 4-4 4M20 12H9" /></svg>
-          </button>
+          <ThemeToggle />
+          <button type="button" className="so" onClick={signOut}>Sign out</button>
         </div>
       </aside>
       <main className="page">

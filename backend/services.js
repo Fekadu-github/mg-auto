@@ -32,6 +32,10 @@ export function normalizeService(b) {
   return { name, interval_km: km, labours, parts };
 }
 
+// A visit counts as a service when a Type A / B / C package was added OR any labour line is in the Regular Service section
+// (a service typed in as ordinary labour used to set nothing).
+export const isServiceVisit = j => (j.services || []).length > 0 || (j.labours || []).some(l => l.section === 'Regular Service');
+
 // ---- which service is next? ----
 // types: [{ code, name, interval_km }]. A milestone such as 10 000 km belongs to the type with the largest interval that divides it
 // (with A = 5 000, B = 10 000, C = 20 000: 5 000 -> A, 10 000 -> B, 15 000 -> A, 20 000 -> C).

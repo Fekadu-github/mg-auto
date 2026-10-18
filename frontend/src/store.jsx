@@ -5,7 +5,7 @@ import { POLL_MS } from './lib/constants.js';
 const Ctx = createContext(null);
 export const useApp = () => useContext(Ctx);
 
-const EMPTY = { c: [], v: [], j: [], p: [], e: [], st: [], cfg: { vat: 0.15, markup: 1.3, labourRate: 350, garage: {} } };
+const EMPTY = { c: [], v: [], j: [], p: [], e: [], st: [], cfg: { vat: 0.15, markup: 1.3, labourRate: 350, labourRates: { default: 350 }, priceLimitPct: 10, garage: {} } };
 const load = () => { try { const me = JSON.parse(localStorage.getItem('me') || 'null'), tok = localStorage.getItem('tok'); return me && tok ? { me, tok } : { me: null, tok: null }; } catch { return { me: null, tok: null }; } };
 const save = (tok, me) => { try { tok ? (localStorage.setItem('tok', tok), localStorage.setItem('me', JSON.stringify(me))) : (localStorage.removeItem('tok'), localStorage.removeItem('me')); } catch { /* private mode: stay signed in for this tab only */ } };
 
@@ -17,19 +17,24 @@ export function AppProvider({ children }) {
   const [modal, setModal] = useState(null);       // { type, ...props }
   const me = auth.me;
   const meRef = useRef(me); meRef.current = me;
+  const pvRef = useRef('');                     // version of the stock list this screen has: the server sends the list again only when it changed
 
   const say = useCallback(text => setToast({ text, id: Date.now() }), []);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 7000); return () => clearTimeout(t); }, [toast]);
 
-  const signOut = useCallback(() => { setToken(null); save(null); setAuth({ me: null, tok: null }); setDb(EMPTY); setUsers([]); setModal(null); }, []);
+  const signOut = useCallback(() => { setToken(null); save(null); pvRef.current = ''; setAuth({ me: null, tok: null }); setDb(EMPTY); setUsers([]); setModal(null); }, []);
   useEffect(() => setExpiredHandler(signOut), [signOut]);
 
   // Load everything the screens need. Safe to call often: it only replaces state when the answer arrived while still signed in.
   const refresh = useCallback(async () => {
     if (!meRef.current) return;
-    const d = await api('/data');
+    const d = await api('/data' + (pvRef.current ? '?pv=' + encodeURIComponent(pvRef.current) : ''));
     const u = meRef.current?.role === 'ADMIN' ? await api('/users') : [];
-    if (meRef.current) { setDb(d); setUsers(u); setReady(true); }
+    if (meRef.current) {
+      pvRef.current = d.pv || '';
+      setDb(prev => (d.p === undefined ? { ...d, p: prev.p } : d));   // no stock list in the answer = unchanged: keep the one we have
+      setUsers(u); setReady(true);
+    }
   }, []);
 
   const signIn = useCallback(async (username, password) => {

@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../store.jsx';
-import { Btn, Dialog, Field, Pill, Table, useForm } from '../components/ui.jsx';
+import { Btn, Dialog, Field, Pill, Table } from '../components/ui.jsx';
+import { usePersistedForm } from '../lib/autosave.js';
 import { isMgr, isSA } from '../lib/constants.js';
 import { dt, money } from '../lib/format.js';
 import { MAKES, PREFIX_HINT, downloadInventory, lowKey, lowParts, makeOf, priceFromCost } from '../lib/stock.js';
@@ -14,7 +15,7 @@ const NEW = { code: '', name: '', category: '', cost: '', price: '', priceTyped:
 export function Parts() {
   const { db, me, run, openModal } = useApp();
   const sa = isSA(me), mgr = isMgr(me), [q, setQ] = useState(''), [make, setMake] = useState('');
-  const [f, , set, reset] = useForm(NEW);
+  const [f, , set, reset] = usePersistedForm('form:new-part', NEW);
   const low = lowParts(db.p);
   const list = db.p.filter(p => (!make || makeOf(p.code) === MAKES[make]) && (p.code + ' ' + p.name + ' ' + (p.category || '')).toLowerCase().includes(q.toLowerCase()));
   // the price fills itself from the cost until the manager types one

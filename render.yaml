@@ -22,5 +22,9 @@ services:
         sync: false
       - key: LABOUR_RATE
         value: "350"
+      - key: PRICE_LIMIT_PCT
+        value: "10"
+      - key: WORK_END
+        value: ""
       - key: VAT_RATE
         value: "0.15"

@@ -10,6 +10,11 @@ export const today = (now = Date.now()) => new Date(now + 3 * 36e5).toISOString(
 
 export const vehicleName = v => [v?.brand, v?.model].filter(Boolean).join(' ');
 export const pct = rate => Math.round(rate * 1000) / 10;
+// Labour rate (ETB per hour): one number, or { default, 'Regular Service': 300, ... } (same rule as backend/rules.js)
+export const rateOf = (rate, section) => {
+  if (rate && typeof rate === 'object') { const r = Number(rate[section] ?? rate.default); return r >= 0 ? r : 0; }
+  return Number(rate) >= 0 ? Number(rate) : 0;
+};
 
 // Totals at a VAT rate (a fraction, 0.15 = 15%). Same arithmetic as the server.
 export function tot(j, rate) {

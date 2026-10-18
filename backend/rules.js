@@ -17,6 +17,11 @@ export const FLOW = {
 export const str = (v, max = 200) => String(v ?? '').trim().slice(0, max);
 export const qn = v => Math.round(+v * 100) / 100;
 export const activeClock = l => (l.logs || []).find(x => !x.out);
+// Labour rate (ETB per hour). `rate` is one number for every section, or { default, 'Regular Service': 300, 'Body & Paints': 450, ... }.
+export const rateOf = (rate, section) => {
+  if (rate && typeof rate === 'object') { const r = Number(rate[section] ?? rate.default); return r >= 0 ? r : 0; }
+  return Number(rate) >= 0 ? Number(rate) : 0;
+};
 export const isAdminOr = (u, ...roles) => ['ADMIN', 'MGR', ...roles].includes(u.role);   // the Manager can take any step the Administrator can
 const findLabour = (j, id) => j.labours.find(l => l.id === id) || fail(404, 'Labour not found');
 // The labour lines of one service package (Type A / B / C) share `svc` and are clocked together, on the first of them. Every other task is clocked on its own line.
@@ -33,9 +38,10 @@ export const assertLabourOpen = (j, what = 'changed') => {
 export function addLabour(j, b, rate, now = Date.now(), rnd = Math.random) {
   assertLabourOpen(j, 'added');
   if (!str(b.desc)) fail(400, 'Describe the work');
-  const price = Math.max(0, +b.price || qn((+b.hours || 0) * rate));   // a typed price wins, otherwise hours x labour rate
+  const section = SECTIONS.includes(b.section) ? b.section : SECTIONS[0];
+  const price = Math.max(0, +b.price || qn((+b.hours || 0) * rateOf(rate, section)));   // a typed price wins, otherwise hours x the section's labour rate
   const late = ['Back with SA', 'Closed'].includes(j.status);           // added after the workshop finished: a billing line, not work to clock
-  j.labours.push({ id: 'L' + now.toString(36) + rnd().toString(36).slice(2, 5), desc: str(b.desc), section: SECTIONS.includes(b.section) ? b.section : SECTIONS[0], price, done: late, ...(late && { late: true }), logs: [] });
+  j.labours.push({ id: 'L' + now.toString(36) + rnd().toString(36).slice(2, 5), desc: str(b.desc), section, price, done: late, ...(late && { late: true }), logs: [] });
 }
 
 export function removeLabour(j, lid) {
@@ -64,6 +70,22 @@ export function addStockPart(j, part, qty, price) {
   j.parts.push({ pid: part.id, code: part.code, name: part.name, qty, price: sell, ...(sell !== list && { list }) });
 }
 
+// A part that is short when an estimate, proforma or service package is loaded does not stop the whole load: the line is added as
+// "waiting for stock" (nothing leaves stock yet). The Service Advisor receives it once the stock has arrived; the card cannot close before.
+export const waitingParts = j => j.parts.filter(p => p.waiting);
+export function addWaitingPart(j, part, qty, price) {
+  const list = +part.price, typed = price !== undefined && price !== null && price !== '';
+  const sell = typed ? Math.max(0, qn(price) || 0) : list;
+  j.parts.push({ pid: part.id, code: part.code, name: part.name, qty, price: sell, waiting: true, ...(sell !== list && { list }) });
+}
+export function waitingLine(j, index) {
+  assertPartsOpen(j);
+  const i = Number(index), p = Number.isInteger(i) && j.parts[i];
+  if (!p) fail(404, 'Part line not found');
+  if (!p.waiting) fail(409, 'This part is not waiting for stock');
+  return p;
+}
+
 export function removePartLine(j, index) {
   assertPartsOpen(j);
   const i = Number(index);
@@ -78,6 +100,8 @@ export function transition(j, to, u, now = Date.now()) {
   if (to === 'Dispatched' && !j.labours.length) fail(400, 'Add at least one labour first');
   if (to === 'Work done' && j.labours.some(l => !l.done)) fail(400, 'Every labour must be completed first');
   if (to === 'Closed' && pendingRequests(j).length) fail(409, 'Issue or reject the pending part requests first');
+  if (to === 'Closed' && waitingParts(j).length) fail(409, 'Some parts are still waiting for stock. Receive them when they arrive, or remove them.');
+  if (to === 'Closed' && pendingPrices(j).length) fail(409, "A price change is waiting for the manager's approval");
   j.status = to; j.log.push({ s: to, t: now, by: u.name });
 }
 
@@ -118,6 +142,8 @@ export function checkInvoice(j, type) {
   if (!INVOICE_PREFIX[type]) fail(400, 'Choose Proforma, Cash or Credit');
   if (!['Closed', 'Invoiced'].includes(j.status)) fail(409, 'Close the job card before invoicing');
   if (type !== 'Proforma' && j.inv) fail(409, `Already invoiced (${j.inv.no})`);
+  if (type !== 'Proforma' && waitingParts(j).length) fail(409, 'Some parts are still waiting for stock. Receive them when they arrive, or remove them.');
+  if (type !== 'Proforma' && pendingPrices(j).length) fail(409, "A price change is waiting for the manager's approval");
 }
 export function issueInvoice(j, type, vat, no, u, now = Date.now()) {
   checkInvoice(j, type);
@@ -151,7 +177,53 @@ export function setLabourPrice(j, lid, price, u, now = Date.now()) {
   assertPriceOpen(j);
   const l = findLabour(j, lid), to = price0(price);
   if (l.price === to) return;
+  if (l.list === undefined) l.list = l.price;                    // remember the price the line started with
   priceNote(j, l.desc, l.price, to, u, now); l.price = to;
+}
+
+// A price may move from its list price by `limitPct` percent on the Service Advisor's own say-so; further than that the manager must approve.
+// (limitPct 0 or a line with no list price = no limit.) The manager and the administrator are never limited.
+export const pendingPrices = j => (j.price_reqs || []).filter(r => r.status === 'Requested');
+export const priceNeedsApproval = (base, to, limitPct) => limitPct > 0 && base > 0 && Math.abs(to - base) / base * 100 > limitPct + 1e-9;
+
+function queuePrice(j, kind, key, line, to, u, base, now, rnd) {
+  j.price_reqs = (j.price_reqs || []).filter(r => !(r.status === 'Requested' && r.kind === kind && r.key === key));   // a newer ask replaces the older one
+  j.price_reqs.push({ id: 'Q' + now.toString(36) + rnd().toString(36).slice(2, 5), kind, key, name: line.name || line.desc, from: line.price, to, base, by: u.name, t: now, status: 'Requested' });
+  j.log.push({ s: 'Price change needs approval', t: now, by: u.name, note: `${line.name || line.desc}: ${line.price} to ${to}` });
+}
+// Returns 'applied', 'unchanged' or 'pending' (waiting for the manager)
+export function submitPartPrice(j, index, price, u, limitPct = 0, now = Date.now(), rnd = Math.random) {
+  assertPriceOpen(j);
+  const i = Number(index), p = Number.isInteger(i) && j.parts[i];
+  if (!p) fail(404, 'Part line not found');
+  const to = price0(price);
+  if (p.price === to) return 'unchanged';
+  const base = p.list !== undefined ? +p.list : +p.price;
+  if (isAdminOr(u) || !priceNeedsApproval(base, to, limitPct)) { setPartPrice(j, index, to, u, now); return 'applied'; }
+  queuePrice(j, 'part', `${i}:${p.name}`, p, to, u, base, now, rnd);
+  return 'pending';
+}
+export function submitLabourPrice(j, lid, price, u, limitPct = 0, now = Date.now(), rnd = Math.random) {
+  assertPriceOpen(j);
+  const l = findLabour(j, lid), to = price0(price);
+  if (l.price === to) return 'unchanged';
+  const base = l.list !== undefined ? +l.list : +l.price;
+  if (isAdminOr(u) || !priceNeedsApproval(base, to, limitPct)) { setLabourPrice(j, lid, to, u, now); return 'applied'; }
+  queuePrice(j, 'labour', l.id, l, to, u, base, now, rnd);
+  return 'pending';
+}
+export function decidePrice(j, rid, approve, u, now = Date.now()) {
+  if (!isAdminOr(u)) fail(403, 'Only the manager can approve a price change');
+  const r = (j.price_reqs || []).find(x => x.id === rid) || fail(404, 'Price request not found');
+  if (r.status !== 'Requested') fail(409, `This request was already ${r.status.toLowerCase()}`);
+  if (approve) {
+    if (r.kind === 'part') {
+      const i = Number(String(r.key).split(':')[0]);
+      if (!j.parts[i] || j.parts[i].name !== r.name) fail(409, 'The part line has changed since the request. Ask again.');
+      setPartPrice(j, i, r.to, u, now);
+    } else setLabourPrice(j, r.key, r.to, u, now);
+  } else j.log.push({ s: 'Price change rejected', t: now, by: u.name, note: `${r.name}: ${r.from} to ${r.to}` });
+  r.status = approve ? 'Approved' : 'Rejected'; r.by2 = u.name; r.t2 = now;
 }
 
 // ---- mileage on the job card ----
@@ -164,6 +236,24 @@ export function checkMileage(km, last) {
   if (km === null) fail(400, 'Enter the vehicle mileage in km');
   if (last !== null && last !== undefined && km < last) fail(400, `Mileage cannot be lower than the last recorded ${last} km`);
   return km;
+}
+
+// The odometer reading when the vehicle leaves the workshop (optional on closing; never below the arrival reading). Empty keeps the arrival reading.
+export function setMileageOut(j, v) {
+  if (v === undefined || v === null || v === '') return;
+  j.mileage_out = checkMileage(cleanKm(v), j.mileage);
+}
+export const completionKm = j => (j.mileage_out ?? j.mileage ?? null);
+
+// ---- the details the Service Advisor may add on the card (claim number, expected finish date, priority) ----
+export const PRIORITIES = ['Normal', 'Urgent'];
+export function setDetails(j, b, u, now = Date.now()) {
+  if (j.inv) fail(409, `Already invoiced (${j.inv.no}): the details can no longer be changed`);
+  const claim = str(b.claim_no, 60) || null, due = dateOk(b.due_date) ? b.due_date : null, prio = PRIORITIES.includes(b.priority) && b.priority !== 'Normal' ? b.priority : null;
+  if (b.due_date && !due) fail(400, 'Enter the date as year-month-day');
+  if ((j.claim_no || null) === claim && (j.due_date || null) === due && (j.priority || null) === prio) return;
+  Object.assign(j, { claim_no: claim, due_date: due, priority: prio });
+  j.log.push({ s: 'Details changed', t: now, by: u.name, note: [claim && `claim ${claim}`, due && `due ${due}`, prio].filter(Boolean).join(', ') || 'cleared' });
 }
 
 // ---- service packages on the job card ----
@@ -197,7 +287,7 @@ export function normalizeEstimate(b, rate, catalogue = new Map()) {
   const list = v => (Array.isArray(v) ? v.slice(0, 100) : []);
   const labours = list(b.labours).map(l => {
     const hours = Math.max(0, qn(l.hours) || 0), typed = Math.max(0, qn(l.price) || 0);
-    return { desc: str(l.desc), ...(SECTIONS.includes(l.section) && { section: l.section }), hours, price: typed || qn(hours * rate) };
+    return { desc: str(l.desc), ...(SECTIONS.includes(l.section) && { section: l.section }), hours, price: typed || qn(hours * rateOf(rate, l.section)) };
   }).filter(l => l.desc);
   const parts = list(b.parts).map(p => {
     const cat = p.pid ? catalogue.get(p.pid) : null, blank = p.price === '' || p.price === null || p.price === undefined;

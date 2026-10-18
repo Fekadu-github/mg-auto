@@ -1,6 +1,6 @@
 import { Btn, Table } from './ui.jsx';
 import { SECTIONS, SECTION_CODE, sectionOption } from '../lib/constants.js';
-import { matchPart, money } from '../lib/format.js';
+import { matchPart, money, rateOf } from '../lib/format.js';
 import PartSearch from './PartSearch.jsx';
 
 const r2 = n => Math.round(n * 100) / 100;
@@ -15,7 +15,7 @@ export function LabourLines({ labs, setLabs, tasks, rate }) {
   const set = (i, patch) => setLabs(ls => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   const typed = (i, text) => {
     const t = matchTask(tasks, text);
-    set(i, t ? { desc: t.name, section: t.section, hours: t.hours || '', price: t.price || r2(t.hours * rate) || '' } : { desc: text });
+    set(i, t ? { desc: t.name, section: t.section, hours: t.hours || '', price: t.price || r2(t.hours * rateOf(rate, t.section)) || '' } : { desc: text });
   };
   return (
     <>
@@ -24,14 +24,14 @@ export function LabourLines({ labs, setLabs, tasks, rate }) {
           <tr key={i}>
             <td><input aria-label="Labour task" list="task-list" autoComplete="off" value={l.desc} onChange={x => typed(i, x.target.value)} /></td>
             <td><select aria-label="Section" value={l.section || 'Mechanical Repairs'} onChange={x => set(i, { section: x.target.value })} style={{ width: 'auto' }}>{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></td>
-            <td><input aria-label="Hours" type="number" min="0" step="0.25" style={{ width: 90 }} value={l.hours ?? ''} onChange={x => set(i, { hours: x.target.value, price: r2(num(x.target.value) * rate) || '' })} /></td>
+            <td><input aria-label="Hours" type="number" min="0" step="0.25" style={{ width: 90 }} value={l.hours ?? ''} onChange={x => set(i, { hours: x.target.value, price: r2(num(x.target.value) * rateOf(rate, l.section || 'Mechanical Repairs')) || '' })} /></td>
             <td><input aria-label="Labour cost" type="number" min="0" step="any" style={{ width: 120 }} value={l.price ?? ''} onChange={x => set(i, { price: x.target.value })} /></td>
             <td><Btn kind="ol" onClick={() => setLabs(ls => ls.filter((_, k) => k !== i))}>Remove</Btn></td>
           </tr>
         ))}
       </Table>
       <datalist id="task-list">{(tasks || []).map(t => <option key={t.id} value={`${SECTION_CODE[t.section]} · ${t.name}`}>{t.hours} h</option>)}</datalist>
-      <div className="mt"><Btn kind="ol" onClick={() => setLabs(ls => [...ls, { desc: '', section: 'Mechanical Repairs', hours: '', price: '' }])}>Add labour line</Btn> <span className="mu small">Hours x {rate}/h fills the cost; type another amount to change it.</span></div>
+      <div className="mt"><Btn kind="ol" onClick={() => setLabs(ls => [...ls, { desc: '', section: 'Mechanical Repairs', hours: '', price: '' }])}>Add labour line</Btn> <span className="mu small">Hours x the section's rate ({SECTIONS.map(s => `${SECTION_CODE[s]} ${rateOf(rate, s)}`).join(' · ')} ETB/h) fills the cost; type another amount to change it.</span></div>
     </>
   );
 }

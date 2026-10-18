@@ -5,8 +5,8 @@ import { Btn, Dialog, Field, Pill, StatusPill, Table } from '../components/ui.js
 import { matchTask } from '../components/Lines.jsx';
 import PartSearch from '../components/PartSearch.jsx';
 import { usePersistedForm as useForm } from '../lib/autosave.js';
-import { CLOCK_REASONS, SECTIONS, SECTION_CODE, STATUSES, STATUS_NAME, isSA, isTech, isWS, sectionOption } from '../lib/constants.js';
-import { activeClock, dt, jobTotals, km, labourHours, lastDoc, matchPart, money, pct, vehicleName } from '../lib/format.js';
+import { CLOCK_REASONS, SECTIONS, SECTION_CODE, STATUSES, STATUS_NAME, isMgr, isSA, isTech, isWS, sectionOption } from '../lib/constants.js';
+import { activeClock, dt, jobTotals, km, labourHours, lastDoc, matchPart, money, pct, rateOf, vehicleName } from '../lib/format.js';
 import { suggestService } from '../lib/services.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import InvoiceDoc, { invoiceSize } from '../print/InvoiceDoc.jsx';
@@ -35,10 +35,13 @@ export default function JobCardDialog({ id }) {
   const printInvoice = (jc, doc) => print(<InvoiceDoc job={jc} customer={c} vehicle={v} doc={doc} garage={garage} vat={vat} />, invoiceSize(doc));
   const printVoucher = jc => print(<VoucherDoc job={jc} customer={c} vehicle={v} garage={garage} />, 'a4');
 
-  const go = to => run(() => post(j.id, '/status', { to }));
+  const go = (to, extra) => run(() => post(j.id, '/status', { to, ...extra }));
   const close = () => {
     if (!confirm(`Check before closing ${j.id}:\n\nLabour items: ${j.labours.length} (all completed)\nParts lines issued: ${j.parts.length}\n\nClose the job card? The customer will be told the vehicle is ready.`)) return;
-    go('Closed');
+    // the next service is counted from the reading when the vehicle leaves; leave the box as it is if the reading did not change
+    const out = prompt(`Mileage (km) when the vehicle leaves the workshop.\nArrival reading: ${j.mileage != null ? j.mileage : 'not recorded'}. The next service is counted from this reading.`, j.mileage != null ? String(j.mileage) : '');
+    if (out === null) return;
+    go('Closed', out.trim() === '' || Number(out) === j.mileage ? {} : { mileage_out: Number(out) });
   };
   const returnBack = () => {
     if (!confirm(`Send ${j.id} back to the workshop?\n\nAdd the extra tasks and parts first (the labour list fills the price by itself). The workshop receives it again, clocks the new tasks and sends it back.`)) return;
@@ -75,7 +78,10 @@ export default function JobCardDialog({ id }) {
   const clocks = j.labours.flatMap(l => (l.logs || []).map(x => ({ ...x, work: l.desc })));
   const showNotes = ['Closed', 'Invoiced', 'Delivered'].includes(j.status) && !isTech(me);
   const requests = j.requests || [], services = j.services || [];
-  const nextDue = done && services.length && v.next_km ? types.find(x => x.code === v.next_type) : null;
+  const serviceVisit = services.length > 0 || j.labours.some(l => l.section === 'Regular Service');   // a service typed in as ordinary labour counts too
+  const nextDue = done && serviceVisit && v.next_km ? types.find(x => x.code === v.next_type) : null;
+  const pendingPrices = (j.price_reqs || []).filter(r => r.status === 'Requested'), waiting = j.parts.filter(p => p.waiting);
+  const mgr = isMgr(me), askPrice = async (path, req) => { const r = await run(() => put(j.id, path, req)); return r.ok ? r.data : false; };
   const knownLabour = [...(db.lt || []).map(t => ({ name: t.name, section: t.section, hours: t.hours, price: t.price })),
     ...types.flatMap(x => x.labours).map(l => ({ name: l.desc, section: 'Regular Service', hours: l.hours, price: l.price }))];
 
@@ -88,35 +94,38 @@ export default function JobCardDialog({ id }) {
       <div className="g g2">
         <div className="box"><b>{c.name}</b> <span className="mu">{c.id}</span><br />{c.phone}<br /><span className="mu">{[c.city, c.sub, c.woreda, c.house].filter(Boolean).join(', ')}</span></div>
         <div className="box"><b>{v.plate}</b> · {vehicleName(v)}<br /><span className="mu">VIN {v.vin} · Engine {v.eng} · {v.col}</span>
-          <br />Mileage <b>{j.mileage != null ? km(j.mileage) : 'not recorded'}</b>{sa && j.status === 'Created' && <MileageEdit job={j} />}
+          <br />Mileage <b>{j.mileage != null ? km(j.mileage) : 'not recorded'}</b>{sa && j.status === 'Created' && <MileageEdit job={j} />}{j.mileage_out != null && <> · left at <b>{km(j.mileage_out)}</b></>}
         </div>
       </div>
       {j.note && <p className="mu">Notes: {j.note}</p>}
+      {sa && !j.inv ? <DetailsBox job={j} /> : (j.claim_no || j.due_date || j.priority) && <p className="mu">{[j.claim_no && <>Claim no <b>{j.claim_no}</b></>, j.due_date && <>Expected finish <b>{j.due_date}</b></>, j.priority && <b>{j.priority}</b>].filter(Boolean).map((x, i) => <span key={i}>{i ? ' · ' : ''}{x}</span>)}</p>}
       {sa && !j.inv ? <PayerBox job={j} /> : j.payer && <p className="mu">Invoice made out to: <b>{j.payer}</b>{j.policy_no ? ` (policy ${j.policy_no})` : ''}</p>}
       {services.length > 0 && <p className="mu">Service on this card: {services.map(x => types.find(t2 => t2.code === x)?.name || `Type ${x}`).join(', ')}</p>}
-      {nextDue && <div className="box mt"><b>Next service: {nextDue.name}</b> at {km(v.next_km)} <span className="mu">(suggested from this visit at {km(j.mileage)})</span></div>}
+      {nextDue && <div className="box mt"><b>Next service: {nextDue.name}</b> at {km(v.next_km)} <span className="mu">(suggested from this visit, counted from {km(j.mileage_out ?? j.mileage)})</span></div>}
 
       {sa && ['Created', 'Dispatched'].includes(j.status) && !j.inv && types.length > 0 && <ServicePanel job={j} vehicle={v} types={types} />}
 
       <h3 className="mt">Labour</h3>
       {labourOpen && <EstimateLoader job={j} estimates={db.e || []} />}
       <Table head={['Work', 'Price', 'Time', '']} empty={!j.labours.length && 'No labour yet. Add the work to be done.'}>
-        {j.labours.map(l => <LabourRow key={l.id} job={j} l={l} canClock={work && !l.done && me.role !== 'SA'} canStop={ws} canRemove={labourOpen && !(l.logs || []).length} priceOpen={priceOpen} />)}
+        {j.labours.map(l => <LabourRow key={l.id} job={j} l={l} canClock={work && !l.done && me.role !== 'SA'} canStop={ws} canRemove={labourOpen && !(l.logs || []).length} priceOpen={priceOpen} mgr={mgr} />)}
       </Table>
-      {labourOpen && <LabourForm id={j.id} rate={db.cfg.labourRate} known={knownLabour} late={['Back with SA', 'Closed'].includes(j.status)} />}
+      {labourOpen && <LabourForm id={j.id} rate={db.cfg.labourRates || db.cfg.labourRate} known={knownLabour} late={['Back with SA', 'Closed'].includes(j.status)} />}
 
       <h3 className="mt">Parts issued</h3>
       <Table head={['Part', 'Qty', 'Unit', 'Total', '']} empty={!j.parts.length && 'No parts issued.'}>
         {j.parts.map((p, i) => (
           <tr key={i}>
-            <td>{p.code && <span className="mu">{p.code} </span>}{p.name}</td><td>{p.qty}</td>
-            <td><PriceCell value={p.price} canEdit={priceOpen} onSave={async price => (await run(() => put(j.id, `/parts/${i}/price`, { price }))).ok}
-              note={p.list !== undefined && p.list !== p.price ? <span className="mu small"> (list {money(p.list)})</span> : null} /></td>
+            <td>{p.code && <span className="mu">{p.code} </span>}{p.name}{p.waiting && <> <Pill tone="a">waiting for stock</Pill></>}</td><td>{p.qty}</td>
+            <td><PriceCell value={p.price} canEdit={priceOpen} onSave={price => askPrice(`/parts/${i}/price`, { price })}
+              note={p.list !== undefined && p.list !== p.price ? <span className="mu small"> (list {money(p.list)})</span> : null}
+              pending={pendingPrices.find(r => r.kind === 'part' && r.key === `${i}:${p.name}`)} mgr={mgr} onDecide={(rid, ok) => run(() => post(j.id, `/price-requests/${rid}/${ok ? 'approve' : 'reject'}`))} /></td>
             <td>{money(p.qty * p.price)}</td>
-            <td>{partsOpen && <Btn kind="ol" onClick={() => run(() => api(`/jobs/${j.id}/parts/${i}`, 'DELETE'))}>Remove</Btn>}</td>
+            <td>{partsOpen && p.waiting && <Btn kind="gr" onClick={() => run(() => post(j.id, `/parts/${i}/receive`))}>Receive</Btn>}{partsOpen && <Btn kind="ol" onClick={() => run(() => api(`/jobs/${j.id}/parts/${i}`, 'DELETE'))}>Remove</Btn>}</td>
           </tr>
         ))}
       </Table>
+      {waiting.length > 0 && <p className="mu small">{waiting.length} part(s) waiting for stock: nothing has left stock yet. Press <b>Receive</b> when the part has arrived (add it with Receive stock first). The card cannot be closed before.</p>}
       {partsOpen && <PartForm id={j.id} stock={stockList} />}
 
       {(requests.length > 0 || (work && (isTech(me) || ws))) && <PartRequests job={j} stock={stockList} canAsk={work && (isTech(me) || ws)} canIssue={partsOpen} />}
@@ -141,15 +150,43 @@ export default function JobCardDialog({ id }) {
 }
 
 // A price with an Edit button (Service Advisor, before the invoice). onSave(price) returns true when the server accepted it.
-function PriceCell({ value, canEdit, onSave, note }) {
+function PriceCell({ value, canEdit, onSave, note, pending, mgr, onDecide }) {
+  const { db, say } = useApp();
   const [edit, setEdit] = useState(false), [v, setV] = useState('');
-  if (!edit) return <>{money(value)}{note}{canEdit && <> <button type="button" className="lnk" onClick={() => { setV(String(value)); setEdit(true); }}>Edit</button></>}</>;
-  const save = async () => { if (await onSave(parseFloat(v))) setEdit(false); };
+  if (!edit) {
+    return <>{money(value)}{note}{pending && <> <Pill tone="a">{mgr ? `asked: ${money(pending.to)}` : `waiting for the manager: ${money(pending.to)}`}</Pill>{mgr && onDecide && <> <button type="button" className="lnk" onClick={() => onDecide(pending.id, true)}>Approve</button> <button type="button" className="lnk" onClick={() => onDecide(pending.id, false)}>Reject</button></>}</>}
+      {canEdit && <> <button type="button" className="lnk" onClick={() => { setV(String(value)); setEdit(true); }}>Edit</button></>}</>;
+  }
+  const save = async () => {
+    const price = parseFloat(v);
+    const saved = await onSave(price);
+    if (saved) {
+      setEdit(false);
+      // beyond the limit the price does not change yet: it is a request the manager decides
+      if (!mgr && (saved.price_reqs || []).some(x => x.status === 'Requested' && Math.abs(x.to - price) < 0.005)) say(`A price more than ${db.cfg.priceLimitPct}% from the list price needs the manager's approval. The request was sent; the price changes when the manager approves.`);
+    }
+  };
   return (
     <span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
       <input aria-label="Selling price" type="number" min="0" step="any" value={v} autoFocus style={{ width: 110 }} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} />
       <Btn onClick={save}>Save</Btn><Btn kind="ol" onClick={() => setEdit(false)}>Cancel</Btn>
     </span>
+  );
+}
+
+// Claim number, expected finish date and priority. The Service Advisor can change them until the invoice is issued.
+function DetailsBox({ job: j }) {
+  const { run } = useApp();
+  const [f, setF] = useState({ claim_no: j.claim_no || '', due_date: j.due_date || '', priority: j.priority || 'Normal' });
+  const dirty = f.claim_no !== (j.claim_no || '') || f.due_date !== (j.due_date || '') || f.priority !== (j.priority || 'Normal');
+  const set = patch => setF(s => ({ ...s, ...patch }));
+  return (
+    <div className="row mt">
+      <Field label="Insurance claim no (if any)" value={f.claim_no} onChange={e => set({ claim_no: e.target.value })} />
+      <Field label="Expected finish date" type="date" value={f.due_date} onChange={e => set({ due_date: e.target.value })} />
+      <Field label="Priority"><select value={f.priority} onChange={e => set({ priority: e.target.value })}><option>Normal</option><option>Urgent</option></select></Field>
+      <Btn kind="ol" disabled={!dirty} onClick={() => run(() => put(j.id, '/details', f))}>Save details</Btn>
+    </div>
   );
 }
 
@@ -237,7 +274,7 @@ function EstimateLoader({ job: j, estimates }) {
   );
 }
 
-function LabourRow({ job: j, l, canClock, canStop, canRemove, priceOpen }) {
+function LabourRow({ job: j, l, canClock, canStop, canRemove, priceOpen, mgr }) {
   const { run, db } = useApp();
   const [reason, setReason] = useState('Completed');
   // A Type A/B/C package is clocked as one job, on its first line; every other task is clocked on its own line
@@ -250,7 +287,9 @@ function LabourRow({ job: j, l, canClock, canStop, canRemove, priceOpen }) {
         {l.svc && !lead && <span className="mu small"> · part of the {packName} clock</span>}
         {l.late && <span className="mu small"> · added after the work</span>}
         {l.done ? <> <Pill tone="g">completed</Pill></> : a ? <> <Pill tone="a">{a.tech} working</Pill></> : null}</td>
-      <td><PriceCell value={l.price} canEdit={priceOpen} onSave={async price => (await run(() => put(j.id, `/labour/${l.id}/price`, { price }))).ok} /></td>
+      <td><PriceCell value={l.price} canEdit={priceOpen} onSave={async price => { const r = await run(() => put(j.id, `/labour/${l.id}/price`, { price })); return r.ok ? r.data : false; }}
+        note={l.list !== undefined && l.list !== l.price ? <span className="mu small"> (was {money(l.list)})</span> : null}
+        pending={(j.price_reqs || []).find(r => r.status === 'Requested' && r.kind === 'labour' && r.key === l.id)} mgr={mgr} onDecide={(rid, ok) => run(() => post(j.id, `/price-requests/${rid}/${ok ? 'approve' : 'reject'}`))} /></td>
       <td>{lead ? `${labourHours(l).toFixed(2)} h` : ''}</td>
       <td className="acts">
         {canClock && lead && (a ? <>
@@ -269,10 +308,10 @@ function LabourRow({ job: j, l, canClock, canStop, canRemove, priceOpen }) {
 function LabourForm({ id, rate, known, late }) {
   const { run } = useApp();
   const [f, bind, set, reset] = useForm(`form:${id}:labour`, { desc: '', section: SECTIONS[1], hours: '', price: '' });
-  const priceFor = h => r2((parseFloat(h) || 0) * rate) || '';
+  const priceFor = (h, section = f.section) => r2((parseFloat(h) || 0) * rateOf(rate, section)) || '';   // hours x the rate of the section
   const onDesc = e => {
     const text = e.target.value, k = matchTask(known, text);
-    set(k ? { desc: k.name, section: k.section, hours: k.hours || '', price: k.price || priceFor(k.hours) } : { desc: text });
+    set(k ? { desc: k.name, section: k.section, hours: k.hours || '', price: k.price || priceFor(k.hours, k.section) } : { desc: text });
   };
   const add = async () => {
     if (!f.desc.trim()) return;
@@ -285,12 +324,12 @@ function LabourForm({ id, rate, known, late }) {
         <Field label="Labour task (pick from the list or type)" grow="3 1 200px" list="labour-list" autoComplete="off" value={f.desc} onChange={onDesc} />
         <Field label="Section"><select {...bind('section')}>{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
         <Field label="Hours" type="number" min="0" step="0.25" value={f.hours} onChange={e => set({ hours: e.target.value, price: priceFor(e.target.value) })} />
-        <Field label={`Labour cost (ETB) · ${rate}/h`} type="number" min="0" {...bind('price')} />
+        <Field label={`Labour cost (ETB) · ${rateOf(rate, f.section)}/h`} type="number" min="0" {...bind('price')} />
         <Btn onClick={add}>Add labour</Btn>
       </div>
       <datalist id="labour-list">{known.map((x, i) => <option key={i} value={`${SECTION_CODE[x.section]} · ${x.name}`}>{x.hours} h</option>)}</datalist>
       <div className="mu small">
-        {f.price ? `Labour cost: ETB ${money(f.price)}${f.hours ? ` (${f.hours} h x ${rate})` : ''}. Type another amount to change it.` : 'Pick a task and the hours and labour cost fill themselves.'}
+        {f.price ? `Labour cost: ETB ${money(f.price)}${f.hours ? ` (${f.hours} h x ${rateOf(rate, f.section)})` : ''}. Type another amount to change it.` : 'Pick a task and the hours and labour cost fill themselves.'}
         {late && ' The card is not in the workshop: this is added as a billing line. To have it done, return the card to the workshop first.'}
       </div>
     </>
@@ -301,14 +340,14 @@ function LabourForm({ id, rate, known, late }) {
 // Anything not in the list is free text with a typed price and is not tracked.
 function PartForm({ id, stock }) {
   const { run, say } = useApp();
-  const [f, bind, set, reset] = useForm(`form:${id}:part`, { name: '', qty: 1, price: '' });
+  const [f, bind, set, reset] = useForm(`form:${id}:part`, { name: '', qty: 1, price: '', wait: false });
   const p = matchPart(stock, f.name), qty = parseFloat(f.qty) || 1;
   const shown = f.price !== '' ? f.price : p ? p.price : '';
   // a part the customer asked for that is not in the stock list: written down as a lost sale
   const lost = async name => { const r = await run(() => api('/lost-sales', 'POST', { name, qty, source: 'Job card', ref: id, reason: 'Not in the stock list' })); if (r.ok) { say(`Lost sale recorded: ${name}`); set({ name: '', price: '' }); } };
   const add = async () => {
     if (!f.name.trim()) return;
-    const r = await run(() => post(id, '/parts', p ? { pid: p.id, qty, ...(f.price !== '' && { price: parseFloat(f.price) }) } : { name: f.name.trim(), qty, price: parseFloat(f.price) || 0 }));
+    const r = await run(() => post(id, '/parts', p ? { pid: p.id, qty, ...(f.price !== '' && { price: parseFloat(f.price) }), ...(f.wait && p.stock < qty && { waiting: true }) } : { name: f.name.trim(), qty, price: parseFloat(f.price) || 0 }));
     if (r.ok) reset();
   };
   return (
@@ -323,6 +362,7 @@ function PartForm({ id, stock }) {
         {p ? `${p.stock} in stock · list price ${money(p.price)} filled in. Line total ETB ${money(qty * (parseFloat(shown) || 0))}.`
           : f.name ? 'Not in the stock list: stock will not be tracked for this line. Type its selling price.' : ''}
       </div>
+      {p && p.stock < qty && <label className="mu small" style={{ display: 'block' }}><input type="checkbox" checked={!!f.wait} onChange={e => set({ wait: e.target.checked })} style={{ width: 'auto' }} /> Only {p.stock} in stock: add it as <b>waiting for stock</b> (nothing leaves stock until it is received).</label>}
     </>
   );
 }
@@ -344,16 +384,15 @@ function PartRequests({ job: j, stock, canAsk, canIssue }) {
 
 function RequestForm({ id, stock }) {
   const { run } = useApp();
-  const [f, bind, set, reset] = useForm(`form:${id}:request`, { name: '', qty: 1 });
-  const p = matchPart(stock, f.name);
+  const [f, bind, set, reset] = useForm(`form:${id}:request`, { name: '', qty: 1, pid: '' });
   const ask = async () => {
     if (!f.name.trim()) return;
-    const r = await run(() => post(id, '/requests', { ...(p ? { pid: p.id } : { name: f.name.trim() }), qty: parseFloat(f.qty) || 1 }));
+    const r = await run(() => post(id, '/requests', { ...(f.pid ? { pid: f.pid } : { name: f.name.trim() }), qty: parseFloat(f.qty) || 1 }));
     if (r.ok) reset();
   };
   return (
     <div className="row mt">
-      <PartSearch label="Part needed (type the part number or description)" grow="3 1 200px" stock={stock} value={f.name} onChange={name => set({ name })} onPick={x => set({ name: `${x.code} · ${x.name}` })} />
+      <PartSearch label="Part needed (type the part number or description)" grow="3 1 200px" remote value={f.name} onChange={name => set({ name, pid: '' })} onPick={x => set({ name: `${x.code} · ${x.name}`, pid: x.id })} />
       <Field label="Qty" type="number" min="0.01" step="any" {...bind('qty')} />
       <Btn onClick={ask}>Ask Service Advisor</Btn>
     </div>

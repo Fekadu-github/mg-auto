@@ -124,9 +124,17 @@ test('API: full job card life, stock, roles and concurrency', { skip }, async t 
   assert.deepEqual(withA.services, ['A']); assert.ok(withA.labours.length >= 2 && withA.labours.every(l => l.price > 0 && l.svc === 'A'));
   assert.equal((await call(sa, 'POST', K('/service'), { code: 'A' })).status, 409);
 
-  // selling prices: the Service Advisor changes them, nobody else
-  assert.equal((await call(sa, 'PUT', K(`/labour/${withA.labours[0].id}/price`), { price: 999 })).body.labours[0].price, 999);
-  assert.equal((await call(sa, 'PUT', K('/parts/0/price'), { price: 60 })).body.parts[0].price, 60);
+  // selling prices: the Service Advisor changes them within the limit (10% of the list price), the manager approves anything beyond it, nobody else
+  const l0 = withA.labours[0], small = Math.round(l0.price * 1.05 * 100) / 100;
+  assert.equal((await call(sa, 'PUT', K(`/labour/${l0.id}/price`), { price: small })).body.labours[0].price, small);
+  const big = (await call(sa, 'PUT', K(`/labour/${l0.id}/price`), { price: 999 })).body;
+  assert.equal(big.labours[0].price, small);                                                                          // not changed yet: it waits for the manager
+  assert.equal(big.price_reqs.filter(r => r.status === 'Requested').length, 1);
+  assert.equal((await call(sa, 'POST', K('/invoice'), { type: 'Cash' })).status, 409);                                // (also the card is not closed yet)
+  assert.equal((await call(sa, 'POST', K(`/price-requests/${big.price_reqs[0].id}/approve`))).status, 403);           // only the manager decides
+  assert.equal((await call(mg, 'POST', K(`/price-requests/${big.price_reqs[0].id}/approve`))).body.labours[0].price, 999);
+  const p0 = withA.parts[0], smallP = Math.round(p0.price * 0.95 * 100) / 100;
+  assert.equal((await call(sa, 'PUT', K('/parts/0/price'), { price: smallP })).body.parts[0].price, smallP);
   assert.equal((await call(t1, 'PUT', K('/parts/0/price'), { price: 1 })).status, 403);
 
   // additional parts: the workshop asks, only the Service Advisor issues
@@ -174,7 +182,7 @@ test('API: full job card life, stock, roles and concurrency', { skip }, async t 
   assert.equal((await call(sa, 'POST', K('/parts'), { name: 'Sticker', qty: 1, price: 20 })).status, 200);
 
   // prices are still open after closing, but not after the invoice
-  assert.equal((await call(sa, 'PUT', K('/parts/0/price'), { price: 70 })).status, 200);
+  assert.equal((await call(mg, 'PUT', K('/parts/0/price'), { price: 70 })).body.parts[0].price, 70);                  // the manager is not limited
   assert.equal((await call(sa, 'POST', K('/invoice'), { type: 'Cash' })).status, 200);
   assert.equal((await call(sa, 'PUT', K('/parts/0/price'), { price: 80 })).status, 409);
 
@@ -203,7 +211,7 @@ test('API: full job card life, stock, roles and concurrency', { skip }, async t 
   assert.equal((await call(sa, 'POST', '/api/insurers', { name: 'Awash Insurance' })).status, 409);
   assert.equal((await call(sa, 'PUT', `/api/customers/${cus.id}`, { name: cus.name, phone: cus.phone, insurer_id: co.id, policy_no: 'P-1' })).status, 200);
   const pro = (await call(sa, 'POST', '/api/proformas', { cid: cus.id, vid: veh2.id })).body;
-  assert.match(pro.id, /^PRO-\d{8}-\d{4}$/); assert.deepEqual([pro.status, pro.insurer_id, pro.policy_no], ['Draft', co.id, 'P-1']);   // starts from the customer's insurance
+  assert.match(pro.id, /^EST-\d{8}-\d{4}$/); assert.deepEqual([pro.status, pro.insurer_id, pro.policy_no], ['Draft', co.id, 'P-1']);   // starts from the customer's insurance
   const P = p => `/api/proformas/${pro.id}${p}`;
   assert.equal((await call(sa, 'POST', P('/issue'))).status, 400);                                                    // nothing on it yet
   const task = (await data()).lt.find(t => t.section === 'Body & Paints');
@@ -261,4 +269,40 @@ test('API: full job card life, stock, roles and concurrency', { skip }, async t 
   assert.equal((await call(sa, 'GET', '/api/data')).body.p.find(x => x.id === p2.id).price, 143);
   assert.equal((await call(sa, 'GET', '/api/reports/inventory')).status, 403);                                        // inventory control shows costs: manager only
   assert.equal((await call(mg, 'GET', '/api/reports/inventory')).status, 200);
+
+  // ---- gap-analysis fixes ----
+  // the stock list is only sent again when it has changed (the screens send back the version they have)
+  const first = (await call(sa, 'GET', '/api/data')).body;
+  assert.ok(Array.isArray(first.p) && first.pv);
+  const again = (await call(sa, 'GET', '/api/data?pv=' + encodeURIComponent(first.pv))).body;
+  assert.equal(again.p, undefined); assert.equal(again.pv, first.pv);
+  // search by typing on the server: everyone may search; a technician sees no prices or quantities
+  const found = (await call(sa, 'GET', '/api/parts/search?q=' + encodeURIComponent('spark plug'))).body;
+  assert.ok(found.some(x => x.id === p2.id && typeof x.price === 'number'));
+  const foundT = (await call(t1, 'GET', '/api/parts/search?q=' + encodeURIComponent('spark'))).body;
+  assert.ok(foundT.some(x => x.id === p2.id && x.in_stock === true && x.price === undefined && x.stock === undefined));
+  assert.deepEqual((await call(t1, 'GET', '/api/parts/search?q=')).body, []);
+  // labour rate per section: only the manager sets it; a labour line is priced from its own section
+  assert.equal((await call(sa, 'PUT', '/api/settings/labour-rates', { rates: { 'Body & Paints': 500 } })).status, 403);
+  assert.equal((await call(mg, 'PUT', '/api/settings/labour-rates', { rates: { 'Body & Paints': 500, 'Regular Service': '' } })).body['Body & Paints'], 500);
+  const jr = (await call(sa, 'POST', '/api/jobs', { cid: cus.id, vid: veh2.id, mileage: 7000 })).body;
+  const rated = (await call(sa, 'POST', `/api/jobs/${jr.id}/labour`, { desc: 'Respray', section: 'Body & Paints', hours: 2 })).body;
+  assert.equal(rated.labours[0].price, 1000);
+  assert.equal((await call(sa, 'GET', '/api/data')).body.cfg.labourRates['Body & Paints'], 500);
+  // claim number, expected finish date and priority
+  const det = (await call(sa, 'PUT', `/api/jobs/${jr.id}/details`, { claim_no: 'CL-9', due_date: '2026-11-05', priority: 'Urgent' })).body;
+  assert.deepEqual([det.claim_no, det.due_date, det.priority], ['CL-9', '2026-11-05', 'Urgent']);
+  assert.equal((await call(t1, 'PUT', `/api/jobs/${jr.id}/details`, { claim_no: 'X' })).status, 403);
+  // a part that is short waits for stock instead of stopping the load; the card cannot close until it is received
+  const short = (await call(mg, 'POST', '/api/inventory', { code: 'T-W' + suffix, name: 'Short part', cost: 100, stock: 1, reorder: 0 })).body;
+  const w = (await call(sa, 'POST', `/api/jobs/${jr.id}/parts`, { pid: short.id, qty: 3, waiting: true })).body;
+  assert.equal(w.parts.at(-1).waiting, true);
+  assert.equal((await call(sa, 'POST', `/api/jobs/${jr.id}/parts`, { pid: short.id, qty: 3 })).status, 409);           // without the choice it is still refused
+  const wi = w.parts.length - 1;
+  assert.equal((await call(sa, 'POST', `/api/jobs/${jr.id}/parts/${wi}/receive`)).status, 409);                         // still not enough stock
+  assert.equal((await call(mg, 'POST', `/api/inventory/${short.id}/receive`, { qty: 5 })).status, 200);
+  assert.equal((await call(sa, 'POST', `/api/jobs/${jr.id}/parts/${wi}/receive`)).body.parts[wi].waiting, undefined);
+  // the end-of-day button: supervisor and manager only
+  assert.equal((await call(t1, 'POST', '/api/workshop/end-of-day')).status, 403);
+  assert.equal(typeof (await call(ws, 'POST', '/api/workshop/end-of-day')).body.closed, 'number');
 });

@@ -25,7 +25,7 @@ export default function InvoiceDoc({ job, customer: c = {}, vehicle: v = {}, doc
       <Letterhead g={g}><h1>PROFORMA INVOICE</h1><div><b>{doc.no}</b></div><div>{dt(doc.date)}</div><div>Job card {job.id}</div></Letterhead>
       <section className="two">
         {job.payer
-          ? <div><h4>Bill to (insurance)</h4><b>{job.payer}</b>{job.policy_no && <div>Policy no {job.policy_no}</div>}<div>Vehicle owner: {c.name} · {c.phone}</div>{c.tin && <div>Owner TIN {c.tin}</div>}</div>
+          ? <div><h4>Bill to (insurance)</h4><b>{job.payer}</b>{job.policy_no && <div>Policy no {job.policy_no}</div>}{job.claim_no && <div>Claim no {job.claim_no}</div>}<div>Vehicle owner: {c.name} · {c.phone}</div>{c.tin && <div>Owner TIN {c.tin}</div>}</div>
           : <div><h4>Customer</h4><b>{c.name}</b><div>{c.id} · {c.phone}</div>{c.tin && <div>TIN {c.tin}</div>}<div>{area(c)}</div></div>}
         <div><h4>Vehicle</h4><b>{v.plate}</b> · {vehicleName(v)}<div>{[v.col, v.vin && `VIN ${v.vin}`, v.eng && `Engine ${v.eng}`].filter(Boolean).join(' · ')}</div></div>
       </section>
@@ -56,6 +56,7 @@ export default function InvoiceDoc({ job, customer: c = {}, vehicle: v = {}, doc
       <div className="kv"><span>Job card</span><span>{job.id}</span></div>
       {job.payer && <div className="kv"><span>Bill to</span><span>{job.payer}</span></div>}
       {job.payer && job.policy_no && <div className="kv"><span>Policy</span><span>{job.policy_no}</span></div>}
+      {job.claim_no && <div className="kv"><span>Claim no</span><span>{job.claim_no}</span></div>}
       <div className="kv"><span>{job.payer ? 'Owner' : 'Customer'}</span><span>{c.name}</span></div>
       {c.tin && <div className="kv"><span>Customer TIN</span><span>{c.tin}</span></div>}
       <div className="kv"><span>Vehicle</span><span>{v.plate} {vehicleName(v)}</span></div>

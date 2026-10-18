@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { invoiceLines, jobTotals, lastDoc, money, pct, snap, tot, vehicleName } from './format.js';
+import { invoiceLines, jobTotals, lastDoc, money, pct, rateOf, snap, tot, vehicleName } from './format.js';
 
 const job = { id: 'TC-1', labours: [{ id: 'L1', desc: 'Oil change', price: 700 }], parts: [{ name: 'Oil', code: 'OIL-001', qty: 2, price: 450 }], log: [] };
 
@@ -26,5 +26,18 @@ describe('helpers', () => {
     const j = { ...job, log: [{ doc: { type: 'Proforma', no: 'A' } }, { doc: { type: 'Proforma', no: 'B' } }] };
     expect(lastDoc(j, 'Proforma').no).toBe('B');
     expect(lastDoc(job, 'Proforma')).toBeUndefined();
+  });
+});
+
+describe('labour rate per section', () => {
+  const rates = { default: 350, 'Body & Paints': 500 };
+  it('uses the rate of the section, else the standard rate', () => {
+    expect(rateOf(rates, 'Body & Paints')).toBe(500);
+    expect(rateOf(rates, 'Regular Service')).toBe(350);
+    expect(rateOf(rates, undefined)).toBe(350);
+  });
+  it('still accepts one number for every section', () => {
+    expect(rateOf(300, 'Body & Paints')).toBe(300);
+    expect(rateOf(undefined, 'x')).toBe(0);
   });
 });

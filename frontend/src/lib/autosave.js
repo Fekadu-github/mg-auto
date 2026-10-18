@@ -10,8 +10,11 @@ const writeDraft = (id, v) => { try { localStorage.setItem(KEY(id), JSON.stringi
 export const clearDraft = id => { try { localStorage.removeItem(KEY(id)); } catch { /* ignore */ } };
 
 // What to open with: the copy kept on this device (changes the server may not have), otherwise what the server has.
-export function restoreDraft(id, fromServer) {
+// `serverAt` (ms, optional) is when the server's copy was last saved. A copy on this device older than that is out of date (the same document was
+// changed from another PC after this device's last edit): it is dropped and the server's version is opened.
+export function restoreDraft(id, fromServer, serverAt) {
   const d = readDraft(id);
+  if (d && serverAt && Number.isFinite(serverAt) && d.t < serverAt) { clearDraft(id); return { value: fromServer, restored: false, replaced: true }; }
   return d ? { value: d.v, restored: true } : { value: fromServer, restored: false };
 }
 
@@ -55,11 +58,11 @@ export function useAutosave(id, value, { save, enabled = true, startDirty = fals
   return { state, flush };
 }
 
-// A form whose half-typed content is kept on this device until it is submitted (reset clears it).
+// A form whose half-typed content is kept on this device until it is submitted (reset clears it). key = null: not kept (plain form).
 export function usePersistedForm(key, initial) {
-  const [v, setV] = useState(() => { const d = readDraft(key); return d && typeof d.v === 'object' ? { ...initial, ...d.v } : initial; });
+  const [v, setV] = useState(() => { if (!key) return initial; const d = readDraft(key); return d && typeof d.v === 'object' ? { ...initial, ...d.v } : initial; });
   const empty = JSON.stringify(v) === JSON.stringify(initial);
-  useEffect(() => { if (empty) clearDraft(key); else writeDraft(key, v); }, [v, empty, key]);
+  useEffect(() => { if (!key) return; if (empty) clearDraft(key); else writeDraft(key, v); }, [v, empty, key]);
   const bind = k => ({ value: v[k] ?? '', onChange: e => setV(s => ({ ...s, [k]: e.target.value })) });
-  return [v, bind, patch => setV(s => ({ ...s, ...patch })), () => { setV(initial); clearDraft(key); }];
+  return [v, bind, patch => setV(s => ({ ...s, ...patch })), () => { setV(initial); if (key) clearDraft(key); }];
 }

@@ -10,6 +10,8 @@ export function loadConfig(env = process.env) {
     frontendDir: env.FRONTEND_DIR || '',          // optional: serve the built React app from this API (single-host deploys)
     adminUser: env.ADMIN_USER || '', adminPass: env.ADMIN_PASS || '',
     vat: vat >= 0 && vat < 1 ? vat : 0.15,       // fraction: 0.15 = 15%
+    priceLimitPct: num(env.PRICE_LIMIT_PCT, 10) >= 0 ? num(env.PRICE_LIMIT_PCT, 10) : 10,   // a price change beyond this % of the list price needs the manager (0 = no limit)
+    workEnd: /^([01]?\d|2[0-3]):[0-5]\d$/.test(String(env.WORK_END || '').trim()) ? String(env.WORK_END).trim() : '',   // e.g. 17:30: running clocks are closed then (empty = only by hand)
     labourRate: rate >= 0 ? rate : 350,           // ETB per labour hour
     garage: {
       name: env.GARAGE_NAME || 'MADEG — MG Auto',

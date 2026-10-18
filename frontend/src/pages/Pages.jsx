@@ -2,13 +2,13 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../store.jsx';
-import { Btn, Field, Pill, Stat, StatusPill, Table, useForm } from '../components/ui.jsx';
+import { Btn, Field, Pill, Stat, StatusPill, Table } from '../components/ui.jsx';
 import { NotifySelect } from '../dialogs/Dialogs.jsx';
-import { ROLES, SECTIONS, isSA, isTech } from '../lib/constants.js';
+import { ROLES, SECTIONS, isMgr, isSA, isTech } from '../lib/constants.js';
 import { InsuranceFields } from '../dialogs/Dialogs.jsx';
 import { SECTION_CODE, sectionOption } from '../lib/constants.js';
 import { usePersistedForm } from '../lib/autosave.js';
-import { activeClock, dt, downloadCsv, jobTotals, km, money, tot, today, vehicleName } from '../lib/format.js';
+import { activeClock, dt, downloadCsv, jobTotals, km, money, rateOf, tot, today, vehicleName } from '../lib/format.js';
 
 export const PAGE_INFO = {
   dash: ['Garage today', 'Today in the garage: what is waiting to be dispatched, in the workshop, ready to close, or waiting for hand-over.'],
@@ -47,6 +47,9 @@ export function Dashboard() {
   const n = s => db.j.filter(j => s.includes(j.status)).length;
   const stats = [['Waiting to dispatch', n(['Created'])], ['In workshop', n(['Dispatched', 'At workshop'])], ['Ready for SA to close', n(['Work done', 'Back with SA'])], ['Awaiting invoice or hand-over', n(['Closed', 'Invoiced'])]];
   if (!isTech(me)) stats.push(['Parts to reorder', db.p.filter(p => p.stock <= p.reorder).length]);
+  const waitingJobs = db.j.filter(j => j.parts.some(p => p.waiting)), priceJobs = db.j.filter(j => (j.price_reqs || []).some(r => r.status === 'Requested'));
+  if (waitingJobs.length) stats.push(['Job cards waiting for parts', waitingJobs.length]);
+  if (isMgr(me) && priceJobs.length) stats.push(['Price changes to approve', priceJobs.length]);
   return (
     <>
       <div className="g g2 mt">{stats.map(([a, b]) => <Stat key={a} label={a} value={b} />)}</div>
@@ -70,14 +73,20 @@ export function JobCards() {
 }
 
 export function Workshop() {
-  const { db, openModal } = useApp();
+  const { db, me, run, say, openModal } = useApp();
   const [sec, setSec] = useState('');
+  const canStop = ['WS', 'MGR', 'ADMIN'].includes(me.role);
+  const endOfDay = async () => {
+    if (!confirm('End of the working day: clock out everybody who is still clocked in?\n\nThe clock-out reason will be "End of work day". Their tasks stay open for tomorrow.')) return;
+    const r = await run(() => api('/workshop/end-of-day', 'POST'));
+    if (r.ok) say(r.data.closed ? `${r.data.closed} running clock(s) closed.` : 'Nobody was clocked in.');
+  };
   const live = db.j.flatMap(j => j.labours.map(l => ({ j, l, a: activeClock(l) })).filter(x => x.a));
   const list = db.j.filter(j => ['Dispatched', 'At workshop'].includes(j.status) && (!sec || j.labours.some(l => l.section === sec)));
   return (
     <>
       <div className="row mt"><Field label="Section"><select value={sec} onChange={e => setSec(e.target.value)}><option value="">All sections</option>{SECTIONS.map(s => <option key={s}>{s}</option>)}</select></Field></div>
-      <h2 className="mt">Clocked in now</h2>
+      <div className="row mt"><h2 style={{ margin: 0 }}>Clocked in now</h2>{canStop && live.length > 0 && <Btn kind="ol" onClick={endOfDay}>End of working day: clock everybody out</Btn>}{db.cfg.workEnd && <span className="mu small">Clocks still running at {db.cfg.workEnd} close by themselves.</span>}</div>
       <Table head={['Technician', 'Work', 'Job card', 'Since']} empty={!live.length && 'Nobody is clocked in.'}>
         {live.map(({ j, l, a }) => <tr key={l.id} className="k" onClick={() => openModal('job', { id: j.id })}><td>{a.tech}</td><td>{l.desc}</td><td>{j.id}</td><td>{dt(a.in)}</td></tr>)}
       </Table>
@@ -123,7 +132,7 @@ export function Insurance() {
 
 export function LabourList() {
   const { db, me, run, openModal } = useApp();
-  const sa = isSA(me), rate = db.cfg.labourRate, [q, setQ] = useState('');
+  const sa = isSA(me), rates = db.cfg.labourRates || { default: db.cfg.labourRate }, [q, setQ] = useState('');
   const [f, bind, , reset] = usePersistedForm('form:new-task', { name: '', section: SECTIONS[1], hours: '', price: '' });
   const add = async () => {
     if (!f.name.trim()) return alert('Describe the task.');
@@ -133,15 +142,33 @@ export function LabourList() {
   const list = db.lt.filter(t => (t.name + SECTION_CODE[t.section]).toLowerCase().includes(q.toLowerCase()));
   return (
     <>
+      {isMgr(me) && <RatesBox rates={rates} />}
       {sa && <div className="box mt"><h3>New labour task</h3><div className="row">
         <Field label="Task" grow="3 1 200px" {...bind('name')} /><Field label="Section"><select {...bind('section')}>{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
         <Field label="Hours" type="number" min="0" step="0.25" {...bind('hours')} /><Field label="Fixed price (ETB), empty = hours x rate" type="number" min="0" {...bind('price')} /><Btn onClick={add}>Save task</Btn>
       </div></div>}
       <div className="mt"><input aria-label="Search tasks" placeholder="Search tasks or BP / ME" value={q} onChange={e => setQ(e.target.value)} /></div>
       <div className="mt"><Table head={['Section', 'Task', { t: 'Hours', r: 1 }, { t: 'Cost (ETB)', r: 1 }, '']} empty={!list.length && 'No labour tasks yet.'}>
-        {list.map(t => <tr key={t.id}><td><b>{SECTION_CODE[t.section]}</b> <span className="mu small">{t.section}</span></td><td>{t.name}</td><td className="r">{t.hours}</td><td className="r">{money(t.price || Math.round(t.hours * rate * 100) / 100)}{!t.price && <span className="mu small"> ({t.hours} x {rate})</span>}</td><td className="acts">{sa && <Btn kind="ol" onClick={() => openModal('labourTask', { id: t.id })}>Edit</Btn>}</td></tr>)}
+        {list.map(t => <tr key={t.id}><td><b>{SECTION_CODE[t.section]}</b> <span className="mu small">{t.section}</span></td><td>{t.name}</td><td className="r">{t.hours}</td><td className="r">{money(t.price || Math.round(t.hours * rateOf(rates, t.section) * 100) / 100)}{!t.price && <span className="mu small"> ({t.hours} x {rateOf(rates, t.section)})</span>}</td><td className="acts">{sa && <Btn kind="ol" onClick={() => openModal('labourTask', { id: t.id })}>Edit</Btn>}</td></tr>)}
       </Table></div>
     </>
+  );
+}
+
+// The manager sets the labour rate (ETB per hour) of each section; an empty box uses the standard rate.
+function RatesBox({ rates }) {
+  const { run, say } = useApp();
+  const init = () => Object.fromEntries(SECTIONS.map(s => [s, rates[s] !== undefined && rates[s] !== rates.default ? String(rates[s]) : '']));
+  const [f, setF] = useState(init);
+  const save = async () => { const r = await run(() => api('/settings/labour-rates', 'PUT', { rates: f })); if (r.ok) say('Labour rates saved. They apply to labour added from now on.'); };
+  return (
+    <div className="box mt"><h3>Labour rate per hour (ETB)</h3>
+      <div className="row">
+        {SECTIONS.map(s => <Field key={s} label={`${SECTION_CODE[s]} · ${s}`} type="number" min="0" step="any" placeholder={String(rates.default)} value={f[s]} onChange={e => setF(x => ({ ...x, [s]: e.target.value }))} />)}
+        <Btn onClick={save}>Save rates</Btn>
+      </div>
+      <div className="mu small">An empty box uses the standard rate ({rates.default} ETB/h). Hours x the rate of the section fills the labour cost; the price can still be typed over.</div>
+    </div>
   );
 }
 
@@ -265,7 +292,7 @@ export function Reports() {
 
 export function Staff() {
   const { users, run } = useApp();
-  const [f, bind, , reset] = useForm({ name: '', username: '', password: '', role: 'SA' });
+  const [f, bind, , reset] = usePersistedForm('form:new-staff', { name: '', username: '', password: '', role: 'SA' });
   const add = async () => { const r = await run(() => api('/users', 'POST', f)); if (r.ok) reset(); };
   return (
     <>

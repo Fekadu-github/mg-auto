@@ -116,7 +116,7 @@ test('config: defaults and bad values', () => {
 
 test('schema.sql splits into whole statements with no comments left', () => {
   const st = splitSql(readFileSync(new URL('../sql/schema.sql', import.meta.url), 'utf8'));
-  assert.equal(st.length, 17);
+  assert.equal(st.length, 18);
   assert.ok(st.every(s => /^CREATE TABLE IF NOT EXISTS/.test(s) && !s.includes('--') && s.endsWith('utf8mb4')));
   assert.deepEqual(splitSql("a; -- x\nb;\n\n-- only a comment\n"), ['a', 'b']);
 });

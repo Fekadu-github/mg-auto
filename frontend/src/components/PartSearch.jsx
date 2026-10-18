@@ -1,14 +1,25 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { api } from '../api.js';
 import { searchParts } from '../lib/search.js';
 import { money } from '../lib/format.js';
 
 // Type a part number or any words of the description: matching parts appear under the box (not a drop-down to scroll through).
 // value / onChange keep the typed text; onPick(part) runs when a part is chosen (click, or arrow keys + Enter).
 // onMissing(text), when given, adds a button under "No part matches" (the point of sale uses it to record a lost sale).
-export default function PartSearch({ label, stock, value, onChange, onPick, onMissing, placeholder = 'Type a part number or description', grow, 'aria-label': aria, disabled }) {
+// remote: the search runs on the server (/parts/search) instead of in a stock list kept on the screen: for a technician, who is not sent the list (no prices are shown to them).
+export default function PartSearch({ label, stock, remote, value, onChange, onPick, onMissing, placeholder = 'Type a part number or description', grow, 'aria-label': aria, disabled }) {
   const id = useId(), [open, setOpen] = useState(false), [hi, setHi] = useState(0), [rect, setRect] = useState(null), input = useRef(null);
-  const text = String(value ?? ''), hits = open && text.trim() ? searchParts(stock, text) : [];
-  const show = open && text.trim().length > 0 && (stock || []).length > 0;       // no stock list (a technician): plain text box
+  const [found, setFound] = useState({ q: '', rows: [] });
+  const text = String(value ?? ''), typed = text.trim();
+  useEffect(() => {
+    if (!remote || !open || !typed) return undefined;
+    let live = true;
+    const t = setTimeout(() => api('/parts/search?q=' + encodeURIComponent(typed)).then(rows => live && setFound({ q: typed, rows })).catch(() => live && setFound({ q: typed, rows: [] })), 250);
+    return () => { live = false; clearTimeout(t); };
+  }, [remote, open, typed]);
+  const searching = !!remote && found.q !== typed;
+  const hits = remote ? (searching ? [] : found.rows) : open && typed ? searchParts(stock, text) : [];
+  const show = open && typed.length > 0 && (remote || (stock || []).length > 0);       // no stock list and not remote: plain text box
 
   // the list is positioned on the screen (not inside the table), so a table or dialog never cuts it off
   useEffect(() => {
@@ -38,10 +49,11 @@ export default function PartSearch({ label, stock, value, onChange, onPick, onMi
           {hits.map((p, i) => (
             <li key={p.id} role="option" aria-selected={i === hi} className={i === hi ? 'on' : ''} onMouseDown={e => { e.preventDefault(); pick(p); }} onMouseEnter={() => setHi(i)}>
               <b>{p.code}</b> <span>{p.name}</span>
-              <span className="ps-meta">{money(p.price)} · {p.stock > 0 ? `${p.stock} in stock` : <em>out of stock</em>}</span>
+              <span className="ps-meta">{p.price !== undefined ? <>{money(p.price)} · {p.stock > 0 ? `${p.stock} in stock` : <em>out of stock</em>}</> : p.in_stock ? 'in stock' : <em>out of stock</em>}</span>
             </li>
           ))}
-          {!hits.length && (
+          {!hits.length && searching && <li className="ps-none" onMouseDown={e => e.preventDefault()}>Searching…</li>}
+          {!hits.length && !searching && (
             <li className="ps-none" onMouseDown={e => e.preventDefault()}>No part matches “{text.trim()}”.{onMissing && <> <button type="button" className="lnk" onMouseDown={e => { e.preventDefault(); setOpen(false); onMissing(text.trim()); }}>Record as lost sale</button></>}</li>
           )}
         </ul>

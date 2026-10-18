@@ -4,6 +4,7 @@ import { loadConfig } from './config.js';
 import { createDb, newId } from './db.js';
 import { createNotifier } from './notify.js';
 import { createApp } from './app.js';
+import { startWorkdayTimer } from './workday.js';
 
 const cfg = loadConfig();
 if (cfg.jwtSecret.length < 16) throw new Error('Set JWT_SECRET to a long random string (16+ characters)');
@@ -23,5 +24,6 @@ if (!n && cfg.adminUser && cfg.adminPass) {
 const notifier = createNotifier({ cfg, db });
 const server = createApp({ cfg, db, notifier }).listen(cfg.port, () => console.log('MG Auto API on ' + cfg.port));
 notifier.init();                          // Telegram webhook registration; never blocks or crashes the start
+const stopWorkday = startWorkdayTimer(db, cfg.workEnd);   // WORK_END (e.g. 17:30) set: running clocks are closed at the end of the working day
 
-for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => server.close(() => db.close().finally(() => process.exit(0))));
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { stopWorkday(); server.close(() => db.close().finally(() => process.exit(0))); });

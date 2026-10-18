@@ -61,6 +61,8 @@ All of them, with comments, are in `backend/.env.example`. The important ones:
 | `ADMIN_USER`, `ADMIN_PASS` | first administrator, created when there are no users |
 | `LABOUR_RATE` | ETB per hour; typing hours on a labour line fills the price (default 350) |
 | `VAT_RATE` | fraction, default `0.15`. Amounts are frozen on each invoice when it is issued |
+| `PRICE_LIMIT_PCT` | a price on a job card may differ from its list price by this percentage on the Service Advisor's say-so; beyond it the manager must approve (default `10`, `0` = no limit) |
+| `WORK_END` | end of the working day, `HH:MM` Addis Ababa time (for example `17:30`). Running clocks are closed by themselves then. Empty = by hand only (the *End of working day* button on the Workshop screen) |
 | `GARAGE_NAME` `GARAGE_ADDRESS` `GARAGE_PHONE` `GARAGE_TIN` `GARAGE_MOTTO` | printed on invoices and the voucher |
 | `FRONTEND_DIR` | folder of the built React app for the API to serve (set in the Docker image) |
 
@@ -77,6 +79,25 @@ Customers are `CUS-YYYYMMDD-0001`. Vehicles have Brand and Model. The job card d
 - **Prices fill themselves.** Picking a stock part fills its price; typing hours fills the labour cost; typing a package labour description fills its hours and cost. All of them can be typed over.
 - **Additional parts are issued by the Service Advisor.** A technician or supervisor *asks* for a part on a job card in the workshop; only the Service Advisor *issues* it (matches it to stock, sets the selling price) or rejects it. A job card cannot be closed while a request is waiting.
 
+## Changes from the gap analysis (October 2026)
+This list is what was added after comparing the project with the HillMaster screenshots, the Project Requirements Notes and the 14 workflow issues.
+
+- **Manager role fixed in the database.** The users table only allowed SA, WS, TECH and ADMIN, so creating a Manager account failed. `MGR` is added (new databases get it from `schema.sql`; existing ones are altered on start).
+- **A bug that broke the screens as soon as one part was in stock.** In `app.js` the sign-in secret was named `S`, hiding the stock module, so `/api/data` failed for every non-technician once the stock list had a part. Renamed.
+- **Parts waiting for stock.** When an estimate, a proforma or a service package is loaded and a part is short, the load no longer fails: the part is added as *waiting for stock* and nothing leaves stock yet. Press *Receive* when it has arrived (add it with *Receive stock* first). The card cannot be closed or invoiced while a part is waiting. The Service Advisor can also add a short part as waiting from the part form.
+- **Price approval.** A change beyond `PRICE_LIMIT_PCT` of the list price (labour or part) is a request: the line keeps its price and shows *waiting for the manager*; the Manager or Administrator sees *Approve / Reject* beside it. The manager's own changes are immediate. The card cannot be closed or invoiced while a request is open. Every decision is written in the card history.
+- **Labour rate per section.** The manager sets the hourly rate of each section on the *Labour list* screen; an empty box uses `LABOUR_RATE`. Proformas, estimates and job cards fill the cost from hours x the section's rate.
+- **Next service from any service work, counted from the mileage when the vehicle leaves.** A service typed in as ordinary labour (section *Regular Service*) now counts like a Type A/B/C package. When closing a card the advisor is asked for the mileage when the vehicle leaves (optional, never below the arrival reading); the next service is counted from it.
+- **The customer is told "vehicle ready" once.** A closed card that is sent back and closed again no longer sends a second message (*Send again* is still on the card).
+- **One estimation number.** A new proforma gets an `EST-...` number and keeps it when it becomes the estimate (older `PRO-...` proformas still get a new `EST-...` number on conversion).
+- **The estimator list** shows advisors, supervisors, managers and administrators, not technicians.
+- **Claim number, expected finish date and priority** on the job card and on the proforma; claim number on the invoice; terms and conditions text and the vehicle's mileage on the printed proforma.
+- **End-of-day clock-out.** *End of working day: clock everybody out* on the Workshop screen (supervisor, manager) and, when `WORK_END` is set, automatically. A clock that started before the end time closes at the end time; one that started after it closes at midnight. Reason: *End of work day*.
+- **Technicians can search the stock** when asking for a part: the search runs on the server and shows part number, description and whether it is in stock, never prices or quantities.
+- **Lighter refresh.** The screens send the version of the stock list they have; the server sends the list again only when it changed. (The first load still sends the whole list: fine for a few thousand parts.)
+
+Not done, on purpose (say if you want them): one technician on a task and one clock per person are still the rule; no technician assignment, overtime entry or working-hours setup; no supplied-by, fuel and lubricants, miscellaneous, sublet or other-charge lines on the proforma; no automatic reminder to the customer when the next service is near; labour is still not recalculated from clocked hours.
+
 ## Proformas, clocking and editing a job card
 - **Insurance proforma (first-hand, before the job card).** *Proformas* screen -> *New proforma*: choose the customer and vehicle. It starts with the customer's insurance and the signed-in user as estimator. Set the **date**, the **estimator** (picked from the staff list with their role), the **insurance company** (from the registered list on the *Insurance* screen, or "None: the customer pays") and the policy number. Pick **labour tasks** (BP body & paints, ME mechanical, SV service) and **parts** from the lists: section, hours, cost and part price fill themselves and can be typed over. *Print proforma (A4)* works at any time (a draft prints marked DRAFT). *Issue proforma*, print it for the insurance, then *Create job card from this proforma*: the job card is created, the proforma becomes a **finalized estimate** loaded on it (stock parts leave stock then), and the proforma shows which job card it became. An issued proforma can still be edited until the job card is created.
 - **Who the invoice is made out to.** A job card created from an insurance proforma carries the insurance company and policy number, and the invoice (A4 proforma and POS receipt) says *Bill to: the insurance company* with the vehicle owner named. A job card made directly for the customer is billed to the customer, as before. The Service Advisor can change it on the job card (*Invoice made out to: Change*: the customer, or any registered insurance company with a policy number) until the invoice is issued; each change is written in the card's history.
@@ -85,7 +106,7 @@ Customers are `CUS-YYYYMMDD-0001`. Vehicles have Brand and Model. The job card d
 - **Clocking.** Body (BP) and mechanical (ME) tasks are clocked **one task at a time**. A Type A / B / C service is clocked **once for the whole package** (on its first line; completing it completes the package).
 - **Back to the workshop.** From *Received by SA* or *Closed* (before the invoice) the Service Advisor presses *Return to workshop*, adds tasks (from the labour list) and parts, and the workshop receives, clocks the new tasks and sends it back. While the vehicle is in the workshop the advisor cannot add labour.
 - **Editing a closed card.** Until the invoice is issued the advisor can still add labour (as a billing line, not clocked), issue or remove parts, change prices, and load another estimate. A task that was already clocked cannot be removed.
-- **Nothing is lost.** Proformas and estimates save as drafts by themselves about a second after you stop typing, and every change is also copied to this device at once. After a power cut or a closed tab, reopening the proforma or estimate restores what was typed, and it is saved when the server is reachable (the screen says "Not saved yet ... will try again"). Half-filled forms (new customer, new labour, new part, new job card) are kept the same way until they are submitted. Actions on a job card (add labour, issue a part, a status change) are saved by the server immediately.
+- **Nothing is lost.** Proformas and estimates save as drafts by themselves about a second after you stop typing, and every change is also copied to this device at once. After a power cut or a closed tab, reopening the proforma or estimate restores what was typed, and it is saved when the server is reachable (the screen says "Not saved yet ... will try again"). Half-filled forms (new customer, labour, part on a card, part request, insurer, labour task, new part, new job card, new vehicle, new estimate, new staff account) are kept the same way until they are submitted; the edit forms of an existing customer, vehicle or part are not. If the same proforma was saved from another PC after this PC's last edit, the newer server copy is opened instead of the older copy kept on this PC. Actions on a job card (add labour, issue a part, a status change) are saved by the server immediately.
 
 Existing databases are upgraded on start: the new columns and tables are added automatically (`npm run migrate` does it by hand).
 
@@ -126,7 +147,7 @@ When the Service Advisor closes a job card, the customer is told the vehicle is 
 
 ## Checks
 ```
-cd backend  && npm test                      # business rules, VAT, reports, phone numbers (no database needed)
+cd backend  && npm test                      # business rules, VAT, reports, price approval, waiting parts, end-of-day, search (no database needed)
 cd backend  && TEST_DATABASE_URL=mysql://user:pw@127.0.0.1:3306/mg_auto_test npm test
                                              # adds the end-to-end API test; use an empty throw-away database
 cd frontend && npm test                      # totals, invoice and voucher documents
