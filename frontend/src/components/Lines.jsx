@@ -3,7 +3,7 @@ import { SECTIONS, SECTION_CODE, sectionOption } from '../lib/constants.js';
 import { matchPart, money, rateOf } from '../lib/format.js';
 import PartSearch from './PartSearch.jsx';
 import TaskSearch from './TaskSearch.jsx';
-import { groupLines, groupTasks } from '../lib/labourGroups.js';
+import { groupLines, groupTasks, serviceGroups } from '../lib/labourGroups.js';
 
 const r2 = n => Math.round(n * 100) / 100;
 const num = v => parseFloat(v) || 0;
@@ -24,9 +24,9 @@ export const isListed = (tasks, groups) => {
 
 // Editable labour lines for a proforma or an estimate. Pick a task from the list (BP / ME / SV): its section, hours and cost fill themselves.
 // Or type any work by hand. Hours x labour rate fills a cost that is left empty; every cost can be typed over.
-export function LabourLines({ labs, setLabs, tasks, rate }) {
+export function LabourLines({ labs, setLabs, tasks, rate, services }) {
   const set = (i, patch) => setLabs(ls => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
-  const groups = groupTasks(tasks);
+  const groups = [...groupTasks(tasks), ...serviceGroups(services)];
   const singles = (tasks || []).filter(x => !x.task);
   // a task is chosen from the list (typing a letter shows the matches); a task name brings all its lines, which replace this line
   const picked = (i, h) => {

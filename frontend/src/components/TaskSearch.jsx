@@ -26,7 +26,7 @@ export function searchTasks(groups, singles, text, max = 40) {
     return total;
   };
   const out = [];
-  for (const g of groups) { const s = score([g.name, ...g.items.map(t => t.code)]); if (s) out.push({ kind: 'group', g, s: s + 5 }); }
+  for (const g of groups) { const s = score([g.name, g.code, ...g.items.map(t => t.code)]); if (s) out.push({ kind: 'group', g, s: s + 5 }); }
   for (const t of singles) { const s = score([t.code, t.name, t.model_grp, SECTION_CODE[t.section]]); if (s) out.push({ kind: 'task', t, s }); }
   return out.sort((a, b) => b.s - a.s).slice(0, max);
 }
@@ -64,7 +64,7 @@ export default function TaskSearch({ groups: allGroups, singles: allSingles, sec
           {hits.map((h, i) => (
             <li key={h.kind === 'group' ? 'g' + h.g.name : 't' + (h.t.id ?? h.t.code ?? h.t.name) + i} role="option" aria-selected={i === hi} className={i === hi ? 'on' : ''} onMouseDown={e => { e.preventDefault(); pick(h); }} onMouseEnter={() => setHi(i)}>
               {h.kind === 'group'
-                ? <><b>▤</b> <span>{h.g.name}</span><span className="ps-meta">{h.g.items.length} line{h.g.items.length === 1 ? '' : 's'} · {groupHours(h.g)} h</span></>
+                ? <><b>{h.g.service ? `Type ${h.g.code}` : '▤'}</b> <span>{h.g.name}{h.g.service ? ' · service package' : ''}</span><span className="ps-meta">{h.g.items.length} line{h.g.items.length === 1 ? '' : 's'} · {groupHours(h.g)} h</span></>
                 : <><b>{h.t.code || SECTION_CODE[h.t.section]}</b> <span>{h.t.name}{h.t.model_grp ? ' · ' + h.t.model_grp : ''}</span><span className="ps-meta">{SECTION_CODE[h.t.section]} · {h.t.hours || 0} h</span></>}
             </li>
           ))}

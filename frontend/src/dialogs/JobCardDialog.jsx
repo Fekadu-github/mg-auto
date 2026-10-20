@@ -3,7 +3,7 @@ import { api } from '../api.js';
 import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Pill, StatusPill, Table } from '../components/ui.jsx';
 import { isListed, taskDesc } from '../components/Lines.jsx';
-import { groupLines, groupTasks } from '../lib/labourGroups.js';
+import { groupLines, groupTasks, serviceGroups } from '../lib/labourGroups.js';
 import TaskSearch from '../components/TaskSearch.jsx';
 import PartSearch from '../components/PartSearch.jsx';
 import { usePersistedForm as useForm } from '../lib/autosave.js';
@@ -117,7 +117,7 @@ export default function JobCardDialog({ id }) {
       <Table head={['Work', 'Price', 'Time', '']} empty={!j.labours.length && 'No labour yet. Add the work to be done.'}>
         {j.labours.map(l => <LabourRow key={l.id} job={j} l={l} canClock={work && !l.done && me.role !== 'SA'} canStop={ws} canRemove={labourOpen && !(l.logs || []).length} priceOpen={priceOpen} mgr={mgr} />)}
       </Table>
-      {labourOpen && <LabourForm id={j.id} rate={db.cfg.labourRates || db.cfg.labourRate} known={knownLabour} late={['Back with SA', 'Closed'].includes(j.status)} />}
+      {labourOpen && <LabourForm id={j.id} rate={db.cfg.labourRates || db.cfg.labourRate} known={knownLabour} services={types} late={['Back with SA', 'Closed'].includes(j.status)} />}
 
       <h3 className="mt">Parts issued</h3>
       <Table head={['Part', 'Qty', 'Unit', 'Total', '']} empty={!j.parts.length && 'No parts issued.'}>
@@ -313,9 +313,9 @@ function LabourRow({ job: j, l, canClock, canStop, canRemove, priceOpen, mgr }) 
 // Pick a task from the labour list (BP / ME / SV): its section, hours and cost fill themselves. Or type any work and its hours.
 // The cost is hours x labour rate unless the task has a fixed price, and it can still be typed over.
 const groupLabelText = g => `▤ ${g.name}`;
-function LabourForm({ id, rate, known, late }) {
+function LabourForm({ id, rate, known, late, services }) {
   const { run, say } = useApp();
-  const groups = groupTasks(known);
+  const groups = [...groupTasks(known), ...serviceGroups(services)];
   const [f, bind, set, reset] = useForm(`form:${id}:labour`, { desc: '', section: '', hours: '', price: '' });
   const priceFor = (h, section = f.section) => r2((parseFloat(h) || 0) * rateOf(rate, section)) || '';   // hours x the rate of the section
   // A task picked by its name adds all its lines to the card, one after the other

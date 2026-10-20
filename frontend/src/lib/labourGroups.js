@@ -17,6 +17,12 @@ export const groupTasks = tasks => {
   return [...map.values()];
 };
 
+// The registered service types (Type A, B, C ...) as task groups of the "Regular Service" section: pick one and all its labour lines are added
+export const serviceGroups = types => (types || []).filter(t => t.active !== false && t.active !== 0 && (t.labours || []).length).map(t => ({
+  name: t.name, code: t.code, service: true,
+  items: t.labours.map(l => ({ name: l.desc, section: 'Regular Service', hours: l.hours, price: l.price }))
+}));
+
 export const groupHours = g => r2(g.items.reduce((a, t) => a + (+t.hours || 0), 0));
 export const groupCost = (g, rate) => r2(g.items.reduce((a, t) => a + (+t.price || (+t.hours || 0) * rateOf(rate, t.section)), 0));
 export const groupLabel = g => `▤ ${g.name} (${g.items.length} line${g.items.length === 1 ? '' : 's'})`;

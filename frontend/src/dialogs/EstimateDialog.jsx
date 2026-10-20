@@ -63,7 +63,7 @@ export default function EstimateDialog({ id, jid }) {
       {!draft && e.finalized_at && <p className="mu">Finalized {dt(e.finalized_at)}{e.by_name ? ` by ${e.by_name}` : ''}.{e.used_in ? ` Loaded on ${e.used_in}.` : ' Not loaded on a job card yet.'}</p>}
 
       <h3 className="mt">Labour</h3>
-      {edit ? <LabourLines labs={labs} setLabs={setLabs} tasks={db.lt} rate={rate} /> : (
+      {edit ? <LabourLines labs={labs} setLabs={setLabs} tasks={db.lt} services={db.st} rate={rate} /> : (
         <Table head={['Work', 'Section', { t: 'Hours', r: 1 }, { t: 'Cost', r: 1 }]} empty={!e.labours.length && 'No labour.'}>
           {e.labours.map((l, i) => <tr key={i}><td>{l.desc}</td><td>{SECTION_CODE[l.section] || ''}</td><td className="r">{l.hours || ''}</td><td className="r">{money(l.price)}</td></tr>)}
         </Table>
