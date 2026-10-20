@@ -666,7 +666,7 @@ export function createApp({ cfg, db, notifier }) {
         await c.q('UPDATE proformas SET cid = ?, vid = ? WHERE id = ?', [p.cid, p.vid, p.id]);
       }
       const [veh] = await c.q('SELECT mileage FROM vehicles WHERE id = ? AND cid = ?', [p.vid, p.cid]);
-      const km = rules.checkMileage(rules.cleanKm(q.body.mileage), veh?.mileage);
+      const km = rules.checkMileage(rules.cleanKm(q.body.mileage) ?? veh?.mileage ?? null, veh?.mileage);   // no reading typed: the vehicle's registered mileage is used
       const rates = await labourRates(c);
       const jid = await numberFor(c, 'job', 'TC-'), eid = String(p.id).startsWith('EST-') ? p.id : await numberFor(c, 'estimate', 'EST-');   // the proforma's own EST number becomes the estimate's
       const [ins] = p.insurer_id ? await c.q('SELECT name FROM insurers WHERE id = ?', [p.insurer_id]) : [];

@@ -31,6 +31,13 @@ export default function ProformaDialog({ id }) {
   const c = walkIn ? { name: f.guest_name, phone: f.guest_phone } : cust(p.cid), v = walkIn ? { plate: f.guest_plate, brand: f.guest_brand, model: f.guest_model } : veh(p.vid), rate = db.cfg.labourRates || db.cfg.labourRate, vat = db.cfg.vat, converted = p.status === 'Converted';
   const insurer = db.ins.find(x => x.id === f.insurer_id), estimator = db.staff.find(x => x.id === f.estimator_id);
   const set = patch => setF(s => ({ ...s, ...patch }));
+  // The vehicle whose registered mileage is used: the proforma's own vehicle, or the one chosen from the linked customer's vehicles (a walk-in's written vehicle has no reading yet)
+  const known = walkIn ? (ecid && evid ? db.v.find(x => x.id === evid) : null) : v, knownKm = known?.mileage ?? '';
+  const pickCustomer = id => {   // choosing the customer also chooses his vehicle: the one with the plate written here, or his only vehicle
+    const list = db.v.filter(x => x.cid === id), plate = f.guest_plate.trim().toLowerCase();
+    const match = list.find(x => plate && String(x.plate).toLowerCase() === plate) || (list.length === 1 ? list[0] : null);
+    setEcid(id); setEvid(match ? match.id : ''); setKm('');
+  };
   const setLabs = fn => setF(s => ({ ...s, labours: fn(s.labours) })), setParts = fn => setF(s => ({ ...s, parts: fn(s.parts) }));
   const t = tot({ labours: f.labours.map(l => ({ price: num(l.price) })), parts: f.parts.map(x => ({ qty: num(x.qty), price: num(x.price) })) }, vat);
   const saved = async () => { if (await flush()) return true; say('The proforma is not saved yet. Wait a moment and try again.'); return false; };
@@ -45,7 +52,7 @@ export default function ProformaDialog({ id }) {
   const issue = async () => { if (await saved()) await run(() => api(`/proformas/${id}/issue`, 'POST')); };
   const remove = async () => { if (!confirm(`Delete proforma ${id}?`)) return; const r = await run(() => api('/proformas/' + id, 'DELETE')); if (r.ok) closeModal(); };
   const makeJob = async () => {
-    const mileage = km2 !== '' ? km2 : v.mileage ?? '';
+    const mileage = km2 !== '' ? km2 : knownKm;
     if (mileage === '') return say('Enter the vehicle mileage (km).');
     const existing = walkIn && ecid ? db.c.find(x => x.id === ecid) : null;
     if (walkIn && !existing && (!f.guest_name.trim() || !f.guest_phone.trim() || !f.guest_plate.trim())) return say('To register him, write the customer name, phone and plate number first (or choose a customer already in the list).');
@@ -113,9 +120,9 @@ export default function ProformaDialog({ id }) {
 
       {open && p.status === 'Issued' && (
         <div className="row mt">
-          <Field label="Mileage now (km), for the job card" type="number" min="0" value={km2 !== '' ? km2 : v.mileage ?? ''} onChange={e => setKm(e.target.value)} />
-          {walkIn && <><Field label="Customer"><select value={ecid} onChange={e => { setEcid(e.target.value); setEvid(''); }}><option value="">New customer (use the details above)</option>{db.c.map(x => <option key={x.id} value={x.id}>{x.name} ({x.id})</option>)}</select></Field>
-            {ecid && <Field label="Vehicle"><select value={evid} onChange={e => setEvid(e.target.value)}><option value="">New vehicle (plate above)</option>{db.v.filter(x => x.cid === ecid).map(x => <option key={x.id} value={x.id}>{x.plate} · {vehicleName(x)}</option>)}</select></Field>}</>}
+          <Field label="Mileage now (km), for the job card" type="number" min="0" value={km2 !== '' ? km2 : knownKm} onChange={e => setKm(e.target.value)} />
+          {walkIn && <><Field label="Customer"><select value={ecid} onChange={e => pickCustomer(e.target.value)}><option value="">New customer (use the details above)</option>{db.c.map(x => <option key={x.id} value={x.id}>{x.name} ({x.id})</option>)}</select></Field>
+            {ecid && <Field label="Vehicle"><select value={evid} onChange={e => { setEvid(e.target.value); setKm(''); }}><option value="">New vehicle (plate above)</option>{db.v.filter(x => x.cid === ecid).map(x => <option key={x.id} value={x.id}>{x.plate} · {vehicleName(x)}</option>)}</select></Field>}</>}
           <Btn kind="gr" onClick={makeJob}>{walkIn ? (ecid ? 'Link customer and create job card' : 'Register customer and create job card') : 'Create job card from this proforma'}</Btn>
         </div>
       )}
