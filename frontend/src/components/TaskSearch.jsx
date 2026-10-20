@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { SECTION_CODE } from '../lib/constants.js';
 import { groupHours, groupLabel } from '../lib/labourGroups.js';
 
@@ -31,9 +32,12 @@ export function searchTasks(groups, singles, text, max = 40) {
 }
 
 // Search box for labour tasks. onPick({kind:'group'|'task', g|t}) runs when one is chosen (click, or arrow keys + Enter).
-export default function TaskSearch({ groups, singles, value, onChange, onPick, 'aria-label': aria = 'Labour task', placeholder = 'Type a letter: code or task name', invalid }) {
+export default function TaskSearch({ groups: allGroups, singles: allSingles, section, disabled, value, onChange, onPick, 'aria-label': aria = 'Labour task', placeholder = 'Type a letter: code or task name', invalid }) {
   const id = useId(), [open, setOpen] = useState(false), [hi, setHi] = useState(0), [rect, setRect] = useState(null), input = useRef(null);
   const text = String(value ?? '');
+  // only the tasks of the chosen section are listed (a task name with lines in several sections brings just this section's lines)
+  const groups = section ? allGroups.map(g => ({ ...g, items: g.items.filter(t => t.section === section) })).filter(g => g.items.length) : allGroups;
+  const singles = section ? allSingles.filter(t => t.section === section) : allSingles;
   const hits = open ? searchTasks(groups, singles, text) : [];
   const show = open && text.trim().length > 0;
   useEffect(() => {
@@ -52,10 +56,10 @@ export default function TaskSearch({ groups, singles, value, onChange, onPick, '
   };
   return (
     <div className="ps">
-      <input id={id} ref={input} role="combobox" aria-expanded={show} aria-controls={id + '-l'} aria-autocomplete="list" aria-label={aria} aria-invalid={invalid || undefined} autoComplete="off"
-        placeholder={placeholder} value={text} style={invalid ? { borderColor: 'var(--rd)' } : undefined}
+      <input id={id} ref={input} role="combobox" aria-expanded={show} aria-controls={id + '-l'} aria-autocomplete="list" aria-label={aria} aria-invalid={invalid || undefined} autoComplete="off" disabled={disabled}
+        placeholder={disabled ? 'Choose the section first' : placeholder} value={text} style={invalid ? { borderColor: 'var(--rd)' } : undefined}
         onChange={e => { onChange(e.target.value); setOpen(true); setHi(0); }} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} onKeyDown={keys} />
-      {show && rect && (
+      {show && rect && createPortal(
         <ul className="ps-list" id={id + '-l'} role="listbox" style={{ left: rect.left, top: rect.top, width: rect.width }}>
           {hits.map((h, i) => (
             <li key={h.kind === 'group' ? 'g' + h.g.name : 't' + (h.t.id ?? h.t.code ?? h.t.name) + i} role="option" aria-selected={i === hi} className={i === hi ? 'on' : ''} onMouseDown={e => { e.preventDefault(); pick(h); }} onMouseEnter={() => setHi(i)}>
@@ -65,7 +69,8 @@ export default function TaskSearch({ groups, singles, value, onChange, onPick, '
             </li>
           ))}
           {!hits.length && <li className="ps-none" onMouseDown={e => e.preventDefault()}>No labour task matches “{text.trim()}”. Add it in the Labour list first.</li>}
-        </ul>
+        </ul>,
+        input.current?.closest('dialog') || document.body
       )}
     </div>
   );

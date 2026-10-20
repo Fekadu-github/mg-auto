@@ -37,18 +37,18 @@ export function LabourLines({ labs, setLabs, tasks, rate }) {
   const listed = isListed(tasks, groups);
   return (
     <>
-      <Table head={['Task (type a letter of the code or task name)', 'Section', 'Hours', 'Cost (ETB)', '']} empty={!labs.length && 'No labour yet.'}>
+      <Table head={['Task (choose the section first, then type a letter)', 'Section', 'Hours', 'Cost (ETB)', '']} empty={!labs.length && 'No labour yet.'}>
         {labs.map((l, i) => (
           <tr key={i}>
-            <td style={{ minWidth: 300 }}><TaskSearch groups={groups} singles={singles} value={l.desc} onChange={text => set(i, { desc: text })} onPick={h => picked(i, h)} invalid={!!l.desc?.trim() && !listed(l.desc)} />{!!l.desc?.trim() && !listed(l.desc) && <div className="small" style={{ color: 'var(--rd)' }}>Choose a task from the list.</div>}</td>
-            <td>{sectionOption(l.section || 'Mechanical Repairs')}</td>
-            <td><input aria-label="Hours" type="number" min="0" step="0.25" style={{ width: 90 }} value={l.hours ?? ''} onChange={x => set(i, { hours: x.target.value, price: r2(num(x.target.value) * rateOf(rate, l.section || 'Mechanical Repairs')) || '' })} /></td>
+            <td style={{ minWidth: 300 }}><TaskSearch groups={groups} singles={singles} section={l.section} disabled={!l.section} value={l.desc} onChange={text => set(i, { desc: text })} onPick={h => picked(i, h)} invalid={!!l.desc?.trim() && !listed(l.desc)} />{!!l.desc?.trim() && !listed(l.desc) && <div className="small" style={{ color: 'var(--rd)' }}>Choose a task from the list.</div>}</td>
+            <td><select aria-label="Section" value={l.section || ''} onChange={x => set(i, { section: x.target.value, desc: '', hours: '', price: '' })} style={{ width: 'auto' }}>{!l.section && <option value="">Choose section…</option>}{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></td>
+            <td><input aria-label="Hours" type="number" min="0" step="0.25" style={{ width: 90 }} value={l.hours ?? ''} onChange={x => set(i, { hours: x.target.value, price: r2(num(x.target.value) * rateOf(rate, l.section)) || '' })} /></td>
             <td><input aria-label="Labour cost" type="number" min="0" step="any" style={{ width: 120 }} value={l.price ?? ''} onChange={x => set(i, { price: x.target.value })} /></td>
             <td><Btn kind="ol" onClick={() => setLabs(ls => ls.filter((_, k) => k !== i))}>Remove</Btn></td>
           </tr>
         ))}
       </Table>
-      <div className="mt"><Btn kind="ol" onClick={() => setLabs(ls => [...ls, { desc: '', section: 'Mechanical Repairs', hours: '', price: '' }])}>Add labour line</Btn> <span className="mu small">Hours x the section's rate ({SECTIONS.map(s => `${SECTION_CODE[s]} ${rateOf(rate, s)}`).join(' · ')} ETB/h) fills the cost; type another amount to change it.</span></div>
+      <div className="mt"><Btn kind="ol" onClick={() => setLabs(ls => [...ls, { desc: '', section: '', hours: '', price: '' }])}>Add labour line</Btn> <span className="mu small">Hours x the section's rate ({SECTIONS.map(s => `${SECTION_CODE[s]} ${rateOf(rate, s)}`).join(' · ')} ETB/h) fills the cost; type another amount to change it.</span></div>
     </>
   );
 }

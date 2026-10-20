@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import mysql from 'mysql2/promise';
 import { splitSql, ROLE_ENUM, lacksManagerRole } from './sql.js';
 import { DEFAULT_LABOUR, DEFAULT_SERVICES } from './services.js';
+import { DEFAULT_INSURERS } from './insurers.seed.js';
 
 // Connection settings: DATABASE_URL (mysql://user:pass@host:3306/name) or DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME.
 // DB_SSL=true turns on TLS (needed by most hosted MySQL services); DB_SSL_CA may hold the provider's CA certificate (PEM text).
@@ -85,6 +86,7 @@ export function createDb(env = process.env) {
     const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM service_types');
     const [[{ m }]] = await pool.query('SELECT COUNT(*) AS m FROM labour_tasks');
     if (!m) for (const t of DEFAULT_LABOUR) await pool.query('INSERT IGNORE INTO labour_tasks (id, name, section, hours, price) VALUES (UUID(),?,?,?,?)', [t.name, t.section, t.hours, t.price]);
+    for (const i of DEFAULT_INSURERS) await pool.query('INSERT IGNORE INTO insurers (id, name, phone, active) VALUES (UUID(),?,?,1)', [i.name, i.phone]);   // the contact directory's companies; INSERT IGNORE skips a name already there
     if (!n) for (const t of DEFAULT_SERVICES) await pool.query('INSERT IGNORE INTO service_types (code, name, interval_km, labours, parts, active) VALUES (?,?,?,?,?,1)', [t.code, t.name, t.interval_km, JSON.stringify(t.labours), JSON.stringify(t.parts)]);
   }
 

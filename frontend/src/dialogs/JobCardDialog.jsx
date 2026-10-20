@@ -316,7 +316,7 @@ const groupLabelText = g => `▤ ${g.name}`;
 function LabourForm({ id, rate, known, late }) {
   const { run, say } = useApp();
   const groups = groupTasks(known);
-  const [f, bind, set, reset] = useForm(`form:${id}:labour`, { desc: '', section: SECTIONS[1], hours: '', price: '' });
+  const [f, bind, set, reset] = useForm(`form:${id}:labour`, { desc: '', section: '', hours: '', price: '' });
   const priceFor = (h, section = f.section) => r2((parseFloat(h) || 0) * rateOf(rate, section)) || '';   // hours x the rate of the section
   // A task picked by its name adds all its lines to the card, one after the other
   const addGroup = async g => {
@@ -334,6 +334,7 @@ function LabourForm({ id, rate, known, late }) {
   };
   const chosen = !!f.desc.trim() && isListed(known, groups)(f.desc);
   const add = async () => {
+    if (!f.section) return say?.('Choose the section first.');
     if (!f.desc.trim()) return;
     if (!chosen) return say?.('Choose the labour task from the list: type a letter of its code or name and pick one.');
     const r = await run(() => post(id, '/labour', { desc: f.desc, section: f.section, price: parseFloat(f.price) || 0, hours: parseFloat(f.hours) || 0 }));
@@ -342,14 +343,14 @@ function LabourForm({ id, rate, known, late }) {
   return (
     <>
       <div className="row mt">
-        <div style={{ flex: '3 1 260px' }}><label>Labour task (type a letter of the code or task name)<TaskSearch groups={groups} singles={singles} value={f.desc} onChange={text => set({ desc: text })} onPick={picked} invalid={!!f.desc.trim() && !chosen} /></label></div>
-        <Field label="Section"><input readOnly value={sectionOption(f.section)} /></Field>
+        <div style={{ flex: '3 1 260px' }}><label>Labour task (type a letter of the code or task name)<TaskSearch groups={groups} singles={singles} section={f.section} disabled={!f.section} value={f.desc} onChange={text => set({ desc: text })} onPick={picked} invalid={!!f.desc.trim() && !chosen} /></label></div>
+        <Field label="Section (choose first)"><select value={f.section} onChange={e => set({ section: e.target.value, desc: '', hours: '', price: '' })}>{!f.section && <option value="">Choose section…</option>}{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
         <Field label="Hours" type="number" min="0" step="0.25" value={f.hours} onChange={e => set({ hours: e.target.value, price: priceFor(e.target.value) })} />
         <Field label={`Labour cost (ETB) · ${rateOf(rate, f.section)}/h`} type="number" min="0" {...bind('price')} />
         <Btn onClick={add}>Add labour</Btn>
       </div>
       <div className="mu small">
-        {f.price ? `Labour cost: ETB ${money(f.price)}${f.hours ? ` (${f.hours} h x ${rateOf(rate, f.section)})` : ''}. Type another amount to change it.` : 'Type a letter and pick a task from the list (▤ adds all its lines); its section, hours and cost fill themselves.'}
+        {f.price ? `Labour cost: ETB ${money(f.price)}${f.hours ? ` (${f.hours} h x ${rateOf(rate, f.section)})` : ''}. Type another amount to change it.` : 'Choose the section, then type a letter and pick a task from the list (▤ adds all its lines); its section, hours and cost fill themselves.'}
         {late && ' The card is not in the workshop: this is added as a billing line. To have it done, return the card to the workshop first.'}
       </div>
     </>

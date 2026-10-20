@@ -8,7 +8,7 @@ import { ROLES, SECTIONS, isAdmin, isMgr, isSA, isTech } from '../lib/constants.
 import { InsuranceFields } from '../dialogs/Dialogs.jsx';
 import { SECTION_CODE, sectionOption } from '../lib/constants.js';
 import { usePersistedForm } from '../lib/autosave.js';
-import { downloadXlsx, readXlsx } from '../lib/xlsx.js';
+import { downloadXlsx, readXlsx, rowsToObjects } from '../lib/xlsx.js';
 import { groupCost, groupHours, groupTasks } from '../lib/labourGroups.js';
 import { activeClock, dt, downloadCsv, jobTotals, km, money, rateOf, tot, today, vehicleName } from '../lib/format.js';
 
@@ -124,9 +124,22 @@ export function Insurance() {
   const sa = isSA(me);
   const [f, bind, , reset] = usePersistedForm('form:new-insurer', { name: '', phone: '' });
   const add = async () => { if (!f.name.trim()) return alert('Enter the company name.'); const r = await run(() => api('/insurers', 'POST', f)); if (r.ok) reset(); };
+  // Excel: the first row holds the headers. Company name = "Insurance company" / "Company" / "Name"; phone = "Telephone" / "Phone". Companies already in the list are skipped.
+  const importFile = async e => {
+    const file = e.target.files?.[0]; e.target.value = '';
+    if (!file) return;
+    let rows;
+    try { rows = rowsToObjects(await readXlsx(await file.arrayBuffer())); } catch (x) { return alert(x.message || 'This file could not be read. Use an .xlsx file.'); }
+    const pick = (r, names) => { const k = Object.keys(r).find(h => names.some(n => h.toLowerCase().includes(n))); return k ? String(r[k]).trim() : ''; };
+    const list = rows.map(r => ({ name: pick(r, ['insurance company', 'company', 'name']), phone: pick(r, ['telephone', 'phone', 'tel']) })).filter(r => r.name);
+    if (!list.length) return alert('No company found. The first row must have a column named "Insurance company" (or Company / Name) and optionally "Telephone".');
+    const r = await run(() => api('/insurers/import', 'POST', { rows: list }));
+    if (r.ok) alert(`${r.data.added} company(ies) added, ${r.data.skipped} already in the list.`);
+  };
   return (
     <>
-      {sa && <div className="box mt"><h3>New insurance company</h3><div className="row"><Field label="Company name" grow="3 1 200px" {...bind('name')} /><Field label="Phone" {...bind('phone')} /><Btn onClick={add}>Save company</Btn></div></div>}
+      {sa && <div className="box mt"><h3>New insurance company</h3><div className="row"><Field label="Company name" grow="3 1 200px" {...bind('name')} /><Field label="Phone" {...bind('phone')} /><Btn onClick={add}>Save company</Btn></div>
+        <div className="row mt"><label className="btn ol" style={{ cursor: 'pointer' }}>Import from Excel<input type="file" accept=".xlsx" hidden onChange={importFile} /></label><span className="mu small">First row = headers: "Insurance company" and "Telephone". Companies already in the list are skipped.</span></div></div>}
       <div className="mt"><Table head={['Company', 'Phone', 'Customers', '']} empty={!db.ins.length && 'No insurance companies yet.'}>
         {db.ins.map(i => <tr key={i.id}><td><b>{i.name}</b></td><td>{i.phone}</td><td>{db.c.filter(c => c.insurer_id === i.id).length}</td><td className="acts">{sa && <Btn kind="ol" onClick={() => openModal('insurer', { id: i.id })}>Edit</Btn>}</td></tr>)}
       </Table></div>

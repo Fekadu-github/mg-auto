@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../api.js';
 import { searchParts } from '../lib/search.js';
 import { money } from '../lib/format.js';
@@ -44,7 +45,7 @@ export default function PartSearch({ label, stock, remote, value, onChange, onPi
   return (
     <div className="ps" style={grow ? { flex: grow } : undefined}>
       {label ? <label htmlFor={id}>{label}<span className="ps-in">{field}</span></label> : field}
-      {show && rect && (
+      {show && rect && createPortal(
         <ul className="ps-list" id={id + '-l'} role="listbox" style={{ left: rect.left, top: rect.top, width: rect.width }}>
           {hits.map((p, i) => (
             <li key={p.id} role="option" aria-selected={i === hi} className={i === hi ? 'on' : ''} onMouseDown={e => { e.preventDefault(); pick(p); }} onMouseEnter={() => setHi(i)}>
@@ -56,7 +57,8 @@ export default function PartSearch({ label, stock, remote, value, onChange, onPi
           {!hits.length && !searching && (
             <li className="ps-none" onMouseDown={e => e.preventDefault()}>No part matches “{text.trim()}”.{onMissing && <> <button type="button" className="lnk" onMouseDown={e => { e.preventDefault(); setOpen(false); onMissing(text.trim()); }}>Record as lost sale</button></>}</li>
           )}
-        </ul>
+        </ul>,
+        input.current?.closest('dialog') || document.body
       )}
     </div>
   );

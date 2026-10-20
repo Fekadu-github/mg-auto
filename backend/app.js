@@ -451,6 +451,19 @@ export function createApp({ cfg, db, notifier }) {
     await db.q('INSERT INTO insurers (id, name, phone, active) VALUES (?,?,?,1)', [id, f.name, f.phone]);
     s.json({ id, name: f.name, phone: f.phone });
   }));
+  // Excel import: rows of { name, phone }. A company already registered (same name) is skipped; nothing is changed or deleted.
+  app.post('/api/insurers/import', auth('SA'), wrap(async (q, s) => {
+    const rows = Array.isArray(q.body.rows) ? q.body.rows.slice(0, 2000) : [];
+    if (!rows.length) fail(400, 'The file has no insurance companies');
+    let added = 0, skipped = 0;
+    for (const r of rows) {
+      const name = str(r?.name, 160), phone = str(r?.phone, 30);
+      if (!name) continue;
+      const res = await db.q('INSERT IGNORE INTO insurers (id, name, phone, active) VALUES (?,?,?,1)', [newId(), name, phone]);
+      if (res.affectedRows) added++; else skipped++;
+    }
+    s.json({ added, skipped });
+  }));
   app.put('/api/insurers/:id', auth('SA'), wrap(async (q, s) => {
     const f = insForm(q.body);
     if ((await db.q('SELECT id FROM insurers WHERE name = ? AND id <> ?', [f.name, q.params.id])).length) fail(409, 'This insurance company is already registered');
