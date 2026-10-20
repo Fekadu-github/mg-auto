@@ -498,12 +498,14 @@ export function createApp({ cfg, db, notifier }) {
       if (!(await db.q('SELECT id FROM customers WHERE id = ?', [cid])).length || !(await db.q('SELECT id FROM vehicles WHERE id = ? AND cid = ?', [vid, cid])).length) fail(400, 'Vehicle does not belong to this customer');
     } else {
       guest = { name: str(q.body.guest_name, 120), phone: str(q.body.guest_phone, 30), plate: str(q.body.guest_plate, 30), brand: str(q.body.guest_brand, 40), model: str(q.body.guest_model, 60) };
-      if (!guest.name && !guest.plate) fail(400, 'Write the customer name or the plate number');
     }
+    // an estimation can start with nothing but the insurance company
+    const insId = !cid && q.body.insurer_id ? str(q.body.insurer_id, 36) : '';
+    if (insId && !(await db.q('SELECT id FROM insurers WHERE id = ?', [insId])).length) fail(400, 'Choose an insurance company from the list');
     const id = await db.tx(async c => {
       const id = await numberFor(c, 'estimate', 'EST-');   // one number: the proforma keeps it when it becomes the estimate
       await c.q('INSERT INTO proformas (id, cid, vid, guest_name, guest_phone, guest_plate, guest_brand, guest_model, insurer_id, policy_no, estimator_id, estimator, estimator_role, pdate, note, status, labours, parts, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))',
-        [id, cid || null, vid || null, guest.name, guest.phone, guest.plate, guest.brand, guest.model, cu.insurer_id || null, cu.policy_no || '', q.u.id, q.u.name, q.u.role, dayKey(Date.now()), str(q.body.note, 500), 'Draft', '[]', '[]']);   // starts with the customer's own insurance and the signed-in user as estimator
+        [id, cid || null, vid || null, guest.name, guest.phone, guest.plate, guest.brand, guest.model, cu.insurer_id || insId || null, cu.policy_no || '', q.u.id, q.u.name, q.u.role, dayKey(Date.now()), str(q.body.note, 500), 'Draft', '[]', '[]']);   // starts with the customer's own insurance and the signed-in user as estimator
       return id;
     });
     s.json(proRow((await db.q('SELECT * FROM proformas WHERE id = ?', [id]))[0]));

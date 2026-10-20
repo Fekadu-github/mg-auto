@@ -22,7 +22,7 @@ export default function ProformaDialog({ id }) {
   const open = !!p && p.status !== 'Converted' && isSA(me);
   const [init] = useState(() => restoreDraft('pro:' + id, fromServer, p?.updated ? Date.parse(p.updated) : 0));   // a copy on this PC older than the server's is dropped
   const [f, setF] = useState(() => (init.value ? { ...init.value, labours: init.value.labours.map(l => ({ ...l })), parts: init.value.parts.map(x => ({ ...x })) } : null));
-  const [km2, setKm] = useState('');
+  const [km2, setKm] = useState(''), [ecid, setEcid] = useState(''), [evid, setEvid] = useState('');
   const { state, flush } = useAutosave('pro:' + id, f, { enabled: open && !!f, startDirty: init.restored, save: async v => { await api('/proformas/' + id, 'PUT', v); refresh().catch(() => {}); } });
   if (!p || !f) return <Dialog title="Proforma" onClose={closeModal}><p className="mu">This proforma no longer exists.</p></Dialog>;
 
@@ -45,10 +45,12 @@ export default function ProformaDialog({ id }) {
   const makeJob = async () => {
     const mileage = km2 !== '' ? km2 : v.mileage ?? '';
     if (mileage === '') return say('Enter the vehicle mileage (km).');
-    if (walkIn && (!f.guest_name.trim() || !f.guest_phone.trim() || !f.guest_plate.trim())) return say('To register him, write the customer name, phone and plate number first.');
-    if (!confirm(`${walkIn ? `Register ${f.guest_name} (${f.guest_plate}) as a new customer and create` : 'Create'} the job card from ${id}?\n\nIts labour and parts are loaded on the job card (stock parts leave stock now) and ${id} becomes the job card's estimate.`)) return;
+    const existing = walkIn && ecid ? db.c.find(x => x.id === ecid) : null;
+    if (walkIn && !existing && (!f.guest_name.trim() || !f.guest_phone.trim() || !f.guest_plate.trim())) return say('To register him, write the customer name, phone and plate number first (or choose a customer already in the list).');
+    if (existing && !evid && !f.guest_plate.trim()) return say('Choose his vehicle, or write the plate number to register a new one.');
+    if (!confirm(`${walkIn ? (existing ? `Link to customer ${existing.name} and create` : `Register ${f.guest_name} (${f.guest_plate}) as a new customer and create`) : 'Create'} the job card from ${id}?\n\nIts labour and parts are loaded on the job card (stock parts leave stock now) and ${id} becomes the job card's estimate.`)) return;
     if (!(await saved())) return;
-    const r = await run(() => api(`/proformas/${id}/convert`, 'POST', { mileage: parseFloat(mileage) }));
+    const r = await run(() => api(`/proformas/${id}/convert`, 'POST', { mileage: parseFloat(mileage), ...(existing ? { cid: existing.id, ...(evid ? { vid: evid } : {}) } : {}) }));
     if (r.ok) openModal('job', { id: r.data.job });
   };
 
@@ -110,7 +112,9 @@ export default function ProformaDialog({ id }) {
       {open && p.status === 'Issued' && (
         <div className="row mt">
           <Field label="Mileage now (km), for the job card" type="number" min="0" value={km2 !== '' ? km2 : v.mileage ?? ''} onChange={e => setKm(e.target.value)} />
-          <Btn kind="gr" onClick={makeJob}>{walkIn ? 'Register customer and create job card' : 'Create job card from this proforma'}</Btn>
+          {walkIn && <><Field label="Customer"><select value={ecid} onChange={e => { setEcid(e.target.value); setEvid(''); }}><option value="">New customer (use the details above)</option>{db.c.map(x => <option key={x.id} value={x.id}>{x.name} ({x.id})</option>)}</select></Field>
+            {ecid && <Field label="Vehicle"><select value={evid} onChange={e => setEvid(e.target.value)}><option value="">New vehicle (plate above)</option>{db.v.filter(x => x.cid === ecid).map(x => <option key={x.id} value={x.id}>{x.plate} · {vehicleName(x)}</option>)}</select></Field>}</>}
+          <Btn kind="gr" onClick={makeJob}>{walkIn ? (ecid ? 'Link customer and create job card' : 'Register customer and create job card') : 'Create job card from this proforma'}</Btn>
         </div>
       )}
       <div className="row mt">
@@ -119,7 +123,7 @@ export default function ProformaDialog({ id }) {
         {open && p.status === 'Draft' && <Btn kind="ol" onClick={remove}>Delete draft</Btn>}
         {converted && <Btn kind="ol" onClick={() => openModal('job', { id: p.job })}>Open job card {p.job}</Btn>}
       </div>
-      {open && p.status === 'Draft' && <p className="mu small">Issue it when the estimator and the lines are final, print it for the insurance, then create the job card. An issued proforma can still be edited until the job card is created.</p>}
+      {open && p.status === 'Draft' && <p className="mu small">Issue it when the estimator and the lines are final (or once the insurance company accepts the printed draft), then add the customer and create the job card. An issued proforma can still be edited until the job card is created.</p>}
     </Dialog>
   );
 }

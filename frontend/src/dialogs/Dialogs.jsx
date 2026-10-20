@@ -119,14 +119,14 @@ export function TelegramDialog({ id }) {
 // and is registered only when he returns, agrees, and the job card is created. It opens as a draft that saves itself.
 export function NewProformaDialog() {
   const { db, run, openModal, closeModal } = useApp();
-  const [f, , set] = usePersistedForm('form:new-proforma', { mode: 'walkin', cid: db.c[0]?.id || '', vid: '', guest_name: '', guest_phone: '', guest_plate: '', guest_brand: '', guest_model: '' });
+  const [f, , set] = usePersistedForm('form:new-proforma', { mode: 'walkin', cid: db.c[0]?.id || '', vid: '', guest_name: '', guest_phone: '', guest_plate: '', guest_brand: '', guest_model: '', insurer_id: '' });
   const walk = f.mode !== 'reg';
   const cid = db.c.some(c => c.id === f.cid) ? f.cid : db.c[0]?.id || '';
   const vehicles = db.v.filter(v => v.cid === cid), vid = vehicles.some(v => v.id === f.vid) ? f.vid : vehicles[0]?.id || '';
-  const ok = walk ? !!(f.guest_name.trim() || f.guest_plate.trim()) : !!vid;
+  const ok = walk ? true : !!vid;   // a walk-in needs nothing: the estimation number and the insurance company are enough to start
   const create = async () => {
     if (!ok) return;
-    const body = walk ? { guest_name: f.guest_name, guest_phone: f.guest_phone, guest_plate: f.guest_plate, guest_brand: f.guest_brand, guest_model: f.guest_model } : { cid, vid };
+    const body = walk ? { guest_name: f.guest_name, guest_phone: f.guest_phone, guest_plate: f.guest_plate, guest_brand: f.guest_brand, guest_model: f.guest_model, insurer_id: f.insurer_id } : { cid, vid };
     const r = await run(() => api('/proformas', 'POST', body));
     if (r.ok) { set({ vid: '', guest_name: '', guest_phone: '', guest_plate: '', guest_brand: '', guest_model: '' }); openModal('proforma', { id: r.data.id }); }
   };
@@ -146,7 +146,8 @@ export function NewProformaDialog() {
           <Field label="Brand" value={f.guest_brand} onChange={e => set({ guest_brand: e.target.value })} />
           <Field label="Model" value={f.guest_model} onChange={e => set({ guest_model: e.target.value })} />
         </div>
-        <p className="mu small">No registration needed. Make the estimation, print it and give it to the customer (for example to take to his insurance). When he comes back and agrees, you register him and create the job card from this same estimation.</p>
+        <div className="row"><Field label="Insurance company"><select value={f.insurer_id} onChange={e => set({ insurer_id: e.target.value })}><option value="">Choose later</option>{db.ins.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field></div>
+        <p className="mu small">All customer fields are optional. No registration needed. Make the estimation, print it and give it to the customer (for example to take to his insurance). When he comes back and agrees, you register him and create the job card from this same estimation.</p>
       </> : <>
         <div className="row mt">
           <Field label="Customer (profile and insurance are taken from it)"><select value={cid} onChange={e => set({ cid: e.target.value, vid: '' })}>{db.c.map(c => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}</select></Field>
