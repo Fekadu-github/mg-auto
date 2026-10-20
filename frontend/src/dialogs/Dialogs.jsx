@@ -8,6 +8,7 @@ import { dt, km, vehicleName } from '../lib/format.js';
 import { SECTION_CODE, SECTIONS, sectionOption } from '../lib/constants.js';
 import { usePersistedForm } from '../lib/autosave.js';
 import { suggestService } from '../lib/services.js';
+import EstimatePicker, { EstimatePreview } from '../components/EstimatePicker.jsx';
 import JobCardDialog from './JobCardDialog.jsx';
 import EstimateDialog from './EstimateDialog.jsx';
 import ProformaDialog from './ProformaDialog.jsx';
@@ -19,27 +20,36 @@ export const NotifySelect = ({ bind }) => (
 
 export function NewJobDialog() {
   const { db, run, openModal, closeModal } = useApp();
-  const [f, bind, set, reset] = usePersistedForm('form:new-job', { cid: db.c[0]?.id || '', vid: '', note: '', km: '' });
+  const [f, bind, set, reset] = usePersistedForm('form:new-job', { cid: db.c[0]?.id || '', vid: '', note: '', km: '', est: '' });
   const vehicles = db.v.filter(v => v.cid === f.cid), cur = vehicles.find(v => v.id === f.vid) || vehicles[0], vid = cur?.id || '';
   const kmShown = f.km !== '' ? f.km : cur?.mileage ?? '';                       // the vehicle's last mileage until the advisor types the reading
   const sug = kmShown !== '' ? suggestService(cur, +kmShown, db.st) : null;
+  // Finalized estimates still waiting for a job card: made for this vehicle, or made before any customer was registered
+  const ready = db.e.filter(e => e.status === 'Finalized' && !e.used_in && (!e.vid || e.vid === vid));
+  const typed = String(f.est || '').trim(), picked = ready.find(e => e.id.toUpperCase() === typed.toUpperCase());
   const create = async () => {
     if (!vid) return;
     if (kmShown === '') return alert('Enter the vehicle mileage (km).');
-    const r = await run(() => api('/jobs', 'POST', { cid: f.cid, vid, note: f.note, mileage: parseFloat(kmShown) }));
+    if (typed && !picked) return alert(`${typed} is not a finalized estimate for this vehicle. Pick one from the list, or clear the box to create the job card without an estimate.`);
+    const r = await run(() => api('/jobs', 'POST', { cid: f.cid, vid, note: f.note, mileage: parseFloat(kmShown), ...(picked ? { est: picked.id } : {}) }));
     if (r.ok) { reset(); openModal('job', { id: r.data.id }); }
   };
   return (
     <Dialog title="New job card" onClose={closeModal} actions={<><Btn onClick={create} disabled={!vid}>Create job card</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
       <div className="row mt">
-        <Field label="Customer"><select value={f.cid} onChange={e => set({ cid: e.target.value, vid: '', km: '' })}>{db.c.map(c => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}</select></Field>
-        <Field label="Vehicle"><select value={vid} onChange={e => set({ vid: e.target.value, km: '' })}>
+        <Field label="Customer"><select value={f.cid} onChange={e => set({ cid: e.target.value, vid: '', km: '', est: '' })}>{db.c.map(c => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}</select></Field>
+        <Field label="Vehicle"><select value={vid} onChange={e => set({ vid: e.target.value, km: '', est: '' })}>
           {vehicles.length ? vehicles.map(v => <option key={v.id} value={v.id}>{v.plate} · {vehicleName(v)}</option>) : <option value="">No vehicle – add one in Customers</option>}
         </select></Field>
         <Field label="Mileage now (km)" type="number" min="0" value={kmShown} onChange={e => set({ km: e.target.value })} />
       </div>
       {cur && <div className="mu small">{cur.mileage != null ? `Last recorded: ${km(cur.mileage)}. ` : 'No mileage recorded yet. '}{sug ? `Service suggestion: ${sug.name} (due at ${km(sug.km)}).` : ''}</div>}
       <Field label="Customer complaint / notes" {...bind('note')} />
+      <div className="mt">
+        <EstimatePicker label="Finalized estimate (optional)" estimates={ready} value={f.est || ''} onChange={x => set({ est: x })} onPick={e => set({ est: e.id })} />
+        <div className="mu small">Type a letter or number and the finalized estimates appear. Pick one and its labour and parts are listed here and added to the new job card automatically. Leave it empty to add labour and parts by hand.</div>
+      </div>
+      {picked && <><EstimatePreview est={picked} /><div className="mu small">Parts from stock leave stock when the job card is created; a part that is short waits for stock.</div></>}
     </Dialog>
   );
 }

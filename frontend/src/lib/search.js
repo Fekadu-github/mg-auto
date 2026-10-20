@@ -12,3 +12,23 @@ export function searchParts(stock, text, limit = 8) {
   }
   return hits.sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)).slice(0, limit).map(h => h[2]);
 }
+
+// Find a finalized estimate by typing: one letter is enough. "e" lists every EST number, "12" finds EST-0012, and words of the damage note,
+// the customer's name or the plate work too ("toy 12" finds the Toyota's estimate whose number holds 12). Number matches come first, then newest first.
+// `who(e)` gives the extra text to search (customer name and plate).
+export function searchEstimates(list, text, who = () => '', limit = 8) {
+  const toks = String(text || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const words = s => s.split(/[^a-z0-9]+/).filter(Boolean);
+  const out = [];
+  (list || []).forEach((e, idx) => {
+    const id = String(e.id).toLowerCase(), other = `${who(e) || ''} ${e.note || ''}`.toLowerCase(), ow = words(other);
+    let score = 0;
+    for (const t of toks) {
+      const s = id.startsWith(t) ? 100 : id.replace(/^est-0*/, '').startsWith(t) ? 90 : id.includes(t) ? 60 : ow.some(w => w.startsWith(t)) ? 40 : t.length > 2 && other.includes(t) ? 20 : 0;
+      if (!s) return;
+      score += s;
+    }
+    out.push([score, idx, e]);
+  });
+  return out.sort((a, b) => b[0] - a[0] || a[1] - b[1]).slice(0, limit).map(x => x[2]);
+}

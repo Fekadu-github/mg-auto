@@ -222,15 +222,26 @@ export function createApp({ cfg, db, notifier }) {
     const [veh] = await db.q('SELECT id, mileage FROM vehicles WHERE id = ? AND cid = ?', [vid, cid]);
     if (!veh) fail(400, 'Vehicle does not belong to this customer');
     const km = rules.checkMileage(rules.cleanKm(q.body.mileage), veh.mileage);
+    const estNo = str(q.body.est, 40);   // optional: a finalized estimate chosen while creating the card; its labour and parts come onto the new card at once
     const id = await db.tx(async c => {
       const id = await numberFor(c, 'job', 'TC-');
       await c.q('INSERT INTO jobs (id, cid, vid, note, status, created, labours, parts, inv, `log`, mileage, services, est, requests) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3), ?, ?, NULL, ?, ?, ?, NULL, ?)',
         [id, cid, vid, str(q.body.note, 500), 'Created', '[]', '[]', sendJson([{ s: 'Created', t: Date.now(), by: q.u.name }]), km, '[]', '[]']);
+      if (estNo) {   // a problem with the estimate (draft, used, another vehicle) undoes the card too, so nothing is half-created
+        const [row] = await c.q('SELECT * FROM jobs WHERE id = ? FOR UPDATE', [id]);
+        const j = jobRow(row);
+        await loadEstimateOn(j, c, q.u, estNo);
+        await saveJob(c, j);
+      }
       return id;
     });
     s.json(jobRow((await db.q('SELECT * FROM jobs WHERE id = ?', [id]))[0]));
   }));
 
+  // Write the whole job card back (used by every change to a card, and by the card's creation when an estimate is chosen with it)
+  const saveJob = (c, j) => c.q('UPDATE jobs SET labours = ?, parts = ?, status = ?, inv = ?, `log` = ?, mileage = ?, services = ?, est = ?, requests = ?, payer = ?, policy_no = ?, mileage_out = ?, claim_no = ?, due_date = ?, priority = ?, price_reqs = ? WHERE id = ?',
+    [sendJson(j.labours), sendJson(j.parts), j.status, j.inv ? sendJson(j.inv) : null, sendJson(j.log), j.mileage, sendJson(j.services || []), j.est || null, sendJson(j.requests || []), j.payer || null, j.policy_no || null,
+      j.mileage_out ?? null, j.claim_no || null, j.due_date || null, j.priority || null, sendJson(j.price_reqs || []), j.id]);
   // Lock the job row, let fn change it, save it, commit. Everything fn does to stock and counters is in the same transaction,
   // so a failure anywhere undoes all of it and two people changing the same card at once simply take turns.
   // fn(j, ctx) may push callbacks into ctx.after; they run once the change is committed.
@@ -240,9 +251,7 @@ export function createApp({ cfg, db, notifier }) {
       if (!row) fail(404, 'Job card not found');
       const j = jobRow(row), after = [];
       await fn(j, { q, c, u: q.u, body: q.body, params: q.params, after });
-      await c.q('UPDATE jobs SET labours = ?, parts = ?, status = ?, inv = ?, `log` = ?, mileage = ?, services = ?, est = ?, requests = ?, payer = ?, policy_no = ?, mileage_out = ?, claim_no = ?, due_date = ?, priority = ?, price_reqs = ? WHERE id = ?',
-        [sendJson(j.labours), sendJson(j.parts), j.status, j.inv ? sendJson(j.inv) : null, sendJson(j.log), j.mileage, sendJson(j.services || []), j.est || null, sendJson(j.requests || []), j.payer || null, j.policy_no || null,
-          j.mileage_out ?? null, j.claim_no || null, j.due_date || null, j.priority || null, sendJson(j.price_reqs || []), j.id]);
+      await saveJob(c, j);
       return { saved: j, after };
     });
     after.forEach(f => Promise.resolve(f(saved)).catch(e => console.error(e.message)));
@@ -341,9 +350,11 @@ export function createApp({ cfg, db, notifier }) {
     j.log.push({ s: 'Service added', t: Date.now(), by: u.name, note: t.name });
   }));
 
-  // Load a finalized estimate (by its number) on the card: all its labour and parts at the estimate's prices
-  app.post('/api/jobs/:id/estimate', ...edit(['SA'], async (j, { body, c, u }) => {
-    const [row] = await c.q('SELECT * FROM estimates WHERE id = ? FOR UPDATE', [str(body.no, 40).toUpperCase()]);
+  // Bring a finalized estimate (by its number) onto a job card: all its labour and parts at the estimate's prices. Used from the card's Labour section
+  // and when the card is created with an estimate chosen. An estimate made before any customer was registered takes this card's customer and vehicle.
+  // Its proforma (same EST number), if there is one, is closed with it and its insurance details (bill-to, policy, claim, delivery date, priority) move to the card.
+  const loadEstimateOn = async (j, c, u, no) => {
+    const [row] = await c.q('SELECT * FROM estimates WHERE id = ? FOR UPDATE', [str(no, 40).toUpperCase()]);
     const e = estRow(row);
     rules.checkEstimateImport(j, e);
     const rates = await labourRates(c);
@@ -353,9 +364,20 @@ export function createApp({ cfg, db, notifier }) {
     }
     for (const p of e.parts) await issueLine(j, p, c, u, { waiting: true });   // a part that is short waits for stock instead of stopping the whole load
     j.est = e.id;
-    await c.q('UPDATE estimates SET used_in = ? WHERE id = ?', [j.id, e.id]);
+    const [pr] = await c.q('SELECT * FROM proformas WHERE id = ? FOR UPDATE', [e.id]);
+    if (pr && pr.status !== 'Converted') {
+      const p = proRow(pr);
+      const [ins] = p.insurer_id ? await c.q('SELECT name FROM insurers WHERE id = ?', [p.insurer_id]) : [];
+      if (ins) { j.payer = ins.name; j.policy_no = p.policy_no || null; }
+      if (p.claim_no) j.claim_no = p.claim_no;
+      if (p.due_date) j.due_date = p.due_date;
+      if (p.priority) j.priority = p.priority;
+      await c.q("UPDATE proformas SET status = 'Converted', est = ?, job = ?, cid = ?, vid = ?, updated = UTC_TIMESTAMP(3) WHERE id = ?", [e.id, j.id, j.cid, j.vid, e.id]);
+    }
+    await c.q('UPDATE estimates SET used_in = ?, cid = ?, vid = ?, pro = COALESCE(pro, ?) WHERE id = ?', [j.id, j.cid, j.vid, pr ? e.id : null, e.id]);
     j.log.push({ s: 'Estimate loaded', t: Date.now(), by: u.name, note: e.id });
-  }));
+  };
+  app.post('/api/jobs/:id/estimate', ...edit(['SA'], (j, { body, c, u }) => loadEstimateOn(j, c, u, body.no)));
 
   // Additional parts: the workshop asks, only the Service Advisor issues (the stock and the price are the Service Advisor's)
   app.post('/api/jobs/:id/requests', ...edit(['TECH', 'WS'], async (j, { body, c, u }) => {
@@ -429,8 +451,21 @@ export function createApp({ cfg, db, notifier }) {
     s.json(saved);
   })];
   app.put('/api/estimates/:id', ...estEdit(async (e, { c, body }) => { rules.assertDraft(e); Object.assign(e, rules.normalizeEstimate(body, await labourRates(c), await catalogue(c))); }));
-  app.post('/api/estimates/:id/finalize', ...estEdit((e, { u }) => { rules.checkFinalize(e); if (!e.cid) fail(400, 'This estimate has no customer yet. Make a proforma from it (by its number); the customer is added when the job card is created.'); e.status = 'Finalized'; e.finalized_at = new Date(); e.by_name = u.name; }));
-  app.post('/api/estimates/:id/draft', ...estEdit(e => { rules.checkReopen(e); e.status = 'Draft'; e.finalized_at = null; e.by_name = null; }));
+  // An estimate and the proforma made from it share one EST number and are one document: finalizing the estimate finalizes (issues) its proforma
+  // with the estimate's lines, and moving the estimate back to draft moves the proforma back too. A customer is not needed: it is added when the job card is made.
+  app.post('/api/estimates/:id/finalize', ...estEdit(async (e, { c, u }) => {
+    rules.checkFinalize(e);
+    e.status = 'Finalized'; e.finalized_at = new Date(); e.by_name = u.name;
+    const [pr] = await c.q('SELECT status, estimator FROM proformas WHERE id = ? FOR UPDATE', [e.id]);
+    if (pr && pr.status !== 'Converted') {
+      await c.q("UPDATE proformas SET labours = ?, parts = ?, note = ?, status = 'Issued', updated = UTC_TIMESTAMP(3) WHERE id = ?", [sendJson(e.labours), sendJson(e.parts), e.note, e.id]);
+      await c.q('UPDATE estimates SET pro = ? WHERE id = ?', [e.id, e.id]);
+    }
+  }));
+  app.post('/api/estimates/:id/draft', ...estEdit(async (e, { c }) => {
+    rules.checkReopen(e); e.status = 'Draft'; e.finalized_at = null; e.by_name = null;
+    await c.q("UPDATE proformas SET status = 'Draft', updated = UTC_TIMESTAMP(3) WHERE id = ? AND status = 'Issued'", [e.id]);
+  }));
   app.delete('/api/estimates/:id', auth('SA'), wrap(async (q, s) => {
     await db.tx(async c => {
       const [row] = await c.q('SELECT * FROM estimates WHERE id = ? FOR UPDATE', [q.params.id]);
@@ -571,8 +606,20 @@ export function createApp({ cfg, db, notifier }) {
       if (!u) fail(400, 'Choose the estimator from the list (a technician cannot be the estimator)');
       Object.assign(p, { estimator_id: u.id, estimator: u.name, estimator_role: u.role });
     }
+    // once finalized, the proforma and its estimate stay one document: a change to the proforma's lines goes to the estimate too (until it is on a job card)
+    if (p.status === 'Issued') await c.q("UPDATE estimates SET note = ?, labours = ?, parts = ? WHERE id = ? AND status = 'Finalized' AND used_in IS NULL", [p.note, sendJson(p.labours), sendJson(p.parts), p.id]);
   }));
-  app.post('/api/proformas/:id/issue', ...proEdit(p => { rules.checkProformaIssue(p); p.status = 'Issued'; }));
+  // Finalizing (issuing) the proforma finalizes its estimate, the same EST number: the estimate is made now when only the proforma existed,
+  // so it can be fetched by number when the job card is created. A walk-in's estimate has no customer or vehicle until then.
+  app.post('/api/proformas/:id/issue', ...proEdit(async (p, { c, u }) => {
+    rules.checkProformaIssue(p); p.status = 'Issued';
+    if (!String(p.id).startsWith('EST-')) return;
+    const [er] = await c.q('SELECT used_in FROM estimates WHERE id = ? FOR UPDATE', [p.id]);
+    if (!er) await c.q('INSERT INTO estimates (id, cid, vid, note, status, labours, parts, created, finalized_at, by_name, pro) VALUES (?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), ?, ?)',
+      [p.id, p.cid, p.vid, p.note, 'Finalized', sendJson(p.labours), sendJson(p.parts), p.estimator || u.name, p.id]);
+    else if (!er.used_in) await c.q("UPDATE estimates SET cid = COALESCE(cid, ?), vid = COALESCE(vid, ?), note = ?, status = 'Finalized', labours = ?, parts = ?, finalized_at = COALESCE(finalized_at, UTC_TIMESTAMP(3)), by_name = COALESCE(by_name, ?), pro = ? WHERE id = ?",
+      [p.cid, p.vid, p.note, sendJson(p.labours), sendJson(p.parts), p.estimator || u.name, p.id, p.id]);
+  }));
   app.delete('/api/proformas/:id', auth('SA'), wrap(async (q, s) => {
     await db.tx(async c => {
       const [row] = await c.q('SELECT status FROM proformas WHERE id = ? FOR UPDATE', [q.params.id]);
@@ -589,6 +636,8 @@ export function createApp({ cfg, db, notifier }) {
       if (!row) fail(404, 'Proforma not found');
       const p = proRow(row);
       rules.checkConvert(p);
+      const [lnk] = await c.q('SELECT used_in FROM estimates WHERE id = ? FOR UPDATE', [p.id]);
+      if (lnk?.used_in) fail(409, `${p.id} is already loaded on job card ${lnk.used_in}`);   // its estimate was put on a job card directly: never load it twice
       // He came back and agreed: only now is a walk-in registered (or linked to a customer who already exists), and the proforma moves to him
       if (!p.cid) {
         const km0 = rules.cleanKm(q.body.mileage);

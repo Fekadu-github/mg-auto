@@ -310,7 +310,7 @@ export function checkEstimateImport(j, e) {
   if (j.inv || !LABOUR_OPEN.includes(j.status)) fail(409, 'An estimate can only be loaded while the vehicle is not in the workshop, and before the invoice');
   if (e.status !== 'Finalized') fail(409, `${e.id} is still a draft. Finalize it first.`);
   if (e.used_in) fail(409, `${e.id} is already loaded on ${e.used_in}`);
-  if (e.vid !== j.vid) fail(409, `${e.id} was made for a different vehicle`);
+  if (e.vid && e.vid !== j.vid) fail(409, `${e.id} was made for a different vehicle`);   // an estimate made before the customer was registered has no vehicle yet: it takes this card's
 }
 
 // ---- first-hand (insurance) proforma: made before any job card; creating the job card turns it into a finalized estimate ----

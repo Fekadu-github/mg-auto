@@ -16,10 +16,10 @@ export const PAGE_INFO = {
   dash: ['Garage today', 'Today in the garage: what is waiting to be dispatched, in the workshop, ready to close, or waiting for hand-over.'],
   jobs: ['Job cards', 'Every job card from creation to delivery. Open one to dispatch it, clock labour, issue parts, close it and invoice.'],
   shop: ['Workshop', 'Job cards sent to the workshop and the technicians who are clocked in now.'],
-  pro: ['Insurance proformas', 'Estimations made before the job card, for walk-ins (no registration needed) or registered customers: estimator, insurance, labour and parts. Everything saves by itself. When the customer returns and agrees, he is registered and the job card is created from the issued proforma.'],
+  pro: ['Insurance proformas', 'Estimations made before the job card, for walk-ins (no registration needed) or registered customers: estimator, insurance, labour and parts. Everything saves by itself. Finalize the proforma (or its estimate: they share one EST number and finalize together). When the customer returns and agrees, the job card is created from the finalized proforma, or the estimate is picked when a job card is created.'],
   ins: ['Insurance companies', 'The registered insurance companies. Pick one on a customer profile or on a proforma.'],
   lab: ['Labour list', 'The labour tasks (BP body & paints, ME mechanical) that are picked on proformas, estimates and job cards. Hours x labour rate gives the cost, unless a fixed price is set.'],
-  est: ['Estimates', 'Body & Paints estimates. A draft can be changed; a finalized estimate is locked and is loaded on a job card by its number.'],
+  est: ['Estimates', 'Body & Paints estimates. A draft can be changed; Finalize locks it (and finalizes the proforma made from it). A finalized estimate is picked by its number when a job card is created.'],
   svc: ['Services', 'Type A, B and C services: how often they are due and the labour and parts each one adds to a job card.'],
   cust: ['Customers', 'Customers and their vehicles. These details feed every job card.'],
   inv: ['Parts stock', 'Part numbers, prices and quantities. Cost and price are set by the manager (price = cost x 1.3 unless changed). Every stock change is kept in the part’s history.'],
@@ -111,7 +111,7 @@ export function Proformas() {
         {list.map(p => (
           <tr key={p.id} className="k" tabIndex={0} onClick={() => openModal('proforma', { id: p.id })} onKeyDown={x => x.key === 'Enter' && openModal('proforma', { id: p.id })}>
             <td><b>{p.id}</b></td><td>{p.pdate}</td><td>{who(p) || <span className="mu">-</span>}{!p.cid && <> <Pill tone="a">not registered</Pill></>}</td><td>{plate(p)}</td><td>{db.ins.find(i => i.id === p.insurer_id)?.name || <span className="mu">customer pays</span>}</td>
-            <td>{p.estimator}</td><td><Pill tone={p.status === 'Draft' ? 'a' : 'g'}>{p.status === 'Converted' ? `→ ${p.job}` : p.status}</Pill></td><td className="r">{money(tot(p, db.cfg.vat).total)}</td>
+            <td>{p.estimator}</td><td><Pill tone={p.status === 'Draft' ? 'a' : 'g'}>{p.status === 'Converted' ? `→ ${p.job}` : p.status === 'Issued' ? 'Finalized' : p.status}</Pill></td><td className="r">{money(tot(p, db.cfg.vat).total)}</td>
           </tr>
         ))}
       </Table></div>

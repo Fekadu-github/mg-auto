@@ -10,6 +10,7 @@ import { usePrint } from '../print/PrintHost.jsx';
 import ProformaDoc from '../print/ProformaDoc.jsx';
 
 const r2 = n => Math.round(n * 100) / 100;
+const STATUS_LABEL = { Draft: 'Draft', Issued: 'Finalized' };   // the stored status is Issued; the screens say Finalized
 const num = v => parseFloat(v) || 0;
 
 // The first-hand (insurance) proforma, made before any job card. Everything auto-saves as you type (and a copy stays on this device),
@@ -40,6 +41,7 @@ export default function ProformaDialog({ id }) {
     labours: f.labours.filter(l => l.desc?.trim()).map(l => ({ ...l, price: num(l.price) || r2(num(l.hours) * rateOf(rate, l.section)) })), parts: f.parts.filter(x => x.name?.trim())
   });
   const printIt = async () => { if (open && !(await saved())) return; print(<ProformaDoc pro={doc()} customer={c} vehicle={v} insurer={insurer} walkIn={walkIn} garage={db.cfg.garage} vat={vat} roleName={r => ROLES[r] || r} />, 'a4'); };
+  const linkedEst = db.e.find(x => x.id === id);   // the estimate with the same EST number
   const issue = async () => { if (await saved()) await run(() => api(`/proformas/${id}/issue`, 'POST')); };
   const remove = async () => { if (!confirm(`Delete proforma ${id}?`)) return; const r = await run(() => api('/proformas/' + id, 'DELETE')); if (r.ok) closeModal(); };
   const makeJob = async () => {
@@ -55,7 +57,7 @@ export default function ProformaDialog({ id }) {
   };
 
   return (
-    <Dialog title={<>{p.id} <Pill tone={p.status === 'Draft' ? 'a' : 'g'}>{p.status === 'Converted' ? `became ${p.job}` : p.status}</Pill></>} onClose={closeModal}>
+    <Dialog title={<>{p.id} <Pill tone={p.status === 'Draft' ? 'a' : 'g'}>{p.status === 'Converted' ? `became ${p.job}` : STATUS_LABEL[p.status] || p.status}</Pill></>} onClose={closeModal}>
       {walkIn && open ? <>
         <div className="box"><Pill tone="a">Not registered</Pill> <span className="mu small">Customer and vehicle are written here only. He is registered when you create the job card.</span></div>
         <div className="row mt">
@@ -119,11 +121,11 @@ export default function ProformaDialog({ id }) {
       )}
       <div className="row mt">
         <Btn kind={p.status === 'Draft' ? 'ol' : ''} onClick={printIt}>Print proforma (A4)</Btn>
-        {open && p.status === 'Draft' && <Btn kind="gr" onClick={issue}>Issue proforma</Btn>}
+        {open && p.status === 'Draft' && <Btn kind="gr" onClick={issue}>Finalize proforma</Btn>}
         {open && p.status === 'Draft' && <Btn kind="ol" onClick={remove}>Delete draft</Btn>}
         {converted && <Btn kind="ol" onClick={() => openModal('job', { id: p.job })}>Open job card {p.job}</Btn>}
       </div>
-      {open && p.status === 'Draft' && <p className="mu small">Issue it when the estimator and the lines are final (or once the insurance company accepts the printed draft), then add the customer and create the job card. An issued proforma can still be edited until the job card is created.</p>}
+      {open && p.status === 'Draft' && <p className="mu small">Finalize it when the estimator and the lines are final (or once the insurance company accepts the printed draft){linkedEst ? <>; estimate {id} is finalized with it</> : ''}. {linkedEst?.status === 'Draft' ? 'It also becomes finalized by itself when estimate ' + id + ' is finalized. ' : ''}Then pick the estimate when the job card is created, or add the customer and create the job card here. A finalized proforma can still be edited until the job card is created.</p>}
     </Dialog>
   );
 }

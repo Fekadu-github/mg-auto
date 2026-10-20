@@ -48,6 +48,7 @@ export default function EstimateDialog({ id, jid }) {
   // An estimate made from a proforma prints that proforma's insurance company, claim and policy; a walk-in's name and vehicle come from the proforma too
   const src = e.pro ? db.pr.find(x => x.id === e.pro) : null, srcIns = src?.insurer_id ? db.ins.find(x => x.id === src.insurer_id) : undefined, walkIn = !e.cid;
   const docC = walkIn && src ? { name: src.guest_name, phone: src.guest_phone } : c, docV = walkIn && src ? { plate: src.guest_plate, brand: src.guest_brand, model: src.guest_model } : v;
+  const linked = db.pr.find(x => x.id === e.id && x.status !== 'Converted');   // the proforma made from this estimate (same EST number)
   const printIt = async () => { if (await ready()) print(<EstimateDoc est={doc()} customer={docC} vehicle={docV} pro={src} insurer={srcIns} walkIn={walkIn} garage={db.cfg.garage} vat={vat} />, 'a4'); };
   const download = async () => { if (await ready()) downloadXlsx(`${e.id}-${e.status.toLowerCase()}.xlsx`, estimateRows(doc(), { customer: c, vehicle: v, vat }), 'Estimate'); };
   const save = async () => { if (!(await flush())) say('The draft is not saved yet. Wait a moment and try again.'); };
@@ -59,7 +60,7 @@ export default function EstimateDialog({ id, jid }) {
   return (
     <Dialog title={<>{e.id} <Pill tone={draft ? 'a' : 'g'}>{e.status}</Pill></>} onClose={closeModal}>
       <div className="g g2">
-        {e.cid ? <div className="box"><b>{c.name}</b> <span className="mu">{c.id}</span><br />{c.phone}</div> : <div className="box"><Pill tone="a">No customer yet</Pill><br /><span className="mu small">Call this estimate by its number ({e.id}) in Proformas. The customer is added when the job card is created.</span></div>}
+        {e.cid ? <div className="box"><b>{c.name}</b> <span className="mu">{c.id}</span><br />{c.phone}</div> : <div className="box"><Pill tone="a">No customer yet</Pill><br /><span className="mu small">Finalize it, then pick it by its number ({e.id}) when the job card is created: the customer and vehicle are added then.</span></div>}
         <div className="box">{e.vid ? <><b>{v.plate}</b> · {vehicleName(v)}</> : <span className="mu">No vehicle yet</span>}<br /><span className="mu">Body &amp; Paints estimate · made {dt(e.created)}</span></div>
       </div>
       {edit ? <Field label="Damage / work description" value={note} onChange={x => setNote(x.target.value)} /> : e.note && <p className="mu">Notes: {e.note}</p>}
@@ -83,14 +84,15 @@ export default function EstimateDialog({ id, jid }) {
       <div className="row mt">
         <Btn kind="ol" onClick={printIt}>Print estimate (A4)</Btn>
         <Btn kind="ol" onClick={download}>Download (Excel)</Btn>
-        {edit && <><Btn onClick={save}>Save now</Btn>{e.cid && <Btn kind="gr" onClick={finalize}>Finalize estimate</Btn>}<Btn kind="ol" onClick={remove}>Delete draft</Btn></>}
+        {edit && <><Btn onClick={save}>Save now</Btn><Btn kind="gr" onClick={finalize}>Finalize estimate</Btn><Btn kind="ol" onClick={remove}>Delete draft</Btn></>}
         {isAdmin(me) && !draft && !e.used_in && <Btn kind="ol" onClick={remove}>Delete estimate</Btn>}
-        {sa && !draft && !e.used_in && jc && jc.status === 'Created' && !jc.est && jc.vid === e.vid && <Btn kind="gr" onClick={loadOnJob}>Load on {jid}</Btn>}
+        {sa && !draft && !e.used_in && jc && jc.status === 'Created' && !jc.est && (!e.vid || jc.vid === e.vid) && <Btn kind="gr" onClick={loadOnJob}>Load on {jid}</Btn>}
         {sa && !draft && !e.used_in && <Btn kind="ol" onClick={reopen}>Back to draft</Btn>}
         {jid && <Btn kind="ol" onClick={() => openModal('job', { id: jid })}>Back to job card {jid}</Btn>}
       </div>
       {edit && <div className="mt"><SaveState state={state} restored={init.restored} /></div>}
-      {edit && <p className="mu small">Finalize locks the estimate. A finalized estimate is loaded on a job card by typing its number in the Labour section (Body &amp; Paints).</p>}
+      {edit && <p className="mu small">Finalize locks the estimate{linked ? <>, and its proforma {e.id} is finalized with it (same lines)</> : ''}. A finalized estimate is picked by its number when the job card is created, or in the job card's Labour section (type a letter and the list appears).</p>}
+      {!draft && linked && <p className="mu small">Its proforma {e.id} is {linked.status === 'Issued' ? 'finalized' : 'still a draft'}. <button type="button" className="lnk" onClick={() => openModal('proforma', { id: e.id })}>Open proforma</button></p>}
     </Dialog>
   );
 }

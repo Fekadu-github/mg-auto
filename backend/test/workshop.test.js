@@ -115,6 +115,13 @@ test('loading an estimate by its number: finalized, unused, same vehicle, card n
   for (const status of ['Dispatched', 'Back with SA', 'Closed']) R.checkEstimateImport(job({ status, est: 'EST-0' }), e);   // a second estimate may follow
 });
 
+test('a finalized estimate made before any customer was registered (no vehicle yet) can be loaded on any card', () => {
+  const e = { id: 'EST-7', cid: null, vid: null, status: 'Finalized', used_in: null };
+  R.checkEstimateImport(job(), e);
+  assert.throws(() => R.checkEstimateImport(job(), { ...e, status: 'Draft' }), err(409, /still a draft/));
+  assert.throws(() => R.checkEstimateImport(job(), { ...e, used_in: 'TC-2' }), err(409, /already loaded on TC-2/));
+});
+
 // ---- 6. additional parts: the workshop asks, the Service Advisor issues ----
 test('part requests: asked in the workshop, settled once, and they block closing until the Service Advisor answers', () => {
   const j = job({ status: 'Dispatched' });

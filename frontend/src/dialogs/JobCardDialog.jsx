@@ -6,6 +6,7 @@ import { isListed, taskDesc } from '../components/Lines.jsx';
 import { groupLines, groupTasks, serviceGroups, tasksForVehicle } from '../lib/labourGroups.js';
 import TaskSearch from '../components/TaskSearch.jsx';
 import PartSearch from '../components/PartSearch.jsx';
+import EstimatePicker, { EstimatePreview } from '../components/EstimatePicker.jsx';
 import { usePersistedForm as useForm } from '../lib/autosave.js';
 import { CLOCK_REASONS, SECTIONS, SECTION_CODE, STATUSES, STATUS_NAME, isAdmin, isMgr, isSA, isTech, isWS, sectionOption } from '../lib/constants.js';
 import { activeClock, dt, jobTotals, km, labourHours, lastDoc, matchPart, money, pct, rateOf, vehicleName } from '../lib/format.js';
@@ -258,7 +259,8 @@ function EstimateLoader({ job: j, estimates }) {
   const { run, openModal, say } = useApp();
   const [no, setNo] = useState('');
   if (j.est) return <p className="mu">Estimate <b>{j.est}</b> is loaded on this card: its labour and parts are listed below.</p>;
-  const mine = estimates.filter(e => e.vid === j.vid), ready = mine.filter(e => e.status === 'Finalized' && !e.used_in), drafts = mine.filter(e => e.status === 'Draft');
+  const mine = estimates.filter(e => e.vid === j.vid), ready = estimates.filter(e => e.status === 'Finalized' && !e.used_in && (!e.vid || e.vid === j.vid)), drafts = mine.filter(e => e.status === 'Draft');   // an estimate made before the customer was registered can be loaded too
+  const picked = ready.find(e => e.id.toUpperCase() === no.trim().toUpperCase());
   const load = async () => {
     if (!no.trim()) return say('Type or pick an estimate number first.');
     const r = await run(() => post(j.id, '/estimate', { no: no.trim() }));
@@ -269,12 +271,12 @@ function EstimateLoader({ job: j, estimates }) {
     <div className="box">
       <b>Body &amp; Paints: load an estimate</b>
       <div className="row mt">
-        <Field label="Estimate number" grow="2 1 220px" list="est-list" autoComplete="off" placeholder="EST-…" value={no} onChange={e => setNo(e.target.value)} />
+        <EstimatePicker label="Estimate number" grow="2 1 220px" estimates={ready} value={no} onChange={setNo} onPick={e => setNo(e.id)} />
         <Btn onClick={load}>Load estimate</Btn><Btn kind="ol" onClick={create}>New estimate for this vehicle</Btn>
       </div>
-      <datalist id="est-list">{ready.map(e => <option key={e.id} value={e.id}>{e.note}</option>)}</datalist>
+      {picked && <EstimatePreview est={picked} />}
       <div className="mu small">
-        Loads every labour and part line of a finalized estimate, at the estimate's prices. Or leave this empty and add labour and parts by hand below.
+        Type a letter or number to see the finalized estimates. Loads every labour and part line of the one you pick, at the estimate's prices. Or leave this empty and add labour and parts by hand below.
         {drafts.length > 0 && <> Still draft: {drafts.map((d, i) => <span key={d.id}>{i > 0 && ', '}<button type="button" className="lnk" onClick={() => openModal('estimate', { id: d.id, jid: j.id })}>{d.id}</button></span>)}.</>}
       </div>
     </div>
