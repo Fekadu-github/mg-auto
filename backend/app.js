@@ -127,15 +127,31 @@ export function createApp({ cfg, db, notifier }) {
     if (!r.affectedRows && !(await customer(q.params.id))) fail(404, 'Customer not found');   // MySQL counts "matched but unchanged" as 0 affected rows
     s.json({ ok: true });
   }));
-  // Administrator only. A customer with job cards, estimates or proformas keeps them (they are records), so he cannot be deleted
+  // Administrator only. Deleting a job card puts its issued parts back in stock, frees the estimate / proforma that was loaded on it,
+  // and removes its payments and notifications.
+  const dropJob = async (c, id, by) => {
+    const [j] = await c.q('SELECT id, parts FROM jobs WHERE id = ? FOR UPDATE', [id]);
+    if (!j) return false;
+    for (const p of J(j.parts, [])) if (p.pid && !p.waiting && +p.qty > 0) await adjustStock(c, p.pid, +p.qty, 'Job card deleted', id, by, '');
+    await c.q('UPDATE estimates SET used_in = NULL WHERE used_in = ?', [id]);
+    await c.q('UPDATE proformas SET job = NULL WHERE job = ?', [id]);
+    await c.q("DELETE FROM payments WHERE source = 'job' AND ref = ?", [id]);
+    await c.q('DELETE FROM notifications WHERE job = ?', [id]);
+    await c.q('DELETE FROM jobs WHERE id = ?', [id]);
+    return true;
+  };
+  app.delete('/api/jobs/:id', auth('ADMIN'), wrap(async (q, s) => {
+    await db.tx(async c => { if (!(await dropJob(c, q.params.id, q.u.name))) fail(404, 'Job card not found'); });
+    s.json({ ok: true });
+  }));
+  // Administrator only. Deletes the customer together with his job cards, estimates, proformas and vehicles.
   app.delete('/api/customers/:id', auth('ADMIN'), wrap(async (q, s) => {
     await db.tx(async c => {
       const [cu] = await c.q('SELECT id FROM customers WHERE id = ? FOR UPDATE', [q.params.id]);
       if (!cu) fail(404, 'Customer not found');
-      for (const [t, n] of [['jobs', 'job cards'], ['estimates', 'estimates'], ['proformas', 'proformas']]) {
-        const [r] = await c.q(`SELECT COUNT(*) AS n FROM ${t} WHERE cid = ?`, [q.params.id]);
-        if (r.n > 0) fail(409, `This customer has ${r.n} ${n}. Delete or finish those first; records with a customer cannot be removed.`);
-      }
+      for (const j of await c.q('SELECT id FROM jobs WHERE cid = ?', [q.params.id])) await dropJob(c, j.id, q.u.name);
+      await c.q('DELETE FROM estimates WHERE cid = ?', [q.params.id]);
+      await c.q('DELETE FROM proformas WHERE cid = ?', [q.params.id]);
       await c.q('DELETE FROM vehicles WHERE cid = ?', [q.params.id]);
       await c.q('DELETE FROM customers WHERE id = ?', [q.params.id]);
     });

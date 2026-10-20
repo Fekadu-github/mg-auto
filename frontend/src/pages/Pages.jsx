@@ -32,12 +32,13 @@ export const PAGE_INFO = {
 };
 
 function JobTable({ list }) {
-  const { db, cust, veh, openModal } = useApp();
+  const { db, me, run, cust, veh, openModal } = useApp();
+  const del = async j => { if (confirm(`Delete job card ${j.id}?\nParts issued on it go back to stock. This cannot be undone.`)) await run(() => api('/jobs/' + j.id, 'DELETE')); };
   return (
-    <Table head={['Job card', 'Customer', 'Vehicle', 'Status', { t: 'Total', r: 1 }]} empty={!list.length && 'Nothing here yet.'}>
+    <Table head={['Job card', 'Customer', 'Vehicle', 'Status', { t: 'Total', r: 1 }, ...(isAdmin(me) ? [''] : [])]} empty={!list.length && 'Nothing here yet.'}>
       {list.map(j => (
         <tr key={j.id} className="k" tabIndex={0} onClick={() => openModal('job', { id: j.id })} onKeyDown={e => e.key === 'Enter' && openModal('job', { id: j.id })}>
-          <td><b>{j.id}</b></td><td>{cust(j.cid).name}</td><td>{veh(j.vid).plate} {vehicleName(veh(j.vid))}</td><td><StatusPill status={j.status} /></td><td className="r">{money(jobTotals(j, db.cfg.vat).total)}</td>
+          <td><b>{j.id}</b></td><td>{cust(j.cid).name}</td><td>{veh(j.vid).plate} {vehicleName(veh(j.vid))}</td><td><StatusPill status={j.status} /></td><td className="r">{money(jobTotals(j, db.cfg.vat).total)}</td>{isAdmin(me) && <td className="acts" onClick={e => e.stopPropagation()}><Btn kind="ol" onClick={() => del(j)}>Delete</Btn></td>}
         </tr>
       ))}
     </Table>
@@ -251,7 +252,7 @@ export function Customers() {
   const { db, me, run, openModal } = useApp();
   const sa = isSA(me);
   const [f, bind, , reset] = usePersistedForm('form:new-customer', { name: '', phone: '', city: 'Addis Ababa', sub: '', woreda: '', house: '', dob: '', notify: 'both', insurer_id: '', policy_no: '', tin: '' });
-  const delCustomer = async c => { if (confirm(`Delete customer ${c.name} (${c.id}) and his vehicles?\nThis cannot be undone.`)) await run(() => api('/customers/' + c.id, 'DELETE')); };
+  const delCustomer = async c => { if (confirm(`Delete customer ${c.name} (${c.id}) with ALL his vehicles, job cards, estimates and proformas?\nParts issued on his job cards go back to stock. This cannot be undone.`)) await run(() => api('/customers/' + c.id, 'DELETE')); };
   const add = async () => {
     if (!f.name.trim() || !f.phone.trim()) return alert('Name and phone are required.');
     const r = await run(() => api('/customers', 'POST', { ...f, dob: f.dob || null }));

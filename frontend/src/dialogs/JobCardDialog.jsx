@@ -7,7 +7,7 @@ import { groupLines, groupTasks } from '../lib/labourGroups.js';
 import TaskSearch from '../components/TaskSearch.jsx';
 import PartSearch from '../components/PartSearch.jsx';
 import { usePersistedForm as useForm } from '../lib/autosave.js';
-import { CLOCK_REASONS, SECTIONS, SECTION_CODE, STATUSES, STATUS_NAME, isMgr, isSA, isTech, isWS, sectionOption } from '../lib/constants.js';
+import { CLOCK_REASONS, SECTIONS, SECTION_CODE, STATUSES, STATUS_NAME, isAdmin, isMgr, isSA, isTech, isWS, sectionOption } from '../lib/constants.js';
 import { activeClock, dt, jobTotals, km, labourHours, lastDoc, matchPart, money, pct, rateOf, vehicleName } from '../lib/format.js';
 import { suggestService } from '../lib/services.js';
 import { usePrint } from '../print/PrintHost.jsx';
@@ -58,6 +58,11 @@ export default function JobCardDialog({ id }) {
     if (r.ok) printVoucher(r.data);
   };
 
+  const removeJob = async () => {
+    if (!confirm(`Delete job card ${j.id}${j.inv ? ' (an invoice was issued)' : ''}?\nParts issued on it go back to stock. This cannot be undone.`)) return;
+    const r = await run(() => api('/jobs/' + j.id, 'DELETE'));
+    if (r.ok) closeModal();
+  };
   let actions = null;
   if (sa) {
     if (j.status === 'Created') actions = <Btn onClick={() => go('Dispatched')}>Dispatch to workshop</Btn>;
@@ -146,7 +151,7 @@ export default function JobCardDialog({ id }) {
         <br /><b className="cn total">Total ETB {money(t.total)}</b>
       </div>
       {priceOpen && <p className="mu small">Labour, parts and selling prices can be edited here until the invoice is issued{done ? ' (the card is closed, so added tasks are billing lines; use "Return to workshop" for work that must be done)' : ''}. Every price change is written in the job card history.</p>}
-      <div className="row mt">{actions || <span className="mu">No action for your role at this stage.</span>}</div>
+      <div className="row mt">{actions || <span className="mu">No action for your role at this stage.</span>}{isAdmin(me) && <Btn kind="ol" onClick={removeJob}>Delete job card</Btn>}</div>
     </Dialog>
   );
 }
