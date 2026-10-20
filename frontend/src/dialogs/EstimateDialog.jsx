@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Pill, SaveState, Table } from '../components/ui.jsx';
-import { isSA, SECTION_CODE } from '../lib/constants.js';
+import { isAdmin, isSA, SECTION_CODE } from '../lib/constants.js';
 import { LabourLines, PartLines } from '../components/Lines.jsx';
 import { restoreDraft, useAutosave } from '../lib/autosave.js';
 import { dt, money, pct, r2, rateOf, tot, vehicleName } from '../lib/format.js';
@@ -50,7 +50,7 @@ export default function EstimateDialog({ id, jid }) {
   const save = async () => { if (!(await flush())) say('The draft is not saved yet. Wait a moment and try again.'); };
   const finalize = async () => { if (await flush()) await run(() => api(`/estimates/${e.id}/finalize`, 'POST')); else say('The draft is not saved yet. Wait a moment and try again.'); };
   const reopen = async () => { const r = await run(() => api(`/estimates/${e.id}/draft`, 'POST')); if (r.ok) { setLabs(r.data.labours.map(l => ({ ...l }))); setParts(r.data.parts.map(p => ({ ...p }))); setNote(r.data.note); } };
-  const remove = async () => { if (!confirm(`Delete draft estimate ${e.id}?`)) return; const r = await run(() => api('/estimates/' + e.id, 'DELETE')); if (r.ok) (jid ? openModal('job', { id: jid }) : closeModal()); };
+  const remove = async () => { if (!confirm(`Delete ${draft ? 'draft ' : ''}estimate ${e.id}?`)) return; const r = await run(() => api('/estimates/' + e.id, 'DELETE')); if (r.ok) (jid ? openModal('job', { id: jid }) : closeModal()); };
   const loadOnJob = async () => { const r = await run(() => api(`/jobs/${jid}/estimate`, 'POST', { no: e.id })); if (r.ok) openModal('job', { id: jid }); };
 
   return (
@@ -81,6 +81,7 @@ export default function EstimateDialog({ id, jid }) {
         <Btn kind="ol" onClick={printIt}>Print estimate (A4)</Btn>
         <Btn kind="ol" onClick={download}>Download (Excel)</Btn>
         {edit && <><Btn onClick={save}>Save now</Btn><Btn kind="gr" onClick={finalize}>Finalize estimate</Btn><Btn kind="ol" onClick={remove}>Delete draft</Btn></>}
+        {isAdmin(me) && !draft && !e.used_in && <Btn kind="ol" onClick={remove}>Delete estimate</Btn>}
         {sa && !draft && !e.used_in && jc && jc.status === 'Created' && !jc.est && jc.vid === e.vid && <Btn kind="gr" onClick={loadOnJob}>Load on {jid}</Btn>}
         {sa && !draft && !e.used_in && <Btn kind="ol" onClick={reopen}>Back to draft</Btn>}
         {jid && <Btn kind="ol" onClick={() => openModal('job', { id: jid })}>Back to job card {jid}</Btn>}

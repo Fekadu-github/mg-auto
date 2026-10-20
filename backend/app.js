@@ -127,6 +127,20 @@ export function createApp({ cfg, db, notifier }) {
     if (!r.affectedRows && !(await customer(q.params.id))) fail(404, 'Customer not found');   // MySQL counts "matched but unchanged" as 0 affected rows
     s.json({ ok: true });
   }));
+  // Administrator only. A customer with job cards, estimates or proformas keeps them (they are records), so he cannot be deleted
+  app.delete('/api/customers/:id', auth('ADMIN'), wrap(async (q, s) => {
+    await db.tx(async c => {
+      const [cu] = await c.q('SELECT id FROM customers WHERE id = ? FOR UPDATE', [q.params.id]);
+      if (!cu) fail(404, 'Customer not found');
+      for (const [t, n] of [['jobs', 'job cards'], ['estimates', 'estimates'], ['proformas', 'proformas']]) {
+        const [r] = await c.q(`SELECT COUNT(*) AS n FROM ${t} WHERE cid = ?`, [q.params.id]);
+        if (r.n > 0) fail(409, `This customer has ${r.n} ${n}. Delete or finish those first; records with a customer cannot be removed.`);
+      }
+      await c.q('DELETE FROM vehicles WHERE cid = ?', [q.params.id]);
+      await c.q('DELETE FROM customers WHERE id = ?', [q.params.id]);
+    });
+    s.json({ ok: true });
+  }));
   app.post('/api/customers/:id/vehicles', auth('SA'), wrap(async (q, s) => {
     if (!str(q.body.plate)) fail(400, 'Plate is required');
     if (!(await customer(q.params.id))) fail(404, 'Customer not found');
@@ -404,7 +418,9 @@ export function createApp({ cfg, db, notifier }) {
     await db.tx(async c => {
       const [row] = await c.q('SELECT * FROM estimates WHERE id = ? FOR UPDATE', [q.params.id]);
       if (!row) fail(404, 'Estimate not found');
-      if (row.status !== 'Draft' || row.used_in) fail(409, 'Only a draft estimate can be deleted');
+      if (row.used_in) fail(409, `This estimate is loaded on job card ${row.used_in} and cannot be deleted`);
+      // the Service Advisor deletes drafts; the Administrator can also delete a finalized estimate
+      if (row.status !== 'Draft' && q.u.role !== 'ADMIN') fail(409, 'Only a draft estimate can be deleted');
       await c.q('DELETE FROM estimates WHERE id = ?', [q.params.id]);
     });
     s.json({ ok: true });

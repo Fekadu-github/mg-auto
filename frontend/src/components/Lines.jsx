@@ -2,7 +2,8 @@ import { Btn, Table } from './ui.jsx';
 import { SECTIONS, SECTION_CODE, sectionOption } from '../lib/constants.js';
 import { matchPart, money, rateOf } from '../lib/format.js';
 import PartSearch from './PartSearch.jsx';
-import { groupHours, groupLabel, groupLines, groupTasks, matchGroup } from '../lib/labourGroups.js';
+import TaskSearch from './TaskSearch.jsx';
+import { groupLines, groupTasks } from '../lib/labourGroups.js';
 
 const r2 = n => Math.round(n * 100) / 100;
 const num = v => parseFloat(v) || 0;
@@ -13,32 +14,40 @@ export const taskLabel = t => (t.code ? `${t.code} · ${t.name}${t.model_grp ? '
 export const taskDesc = t => (t.code ? `${t.name} (${t.code})` : t.name);
 export const matchTask = (tasks, text) => (key(text) ? (tasks || []).find(t => key(taskLabel(t)) === key(text) || (!t.code && key(t.name) === key(text))) : undefined);
 
+// Is this description one of the list's tasks (as a picked task or a line of a picked task name)? Used to ask for a choice from the list instead of free text.
+export const isListed = (tasks, groups) => {
+  const set = new Set();
+  for (const t of tasks || []) { set.add(key(taskDesc(t))); set.add(key(t.name)); }
+  for (const g of groups) for (const l of groupLines(g, null)) set.add(key(l.desc));
+  return d => set.has(key(d));
+};
+
 // Editable labour lines for a proforma or an estimate. Pick a task from the list (BP / ME / SV): its section, hours and cost fill themselves.
 // Or type any work by hand. Hours x labour rate fills a cost that is left empty; every cost can be typed over.
 export function LabourLines({ labs, setLabs, tasks, rate }) {
   const set = (i, patch) => setLabs(ls => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   const groups = groupTasks(tasks);
-  const typed = (i, text) => {
-    // a task picked by its name brings all its lines: they replace this line
-    const g = matchGroup(groups, text);
-    if (g) return setLabs(ls => [...ls.slice(0, i), ...groupLines(g, rate), ...ls.slice(i + 1)]);
-    const t = matchTask(tasks.filter(x => !x.task), text);
-    set(i, t ? { desc: taskDesc(t), section: t.section, hours: t.hours || '', price: t.price || r2(t.hours * rateOf(rate, t.section)) || '' } : { desc: text });
+  const singles = (tasks || []).filter(x => !x.task);
+  // a task is chosen from the list (typing a letter shows the matches); a task name brings all its lines, which replace this line
+  const picked = (i, h) => {
+    if (h.kind === 'group') return setLabs(ls => [...ls.slice(0, i), ...groupLines(h.g, rate), ...ls.slice(i + 1)]);
+    const t = h.t;
+    set(i, { desc: taskDesc(t), section: t.section, hours: t.hours || '', price: t.price || r2(t.hours * rateOf(rate, t.section)) || '' });
   };
+  const listed = isListed(tasks, groups);
   return (
     <>
-      <Table head={['Task (search by task name, or type)', 'Section', 'Hours', 'Cost (ETB)', '']} empty={!labs.length && 'No labour yet.'}>
+      <Table head={['Task (type a letter of the code or task name)', 'Section', 'Hours', 'Cost (ETB)', '']} empty={!labs.length && 'No labour yet.'}>
         {labs.map((l, i) => (
           <tr key={i}>
-            <td><input aria-label="Labour task" list="task-list" autoComplete="off" value={l.desc} onChange={x => typed(i, x.target.value)} /></td>
-            <td><select aria-label="Section" value={l.section || 'Mechanical Repairs'} onChange={x => set(i, { section: x.target.value })} style={{ width: 'auto' }}>{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></td>
+            <td style={{ minWidth: 300 }}><TaskSearch groups={groups} singles={singles} value={l.desc} onChange={text => set(i, { desc: text })} onPick={h => picked(i, h)} invalid={!!l.desc?.trim() && !listed(l.desc)} />{!!l.desc?.trim() && !listed(l.desc) && <div className="small" style={{ color: 'var(--rd)' }}>Choose a task from the list.</div>}</td>
+            <td>{sectionOption(l.section || 'Mechanical Repairs')}</td>
             <td><input aria-label="Hours" type="number" min="0" step="0.25" style={{ width: 90 }} value={l.hours ?? ''} onChange={x => set(i, { hours: x.target.value, price: r2(num(x.target.value) * rateOf(rate, l.section || 'Mechanical Repairs')) || '' })} /></td>
             <td><input aria-label="Labour cost" type="number" min="0" step="any" style={{ width: 120 }} value={l.price ?? ''} onChange={x => set(i, { price: x.target.value })} /></td>
             <td><Btn kind="ol" onClick={() => setLabs(ls => ls.filter((_, k) => k !== i))}>Remove</Btn></td>
           </tr>
         ))}
       </Table>
-      <datalist id="task-list">{groups.map(g => <option key={g.name} value={groupLabel(g)}>{groupHours(g)} h · all lines</option>)}{(tasks || []).filter(t => !t.task).map(t => <option key={t.id} value={taskLabel(t)}>{t.hours} h</option>)}</datalist>
       <div className="mt"><Btn kind="ol" onClick={() => setLabs(ls => [...ls, { desc: '', section: 'Mechanical Repairs', hours: '', price: '' }])}>Add labour line</Btn> <span className="mu small">Hours x the section's rate ({SECTIONS.map(s => `${SECTION_CODE[s]} ${rateOf(rate, s)}`).join(' · ')} ETB/h) fills the cost; type another amount to change it.</span></div>
     </>
   );

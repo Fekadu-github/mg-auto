@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Pill, StatusPill, Table } from '../components/ui.jsx';
-import { matchTask, taskDesc } from '../components/Lines.jsx';
-import { groupHours, groupLabel, groupLines, groupTasks, matchGroup } from '../lib/labourGroups.js';
+import { isListed, taskDesc } from '../components/Lines.jsx';
+import { groupLines, groupTasks } from '../lib/labourGroups.js';
+import TaskSearch from '../components/TaskSearch.jsx';
 import PartSearch from '../components/PartSearch.jsx';
 import { usePersistedForm as useForm } from '../lib/autosave.js';
 import { CLOCK_REASONS, SECTIONS, SECTION_CODE, STATUSES, STATUS_NAME, isMgr, isSA, isTech, isWS, sectionOption } from '../lib/constants.js';
@@ -306,6 +307,7 @@ function LabourRow({ job: j, l, canClock, canStop, canRemove, priceOpen, mgr }) 
 
 // Pick a task from the labour list (BP / ME / SV): its section, hours and cost fill themselves. Or type any work and its hours.
 // The cost is hours x labour rate unless the task has a fixed price, and it can still be typed over.
+const groupLabelText = g => `▤ ${g.name}`;
 function LabourForm({ id, rate, known, late }) {
   const { run, say } = useApp();
   const groups = groupTasks(known);
@@ -319,29 +321,30 @@ function LabourForm({ id, rate, known, late }) {
     }
     reset(); say?.(`Added all ${g.items.length} line(s) of "${g.name}".`);
   };
-  const onDesc = e => {
-    const text = e.target.value, g = matchGroup(groups, text);
-    if (g) { set({ desc: text }); return addGroup(g); }
-    const k = matchTask(known.filter(x => !x.task), text);
-    set(k ? { desc: taskDesc(k), section: k.section, hours: k.hours || '', price: k.price || priceFor(k.hours, k.section) } : { desc: text });
+  const singles = known.filter(x => !x.task);
+  const picked = h => {
+    if (h.kind === 'group') { set({ desc: groupLabelText(h.g) }); return addGroup(h.g); }
+    const k = h.t;
+    set({ desc: taskDesc(k), section: k.section, hours: k.hours || '', price: k.price || priceFor(k.hours, k.section) });
   };
+  const chosen = !!f.desc.trim() && isListed(known, groups)(f.desc);
   const add = async () => {
     if (!f.desc.trim()) return;
+    if (!chosen) return say?.('Choose the labour task from the list: type a letter of its code or name and pick one.');
     const r = await run(() => post(id, '/labour', { desc: f.desc, section: f.section, price: parseFloat(f.price) || 0, hours: parseFloat(f.hours) || 0 }));
     if (r.ok) reset();
   };
   return (
     <>
       <div className="row mt">
-        <Field label="Labour task (search by task name, or type)" grow="3 1 200px" list="labour-list" autoComplete="off" value={f.desc} onChange={onDesc} />
-        <Field label="Section"><select {...bind('section')}>{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
+        <div style={{ flex: '3 1 260px' }}><label>Labour task (type a letter of the code or task name)<TaskSearch groups={groups} singles={singles} value={f.desc} onChange={text => set({ desc: text })} onPick={picked} invalid={!!f.desc.trim() && !chosen} /></label></div>
+        <Field label="Section"><input readOnly value={sectionOption(f.section)} /></Field>
         <Field label="Hours" type="number" min="0" step="0.25" value={f.hours} onChange={e => set({ hours: e.target.value, price: priceFor(e.target.value) })} />
         <Field label={`Labour cost (ETB) · ${rateOf(rate, f.section)}/h`} type="number" min="0" {...bind('price')} />
         <Btn onClick={add}>Add labour</Btn>
       </div>
-      <datalist id="labour-list">{groups.map(g => <option key={g.name} value={groupLabel(g)}>{groupHours(g)} h · adds all lines</option>)}{known.filter(x => !x.task).map((x, i) => <option key={i} value={`${SECTION_CODE[x.section]} · ${x.name}`}>{x.hours} h</option>)}</datalist>
       <div className="mu small">
-        {f.price ? `Labour cost: ETB ${money(f.price)}${f.hours ? ` (${f.hours} h x ${rateOf(rate, f.section)})` : ''}. Type another amount to change it.` : 'Pick a task (▤) to add all its lines at once, or pick one line and its hours and cost fill themselves.'}
+        {f.price ? `Labour cost: ETB ${money(f.price)}${f.hours ? ` (${f.hours} h x ${rateOf(rate, f.section)})` : ''}. Type another amount to change it.` : 'Type a letter and pick a task from the list (▤ adds all its lines); its section, hours and cost fill themselves.'}
         {late && ' The card is not in the workshop: this is added as a billing line. To have it done, return the card to the workshop first.'}
       </div>
     </>

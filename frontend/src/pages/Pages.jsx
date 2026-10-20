@@ -4,7 +4,7 @@ import { api } from '../api.js';
 import { useApp } from '../store.jsx';
 import { Btn, Field, Pill, Stat, StatusPill, Table } from '../components/ui.jsx';
 import { NotifySelect } from '../dialogs/Dialogs.jsx';
-import { ROLES, SECTIONS, isMgr, isSA, isTech } from '../lib/constants.js';
+import { ROLES, SECTIONS, isAdmin, isMgr, isSA, isTech } from '../lib/constants.js';
 import { InsuranceFields } from '../dialogs/Dialogs.jsx';
 import { SECTION_CODE, sectionOption } from '../lib/constants.js';
 import { usePersistedForm } from '../lib/autosave.js';
@@ -208,17 +208,19 @@ function RatesBox({ rates }) {
 }
 
 export function Estimates() {
-  const { db, me, cust, veh, openModal } = useApp();
+  const { db, me, run, cust, veh, openModal } = useApp();
+  const delEst = async e => { if (confirm(`Delete estimate ${e.id}?`)) await run(() => api('/estimates/' + e.id, 'DELETE')); };
   const [q, setQ] = useState('');
   const list = db.e.filter(e => (e.id + cust(e.cid).name + veh(e.vid).plate + e.note).toLowerCase().includes(q.toLowerCase()));
   return (
     <>
       <div className="row mt"><input aria-label="Search estimates" placeholder="Search by estimate number, customer or plate" value={q} onChange={x => setQ(x.target.value)} />{isSA(me) && <Btn onClick={() => (db.c.length ? openModal('newEstimate') : alert('Add a customer first.'))}>New estimate</Btn>}</div>
-      <div className="mt"><Table head={['Estimate', 'Customer', 'Vehicle', 'Status', 'Loaded on', { t: 'Total', r: 1 }]} empty={!list.length && 'No estimates yet.'}>
+      <div className="mt"><Table head={['Estimate', 'Customer', 'Vehicle', 'Status', 'Loaded on', { t: 'Total', r: 1 }, '']} empty={!list.length && 'No estimates yet.'}>
         {list.map(e => (
           <tr key={e.id} className="k" tabIndex={0} onClick={() => openModal('estimate', { id: e.id })} onKeyDown={x => x.key === 'Enter' && openModal('estimate', { id: e.id })}>
             <td><b>{e.id}</b></td><td>{cust(e.cid).name}</td><td>{veh(e.vid).plate} {vehicleName(veh(e.vid))}</td>
             <td><Pill tone={e.status === 'Finalized' ? 'g' : 'a'}>{e.status}</Pill></td><td>{e.used_in || <span className="mu">not yet</span>}</td><td className="r">{money(tot(e, db.cfg.vat).total)}</td>
+            <td className="acts" onClick={x => x.stopPropagation()}>{isAdmin(me) && !e.used_in && <Btn kind="ol" onClick={() => delEst(e)}>Delete</Btn>}</td>
           </tr>
         ))}
       </Table></div>
@@ -249,6 +251,7 @@ export function Customers() {
   const { db, me, run, openModal } = useApp();
   const sa = isSA(me);
   const [f, bind, , reset] = usePersistedForm('form:new-customer', { name: '', phone: '', city: 'Addis Ababa', sub: '', woreda: '', house: '', dob: '', notify: 'both', insurer_id: '', policy_no: '', tin: '' });
+  const delCustomer = async c => { if (confirm(`Delete customer ${c.name} (${c.id}) and his vehicles?\nThis cannot be undone.`)) await run(() => api('/customers/' + c.id, 'DELETE')); };
   const add = async () => {
     if (!f.name.trim() || !f.phone.trim()) return alert('Name and phone are required.');
     const r = await run(() => api('/customers', 'POST', { ...f, dob: f.dob || null }));
@@ -269,7 +272,7 @@ export function Customers() {
                 <span className="mu small"> {v.mileage != null ? km(v.mileage) : 'no mileage'}{v.next_km ? ` · next ${db.st.find(t => t.code === v.next_type)?.name || 'service'} at ${km(v.next_km)}` : ''}</span></div>
             ))}{!db.v.some(v => v.cid === c.id) && <span className="mu">none</span>}</td>
             <td>{c.tg ? <Pill tone="g">linked</Pill> : <span className="mu">not linked</span>}</td>
-            <td className="acts">{sa && <><Btn kind="ol" onClick={() => openModal('customer', { id: c.id })}>Edit</Btn><Btn kind="ol" onClick={() => openModal('vehicle', { cid: c.id })}>Add vehicle</Btn><Btn kind="ol" onClick={() => openModal('telegram', { id: c.id })}>Telegram link</Btn></>}</td>
+            <td className="acts">{sa && <><Btn kind="ol" onClick={() => openModal('customer', { id: c.id })}>Edit</Btn><Btn kind="ol" onClick={() => openModal('vehicle', { cid: c.id })}>Add vehicle</Btn><Btn kind="ol" onClick={() => openModal('telegram', { id: c.id })}>Telegram link</Btn></>}{isAdmin(me) && <Btn kind="ol" onClick={() => delCustomer(c)}>Delete</Btn>}</td>
           </tr>
         ))}
       </Table></div>
