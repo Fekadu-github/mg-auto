@@ -18,3 +18,13 @@ export const isSA = me => ['SA', 'MGR', 'ADMIN'].includes(me?.role);
 export const isWS = me => ['WS', 'MGR', 'ADMIN'].includes(me?.role);
 export const isMgr = me => ['MGR', 'ADMIN'].includes(me?.role);       // costs, prices, Excel import/export, cancelling sales, inventory and custom reports
 export const isTech = me => me?.role === 'TECH';
+
+// Terms printed at the bottom of every estimation / proforma sheet. Edit the wording here; the bank accounts come from GARAGE_BANK on the server.
+export const DEFAULT_TERMS = [
+  'Validity: the estimation is valid only for 7 days from the date of issue.',
+  'If the repair requires additional parts and/or labour, we will inform you of the amount and the works for your kind authorization.',
+  'Price of parts is subject to change without notice.',
+  'We will not charge for parts that are not replaced even though they are indicated in the above list of parts.',
+  'Mode of payment: cash, cheque, CPO or bank transfer.',
+  'Advance payment (if any) is agreed with the garage before the work starts.'
+];

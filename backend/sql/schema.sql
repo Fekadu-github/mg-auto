@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS insurers (
   id CHAR(36) NOT NULL PRIMARY KEY,
   name VARCHAR(160) NOT NULL,
   phone VARCHAR(30) NOT NULL DEFAULT '',
+  address VARCHAR(200) NOT NULL DEFAULT '',   -- printed under the company name on proformas and estimates
   active TINYINT(1) NOT NULL DEFAULT 1,
   UNIQUE KEY insurers_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

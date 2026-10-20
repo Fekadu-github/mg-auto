@@ -45,7 +45,10 @@ export default function EstimateDialog({ id, jid }) {
     parts: shownParts.filter(p => p.name?.trim())
   });
   const ready = async () => { if (edit && !(await flush())) { say('The draft is not saved yet. Wait a moment and try again.'); return false; } return true; };
-  const printIt = async () => { if (await ready()) print(<EstimateDoc est={doc()} customer={c} vehicle={v} garage={db.cfg.garage} vat={vat} />, 'a4'); };
+  // An estimate made from a proforma prints that proforma's insurance company, claim and policy; a walk-in's name and vehicle come from the proforma too
+  const src = e.pro ? db.pr.find(x => x.id === e.pro) : null, srcIns = src?.insurer_id ? db.ins.find(x => x.id === src.insurer_id) : undefined, walkIn = !e.cid;
+  const docC = walkIn && src ? { name: src.guest_name, phone: src.guest_phone } : c, docV = walkIn && src ? { plate: src.guest_plate, brand: src.guest_brand, model: src.guest_model } : v;
+  const printIt = async () => { if (await ready()) print(<EstimateDoc est={doc()} customer={docC} vehicle={docV} pro={src} insurer={srcIns} walkIn={walkIn} garage={db.cfg.garage} vat={vat} />, 'a4'); };
   const download = async () => { if (await ready()) downloadXlsx(`${e.id}-${e.status.toLowerCase()}.xlsx`, estimateRows(doc(), { customer: c, vehicle: v, vat }), 'Estimate'); };
   const save = async () => { if (!(await flush())) say('The draft is not saved yet. Wait a moment and try again.'); };
   const finalize = async () => { if (await flush()) await run(() => api(`/estimates/${e.id}/finalize`, 'POST')); else say('The draft is not saved yet. Wait a moment and try again.'); };

@@ -170,7 +170,7 @@ export function NewProformaDialog() {
 export function InsurerDialog({ id }) {
   const { db, run, closeModal } = useApp();
   const x = db.ins.find(i => i.id === id);
-  const [f, bind] = useForm({ name: x?.name || '', phone: x?.phone || '' });
+  const [f, bind] = useForm({ name: x?.name || '', phone: x?.phone || '', address: x?.address || '' });
   const save = async () => {
     if (!f.name.trim()) return;
     const r = await run(() => api('/insurers/' + id, 'PUT', f));
@@ -184,6 +184,7 @@ export function InsurerDialog({ id }) {
   return (
     <Dialog title={`Edit ${x?.name || 'insurance company'}`} onClose={closeModal} actions={<><Btn onClick={save}>Save</Btn><Btn kind="ol" onClick={retire}>Remove from list</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
       <div className="row mt"><Field label="Company name" grow="3 1 200px" {...bind('name')} /><Field label="Phone" {...bind('phone')} /></div>
+      <div className="row"><Field label="Address (printed on proformas)" grow="3 1 200px" {...bind('address')} /></div>
     </Dialog>
   );
 }

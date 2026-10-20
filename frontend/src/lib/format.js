@@ -57,3 +57,27 @@ export const km = n => (n === null || n === undefined || n === '' ? '' : Number(
 // The stock part a typed text points to: its code, or "code · name" as the part list shows it
 const key = s => (s || '').trim().toLowerCase();
 export const matchPart = (stock, text) => (key(text) ? (stock || []).find(x => key(`${x.code} · ${x.name}`) === key(text) || key(x.code) === key(text)) : undefined);
+
+// "30314" -> "THIRTY THOUSAND THREE HUNDRED FOURTEEN"; used for the amount in words on estimates and proformas
+const ONES = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'TEN', 'ELEVEN', 'TWELVE', 'THIRTEEN', 'FOURTEEN', 'FIFTEEN', 'SIXTEEN', 'SEVENTEEN', 'EIGHTEEN', 'NINETEEN'];
+const TENS = ['', '', 'TWENTY', 'THIRTY', 'FORTY', 'FIFTY', 'SIXTY', 'SEVENTY', 'EIGHTY', 'NINETY'];
+const below1000 = n => [n >= 100 && `${ONES[Math.floor(n / 100)]} HUNDRED`, n % 100 >= 20 ? `${TENS[Math.floor((n % 100) / 10)]}${n % 10 ? ' ' + ONES[n % 10] : ''}` : ONES[n % 100]].filter(Boolean).join(' ');
+export function wordsOf(n) {
+  n = Math.floor(Math.abs(n));
+  if (!n) return 'ZERO';
+  return [[1e9, 'BILLION'], [1e6, 'MILLION'], [1e3, 'THOUSAND'], [1, '']].map(([u, name]) => {
+    const part = Math.floor(n / u) % 1000;
+    return part ? `${below1000(part)}${name ? ' ' + name : ''}` : '';
+  }).filter(Boolean).join(' ');
+}
+// 30314 -> "Birr THIRTY THOUSAND THREE HUNDRED FOURTEEN AND 00/100 Only"
+export function birrInWords(amount) {
+  const cents = Math.round((Math.abs(Number(amount) || 0) + Number.EPSILON) * 100), birr = Math.floor(cents / 100);
+  return `Birr ${wordsOf(birr)} AND ${String(cents % 100).padStart(2, '0')}/100 Only`;
+}
+
+// A labour line picked from the price book is stored as "Description (BP-BR114B)": split the code out so it can have its own column
+export function splitCode(desc) {
+  const m = /^(.*?)\s*\(([A-Z]{2}-[A-Z0-9.-]+)\)\s*$/.exec(String(desc || ''));
+  return m ? { code: m[2], text: m[1] } : { code: '', text: String(desc || '') };
+}

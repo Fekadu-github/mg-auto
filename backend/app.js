@@ -95,7 +95,7 @@ export function createApp({ cfg, db, notifier }) {
       staff ? db.q('SELECT * FROM estimates ORDER BY created DESC, id DESC') : [],
       db.q('SELECT * FROM service_types WHERE active = 1 ORDER BY interval_km, code'),
       staff ? db.q('SELECT * FROM proformas ORDER BY created DESC, id DESC') : [],
-      staff ? db.q('SELECT id, name, phone FROM insurers WHERE active = 1 ORDER BY name') : [],
+      staff ? db.q('SELECT id, name, phone, address FROM insurers WHERE active = 1 ORDER BY name') : [],
       staff ? db.q('SELECT id, code, model_grp, task, name, section, hours, price FROM labour_tasks WHERE active = 1 ORDER BY section, task, code, name, model_grp') : [],
       staff ? db.q("SELECT id, name, role FROM app_users WHERE role IN ('SA','WS','MGR','ADMIN') ORDER BY name") : []]);   // estimators: advisors and above, not technicians
     const rates = await labourRates(db);
@@ -444,22 +444,22 @@ export function createApp({ cfg, db, notifier }) {
   }));
 
   // ---- insurance companies and the labour task list ----
-  const insForm = b => { const name = str(b.name, 160); if (!name) fail(400, 'Enter the insurance company name'); return { name, phone: str(b.phone, 30), active: b.active === false || b.active === 0 ? 0 : 1 }; };
+  const insForm = b => { const name = str(b.name, 160); if (!name) fail(400, 'Enter the insurance company name'); return { name, phone: str(b.phone, 30), address: str(b.address, 200), active: b.active === false || b.active === 0 ? 0 : 1 }; };
   app.post('/api/insurers', auth('SA'), wrap(async (q, s) => {
     const f = insForm(q.body), id = newId();
     if ((await db.q('SELECT id FROM insurers WHERE name = ?', [f.name])).length) fail(409, 'This insurance company is already registered');
-    await db.q('INSERT INTO insurers (id, name, phone, active) VALUES (?,?,?,1)', [id, f.name, f.phone]);
-    s.json({ id, name: f.name, phone: f.phone });
+    await db.q('INSERT INTO insurers (id, name, phone, address, active) VALUES (?,?,?,?,1)', [id, f.name, f.phone, f.address]);
+    s.json({ id, name: f.name, phone: f.phone, address: f.address });
   }));
-  // Excel import: rows of { name, phone }. A company already registered (same name) is skipped; nothing is changed or deleted.
+  // Excel import: rows of { name, phone, address }. A company already registered (same name) is skipped; nothing is changed or deleted.
   app.post('/api/insurers/import', auth('SA'), wrap(async (q, s) => {
     const rows = Array.isArray(q.body.rows) ? q.body.rows.slice(0, 2000) : [];
     if (!rows.length) fail(400, 'The file has no insurance companies');
     let added = 0, skipped = 0;
     for (const r of rows) {
-      const name = str(r?.name, 160), phone = str(r?.phone, 30);
+      const name = str(r?.name, 160), phone = str(r?.phone, 30), address = str(r?.address, 200);
       if (!name) continue;
-      const res = await db.q('INSERT IGNORE INTO insurers (id, name, phone, active) VALUES (?,?,?,1)', [newId(), name, phone]);
+      const res = await db.q('INSERT IGNORE INTO insurers (id, name, phone, address, active) VALUES (?,?,?,?,1)', [newId(), name, phone, address]);
       if (res.affectedRows) added++; else skipped++;
     }
     s.json({ added, skipped });
@@ -467,9 +467,9 @@ export function createApp({ cfg, db, notifier }) {
   app.put('/api/insurers/:id', auth('SA'), wrap(async (q, s) => {
     const f = insForm(q.body);
     if ((await db.q('SELECT id FROM insurers WHERE name = ? AND id <> ?', [f.name, q.params.id])).length) fail(409, 'This insurance company is already registered');
-    const r = await db.q('UPDATE insurers SET name = ?, phone = ?, active = ? WHERE id = ?', [f.name, f.phone, f.active, q.params.id]);
+    const r = await db.q('UPDATE insurers SET name = ?, phone = ?, address = ?, active = ? WHERE id = ?', [f.name, f.phone, f.address, f.active, q.params.id]);
     if (!r.affectedRows) fail(404, 'Insurance company not found');
-    s.json({ id: q.params.id, name: f.name, phone: f.phone });
+    s.json({ id: q.params.id, name: f.name, phone: f.phone, address: f.address });
   }));
 
   app.post('/api/labour-tasks', auth('SA'), wrap(async (q, s) => {

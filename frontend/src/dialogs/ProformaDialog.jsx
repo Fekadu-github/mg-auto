@@ -39,7 +39,7 @@ export default function ProformaDialog({ id }) {
     ...p, ...f, estimator: estimator?.name || p.estimator, estimator_role: estimator?.role || p.estimator_role,
     labours: f.labours.filter(l => l.desc?.trim()).map(l => ({ ...l, price: num(l.price) || r2(num(l.hours) * rateOf(rate, l.section)) })), parts: f.parts.filter(x => x.name?.trim())
   });
-  const printIt = async () => { if (open && !(await saved())) return; print(<ProformaDoc pro={doc()} customer={c} vehicle={v} insurer={insurer} garage={db.cfg.garage} vat={vat} roleName={r => ROLES[r] || r} />, 'a4'); };
+  const printIt = async () => { if (open && !(await saved())) return; print(<ProformaDoc pro={doc()} customer={c} vehicle={v} insurer={insurer} walkIn={walkIn} garage={db.cfg.garage} vat={vat} roleName={r => ROLES[r] || r} />, 'a4'); };
   const issue = async () => { if (await saved()) await run(() => api(`/proformas/${id}/issue`, 'POST')); };
   const remove = async () => { if (!confirm(`Delete proforma ${id}?`)) return; const r = await run(() => api('/proformas/' + id, 'DELETE')); if (r.ok) closeModal(); };
   const makeJob = async () => {

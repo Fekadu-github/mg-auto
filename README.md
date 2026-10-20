@@ -64,6 +64,7 @@ All of them, with comments, are in `backend/.env.example`. The important ones:
 | `PRICE_LIMIT_PCT` | a price on a job card may differ from its list price by this percentage on the Service Advisor's say-so; beyond it the manager must approve (default `10`, `0` = no limit) |
 | `WORK_END` | end of the working day, `HH:MM` Addis Ababa time (for example `17:30`). Running clocks are closed by themselves then. Empty = by hand only (the *End of working day* button on the Workshop screen) |
 | `GARAGE_NAME` `GARAGE_ADDRESS` `GARAGE_PHONE` `GARAGE_TIN` `GARAGE_MOTTO` | printed on invoices and the voucher |
+| `GARAGE_EMAIL` `GARAGE_BANK` | optional: the e-mail shown in the letterhead, and the bank accounts printed in the terms of estimates / proformas (free text, e.g. `CBE 1000... · Awash 0130...`) |
 | `FRONTEND_DIR` | folder of the built React app for the API to serve (set in the Docker image) |
 
 ## Workflow
@@ -161,3 +162,10 @@ cd frontend && npm run build                 # production build into frontend/di
 - Reports read the job cards table directly; if it grows to many thousands of rows, move them into SQL views.
 - Render's free plan sleeps after inactivity; the first request can take about 50 seconds.
 - Labour is priced per line when it is added; it is not recalculated from clocked hours.
+
+## Service Price Estimation sheet (proforma and estimate)
+The insurance proforma and the Body & Paints estimate print on one A4 sheet modelled on the E-Ethio "Service Price Estimation": garage letterhead and estimation number, customer and insurance company (name, **address**, phone, policy and claim number) on the left, vehicle on the right, labour with price-book codes, other charges (parts and materials), *Total Est. Amount / VAT / Total Inc. VAT*, the amount in words, terms and Prepared / Checked / Approved signatures.
+- **Insurance company address:** *Insurance* screen (or its Edit dialog); the Excel import also reads an optional "Address" column. Existing databases get the new column automatically when the API starts.
+- **Walk-in customers** (not registered yet) print as "Walk-in customer (private)"; the vehicle details that are not recorded on a walk-in proforma (chassis, engine, colour, mileage) are left as blank lines to write by hand. A proforma without an insurance company prints "Customer pays".
+- **Terms:** the default list is `DEFAULT_TERMS` in `frontend/src/lib/constants.js` (edit the wording and the 7-day validity there). Text typed in the proforma's *Terms and conditions* box is printed as the **REMARK**.
+- Code: `frontend/src/print/EstimationSheet.jsx` (layout), `ProformaDoc.jsx` and `EstimateDoc.jsx` (data), styles in `styles/print.css`.

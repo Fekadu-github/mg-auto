@@ -31,7 +31,8 @@ export const NEW_COLUMNS = [
   ['proformas', 'guest_name', "VARCHAR(120) NOT NULL DEFAULT ''"], ['proformas', 'guest_phone', "VARCHAR(30) NOT NULL DEFAULT ''"], ['proformas', 'guest_plate', "VARCHAR(30) NOT NULL DEFAULT ''"],
   ['proformas', 'guest_brand', "VARCHAR(40) NOT NULL DEFAULT ''"], ['proformas', 'guest_model', "VARCHAR(60) NOT NULL DEFAULT ''"],
   ['labour_tasks', 'task', "VARCHAR(200) NOT NULL DEFAULT ''"],
-  ['labour_tasks', 'code', "VARCHAR(40) NOT NULL DEFAULT ''"], ['labour_tasks', 'model_grp', "VARCHAR(60) NOT NULL DEFAULT ''"]
+  ['labour_tasks', 'code', "VARCHAR(40) NOT NULL DEFAULT ''"], ['labour_tasks', 'model_grp', "VARCHAR(60) NOT NULL DEFAULT ''"],
+  ['insurers', 'address', "VARCHAR(200) NOT NULL DEFAULT ''"]
 ];
 
 

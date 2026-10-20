@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { invoiceLines, jobTotals, lastDoc, money, pct, rateOf, snap, tot, vehicleName } from './format.js';
+import { birrInWords, invoiceLines, jobTotals, lastDoc, money, pct, rateOf, snap, splitCode, tot, vehicleName } from './format.js';
 
 const job = { id: 'TC-1', labours: [{ id: 'L1', desc: 'Oil change', price: 700 }], parts: [{ name: 'Oil', code: 'OIL-001', qty: 2, price: 450 }], log: [] };
 
@@ -39,5 +39,20 @@ describe('labour rate per section', () => {
   it('still accepts one number for every section', () => {
     expect(rateOf(300, 'Body & Paints')).toBe(300);
     expect(rateOf(undefined, 'x')).toBe(0);
+  });
+});
+
+describe('estimation sheet helpers', () => {
+  it('writes the amount in words like the sample estimate', () => {
+    expect(birrInWords(30314)).toBe('Birr THIRTY THOUSAND THREE HUNDRED FOURTEEN AND 00/100 Only');
+    expect(birrInWords(1250.5)).toBe('Birr ONE THOUSAND TWO HUNDRED FIFTY AND 50/100 Only');
+    expect(birrInWords(0)).toBe('Birr ZERO AND 00/100 Only');
+    expect(birrInWords(2000000.07)).toBe('Birr TWO MILLION AND 07/100 Only');
+    expect(birrInWords(119)).toBe('Birr ONE HUNDRED NINETEEN AND 00/100 Only');
+  });
+  it('splits the price-book code out of a labour description', () => {
+    expect(splitCode('Bumper, Repair - Front (BP-BR114B)')).toEqual({ code: 'BP-BR114B', text: 'Bumper, Repair - Front' });
+    expect(splitCode('Oil change')).toEqual({ code: '', text: 'Oil change' });
+    expect(splitCode('Wheel balance (front) ')).toEqual({ code: '', text: 'Wheel balance (front) ' });
   });
 });

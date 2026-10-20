@@ -11,7 +11,7 @@ export function Letterhead({ g, children }) {
   return (
     <div className="lh">
       <img src="/madeg-logo.png" alt="" className="lh-logo" />
-      <div className="lh-co"><b>{g.name}</b><div>{g.address}</div><div>Tel {g.phone}{g.tin ? ` · TIN ${g.tin}` : ''}</div></div>
+      <div className="lh-co"><b>{g.name}</b><div>{g.address}</div><div>Tel {g.phone}{g.email ? ` · ${g.email}` : ''}{g.tin ? ` · TIN ${g.tin}` : ''}</div></div>
       <div className="lh-doc">{children}</div>
     </div>
   );

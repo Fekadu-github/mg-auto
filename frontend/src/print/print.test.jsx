@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import InvoiceDoc, { invoiceSize } from './InvoiceDoc.jsx';
 import VoucherDoc from './VoucherDoc.jsx';
+import ProformaDoc from './ProformaDoc.jsx';
+import EstimateDoc from './EstimateDoc.jsx';
 
 const job = {
   id: 'TC-20261009-0001', status: 'Delivered',
@@ -63,5 +65,44 @@ describe('VoucherDoc', () => {
   });
   it('omits the parts table when no parts were fitted', () => {
     expect(renderToStaticMarkup(<VoucherDoc {...props} job={{ ...job, parts: [] }} />)).not.toContain('Parts fitted');
+  });
+});
+
+describe('Service Price Estimation sheet (ProformaDoc / EstimateDoc)', () => {
+  const pro = {
+    id: 'EST-20261021-0001', pdate: '2026-10-21', status: 'Issued', estimator: 'Tizazu', estimator_role: 'SA', policy_no: 'POL-1', claim_no: 'CLM-9', due_date: '2026-11-05', note: 'Front door', terms: '', 
+    labours: [{ desc: 'Bumper, Repair - Front (BP-BR114B)', section: 'Body & Paints', price: 2100 }, { desc: 'Miscellaneous', section: 'Body & Paints', price: 1260 }],
+    parts: [{ code: 'MP-101', name: 'Paint Material', qty: 5, price: 2500 }]
+  };
+  const insurer = { name: 'Awash Insurance', phone: '0111', address: 'Bole, Addis Ababa' };
+  const render = el => renderToStaticMarkup(el);
+
+  it('shows the insurance company with its address, policy and claim, the codes, the totals and the amount in words', () => {
+    const html = render(<ProformaDoc pro={pro} customer={customer} vehicle={vehicle} insurer={insurer} vat={0.15} roleName={() => 'Service Advisor'} />);
+    expect(html).toContain('Service Price Estimation'); expect(html).toContain('EST-20261021-0001'); expect(html).toContain('21/10/2026');
+    expect(html).toContain('Awash Insurance'); expect(html).toContain('Bole, Addis Ababa'); expect(html).toContain('POL-1'); expect(html).toContain('CLM-9');
+    expect(html).toContain('BP-BR114B'); expect(html).toContain('Total for Labour'); expect(html).toContain('Total for Other Charges');
+    expect(html).toContain('Total Est. Amount'); expect(html).toContain('15% VAT'); expect(html).toContain('Total Inc. VAT');
+    // labour 3,360 + paint 12,500 = 15,860; VAT 2,379; total 18,239
+    expect(html).toContain('15,860.00'); expect(html).toContain('2,379.00'); expect(html).toContain('18,239.00');
+    expect(html).toContain('EIGHTEEN THOUSAND TWO HUNDRED THIRTY NINE AND 00/100 Only');
+    expect(html).toContain('Terms and Condition'); expect(html).toContain('Prepared by'); expect(html).toContain('Checked by'); expect(html).toContain('Approved by');
+    expect(html).toContain('Tizazu'); expect(html).toContain('Service Advisor'); expect(html).not.toContain('(DRAFT)');
+  });
+  it('a walk-in customer without insurance is marked as such and keeps blank lines for the missing vehicle details', () => {
+    const html = render(<ProformaDoc pro={{ ...pro, status: 'Draft', claim_no: '' }} walkIn customer={{ name: 'Walk In', phone: '0922' }} vehicle={{ plate: 'AA-1' }} />);
+    expect(html).toContain('Walk-in customer (private)'); expect(html).toContain('Customer pays (no insurance)'); expect(html).toContain('(DRAFT)');
+    expect(html).toContain('Walk In'); expect(html).toContain('AA-1'); expect(html).not.toContain('Policy no'); expect(html).toContain('Chassis no');
+  });
+  it('prints the garage bank account and the custom remark when set, and escapes customer text', () => {
+    const html = render(<ProformaDoc pro={{ ...pro, terms: 'Valid 15 days' }} customer={customer} vehicle={vehicle} garage={{ bank: 'CBE 1000123' }} />);
+    expect(html).toContain('REMARK:'); expect(html).toContain('Valid 15 days'); expect(html).toContain('CBE 1000123');
+    expect(html).not.toContain('<b>Kebede</b>'); expect(html).toContain('&lt;b&gt;Kebede');
+    expect(render(<ProformaDoc pro={pro} customer={customer} vehicle={vehicle} />)).not.toContain('REMARK:');
+  });
+  it('an estimate uses the same sheet and takes the insurance details of the proforma it was made from', () => {
+    const est = { id: 'EST-20261021-0002', status: 'Draft', created: Date.UTC(2026, 9, 21, 9), by_name: 'Almaz', note: 'x', labours: pro.labours, parts: pro.parts };
+    const html = render(<EstimateDoc est={est} customer={customer} vehicle={vehicle} pro={pro} insurer={insurer} />);
+    expect(html).toContain('Service Price Estimation'); expect(html).toContain('(DRAFT)'); expect(html).toContain('EST-20261021-0002'); expect(html).toContain('Awash Insurance'); expect(html).toContain('Almaz');
   });
 });

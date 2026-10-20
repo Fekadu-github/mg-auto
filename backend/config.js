@@ -18,6 +18,8 @@ export function loadConfig(env = process.env) {
       address: env.GARAGE_ADDRESS || 'Gurdshola, around Top Ten Hotel, Addis Ababa',
       phone: env.GARAGE_PHONE || '0980766566',
       tin: env.GARAGE_TIN || '',                  // printed on invoices when set
+      email: env.GARAGE_EMAIL || '',              // printed in the letterhead of estimates when set
+      bank: env.GARAGE_BANK || '',                // bank accounts, printed in the terms of estimates, e.g. "CBE 1000123456789 · Awash 0130..."
       motto: env.GARAGE_MOTTO || 'Your car, our care'
     },
     readyMessage: env.READY_MESSAGE || 'MG Auto: Dear {name}, your vehicle {plate} is ready (job card {jc}). Please come to collect it. Questions? Call {phone}.',
