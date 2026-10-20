@@ -142,8 +142,8 @@ CREATE TABLE IF NOT EXISTS service_types (
 -- Body & paint estimates. Draft can be edited; Finalized is locked and can be loaded on a job card by its number (used_in says where).
 CREATE TABLE IF NOT EXISTS estimates (
   id VARCHAR(40) NOT NULL PRIMARY KEY,
-  cid VARCHAR(40) NOT NULL,
-  vid CHAR(36) NOT NULL,
+  cid VARCHAR(40) NULL,      -- empty while the estimate has no customer yet (a draft made before he is registered)
+  vid CHAR(36) NULL,
   note VARCHAR(500) NOT NULL DEFAULT '',
   status ENUM('Draft','Finalized') NOT NULL DEFAULT 'Draft',
   labours JSON NOT NULL,

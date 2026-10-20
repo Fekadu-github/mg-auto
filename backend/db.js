@@ -75,9 +75,10 @@ export function createDb(env = process.env) {
     const [midKey] = await pool.query("SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'labour_tasks' AND INDEX_NAME = 'labour_tasks_name' GROUP BY INDEX_NAME HAVING COUNT(*) = 3");
     if (midKey.length) await pool.query('ALTER TABLE labour_tasks DROP INDEX labour_tasks_name, ADD UNIQUE KEY labour_tasks_name (code, model_grp, task, name, section)');
     // Older databases made the proforma's customer and vehicle required: a walk-in proforma has neither yet
-    for (const [col, ddl] of [['cid', 'VARCHAR(40) NULL'], ['vid', 'CHAR(36) NULL']]) {
-      const [[c]] = await pool.query("SELECT IS_NULLABLE AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'proformas' AND COLUMN_NAME = ?", [col]);
-      if (c && c.n === 'NO') await pool.query(`ALTER TABLE proformas MODIFY COLUMN \`${col}\` ${ddl}`);
+    // (an estimate can also be drafted before the customer is registered)
+    for (const table of ['proformas', 'estimates']) for (const [col, ddl] of [['cid', 'VARCHAR(40) NULL'], ['vid', 'CHAR(36) NULL']]) {
+      const [[c]] = await pool.query("SELECT IS_NULLABLE AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?", [table, col]);
+      if (c && c.n === 'NO') await pool.query(`ALTER TABLE \`${table}\` MODIFY COLUMN \`${col}\` ${ddl}`);
     }
     const [roleCol] = (await pool.query("SELECT COLUMN_TYPE AS t FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_users' AND COLUMN_NAME = 'role'"))[0];
     if (roleCol && lacksManagerRole(roleCol.t)) await pool.query(`ALTER TABLE app_users MODIFY COLUMN role ${ROLE_ENUM} NOT NULL`);

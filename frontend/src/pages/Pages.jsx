@@ -215,11 +215,11 @@ export function Estimates() {
   const list = db.e.filter(e => (e.id + cust(e.cid).name + veh(e.vid).plate + e.note).toLowerCase().includes(q.toLowerCase()));
   return (
     <>
-      <div className="row mt"><input aria-label="Search estimates" placeholder="Search by estimate number, customer or plate" value={q} onChange={x => setQ(x.target.value)} />{isSA(me) && <Btn onClick={() => (db.c.length ? openModal('newEstimate') : alert('Add a customer first.'))}>New estimate</Btn>}</div>
+      <div className="row mt"><input aria-label="Search estimates" placeholder="Search by estimate number, customer or plate" value={q} onChange={x => setQ(x.target.value)} />{isSA(me) && <Btn onClick={() => openModal('newEstimate')}>New estimate</Btn>}</div>
       <div className="mt"><Table head={['Estimate', 'Customer', 'Vehicle', 'Status', 'Loaded on', { t: 'Total', r: 1 }, '']} empty={!list.length && 'No estimates yet.'}>
         {list.map(e => (
           <tr key={e.id} className="k" tabIndex={0} onClick={() => openModal('estimate', { id: e.id })} onKeyDown={x => x.key === 'Enter' && openModal('estimate', { id: e.id })}>
-            <td><b>{e.id}</b></td><td>{cust(e.cid).name}</td><td>{veh(e.vid).plate} {vehicleName(veh(e.vid))}</td>
+            <td><b>{e.id}</b></td><td>{e.cid ? cust(e.cid).name : <span className="mu">no customer yet</span>}</td><td>{veh(e.vid).plate} {vehicleName(veh(e.vid))}</td>
             <td><Pill tone={e.status === 'Finalized' ? 'g' : 'a'}>{e.status}</Pill></td><td>{e.used_in || <span className="mu">not yet</span>}</td><td className="r">{money(tot(e, db.cfg.vat).total)}</td>
             <td className="acts" onClick={x => x.stopPropagation()}>{isAdmin(me) && !e.used_in && <Btn kind="ol" onClick={() => delEst(e)}>Delete</Btn>}</td>
           </tr>

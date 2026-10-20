@@ -56,8 +56,8 @@ export default function EstimateDialog({ id, jid }) {
   return (
     <Dialog title={<>{e.id} <Pill tone={draft ? 'a' : 'g'}>{e.status}</Pill></>} onClose={closeModal}>
       <div className="g g2">
-        <div className="box"><b>{c.name}</b> <span className="mu">{c.id}</span><br />{c.phone}</div>
-        <div className="box"><b>{v.plate}</b> · {vehicleName(v)}<br /><span className="mu">Body &amp; Paints estimate · made {dt(e.created)}</span></div>
+        {e.cid ? <div className="box"><b>{c.name}</b> <span className="mu">{c.id}</span><br />{c.phone}</div> : <div className="box"><Pill tone="a">No customer yet</Pill><br /><span className="mu small">Call this estimate by its number ({e.id}) in Proformas. The customer is added when the job card is created.</span></div>}
+        <div className="box">{e.vid ? <><b>{v.plate}</b> · {vehicleName(v)}</> : <span className="mu">No vehicle yet</span>}<br /><span className="mu">Body &amp; Paints estimate · made {dt(e.created)}</span></div>
       </div>
       {edit ? <Field label="Damage / work description" value={note} onChange={x => setNote(x.target.value)} /> : e.note && <p className="mu">Notes: {e.note}</p>}
       {!draft && e.finalized_at && <p className="mu">Finalized {dt(e.finalized_at)}{e.by_name ? ` by ${e.by_name}` : ''}.{e.used_in ? ` Loaded on ${e.used_in}.` : ' Not loaded on a job card yet.'}</p>}
@@ -80,7 +80,7 @@ export default function EstimateDialog({ id, jid }) {
       <div className="row mt">
         <Btn kind="ol" onClick={printIt}>Print estimate (A4)</Btn>
         <Btn kind="ol" onClick={download}>Download (Excel)</Btn>
-        {edit && <><Btn onClick={save}>Save now</Btn><Btn kind="gr" onClick={finalize}>Finalize estimate</Btn><Btn kind="ol" onClick={remove}>Delete draft</Btn></>}
+        {edit && <><Btn onClick={save}>Save now</Btn>{e.cid && <Btn kind="gr" onClick={finalize}>Finalize estimate</Btn>}<Btn kind="ol" onClick={remove}>Delete draft</Btn></>}
         {isAdmin(me) && !draft && !e.used_in && <Btn kind="ol" onClick={remove}>Delete estimate</Btn>}
         {sa && !draft && !e.used_in && jc && jc.status === 'Created' && !jc.est && jc.vid === e.vid && <Btn kind="gr" onClick={loadOnJob}>Load on {jid}</Btn>}
         {sa && !draft && !e.used_in && <Btn kind="ol" onClick={reopen}>Back to draft</Btn>}

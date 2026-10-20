@@ -406,11 +406,12 @@ export function createApp({ cfg, db, notifier }) {
   // ---- estimates (body & paint): draft, then finalized ----
   const catalogue = async c => new Map((await c.q('SELECT * FROM inventory WHERE active = 1')).map(r => { const p = partRow(r); return [p.id, p]; }));
   app.post('/api/estimates', auth('SA'), wrap(async (q, s) => {
+    // Without a customer: a draft estimation with just a number. The customer is added later, when the job card is created.
     const { cid, vid } = q.body;
-    if (!(await db.q('SELECT id FROM vehicles WHERE id = ? AND cid = ?', [vid, cid])).length) fail(400, 'Vehicle does not belong to this customer');
+    if ((cid || vid) && !(await db.q('SELECT id FROM vehicles WHERE id = ? AND cid = ?', [vid, cid])).length) fail(400, 'Vehicle does not belong to this customer');
     const id = await db.tx(async c => {
       const id = await numberFor(c, 'estimate', 'EST-');
-      await c.q('INSERT INTO estimates (id, cid, vid, note, status, labours, parts, created) VALUES (?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [id, cid, vid, str(q.body.note, 500), 'Draft', '[]', '[]']);
+      await c.q('INSERT INTO estimates (id, cid, vid, note, status, labours, parts, created) VALUES (?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [id, cid || null, vid || null, str(q.body.note, 500), 'Draft', '[]', '[]']);
       return id;
     });
     s.json(estRow((await db.q('SELECT * FROM estimates WHERE id = ?', [id]))[0]));
@@ -428,7 +429,7 @@ export function createApp({ cfg, db, notifier }) {
     s.json(saved);
   })];
   app.put('/api/estimates/:id', ...estEdit(async (e, { c, body }) => { rules.assertDraft(e); Object.assign(e, rules.normalizeEstimate(body, await labourRates(c), await catalogue(c))); }));
-  app.post('/api/estimates/:id/finalize', ...estEdit((e, { u }) => { rules.checkFinalize(e); e.status = 'Finalized'; e.finalized_at = new Date(); e.by_name = u.name; }));
+  app.post('/api/estimates/:id/finalize', ...estEdit((e, { u }) => { rules.checkFinalize(e); if (!e.cid) fail(400, 'This estimate has no customer yet. Make a proforma from it (by its number); the customer is added when the job card is created.'); e.status = 'Finalized'; e.finalized_at = new Date(); e.by_name = u.name; }));
   app.post('/api/estimates/:id/draft', ...estEdit(e => { rules.checkReopen(e); e.status = 'Draft'; e.finalized_at = null; e.by_name = null; }));
   app.delete('/api/estimates/:id', auth('SA'), wrap(async (q, s) => {
     await db.tx(async c => {
@@ -491,6 +492,21 @@ export function createApp({ cfg, db, notifier }) {
   app.post('/api/proformas', auth('SA'), wrap(async (q, s) => {
     // A proforma can be made for a walk-in who is not registered: name, phone and vehicle are just written on it.
     // The customer and vehicle are registered only when he comes back, agrees, and the job card is created.
+    // "Call" a draft estimation by its EST number: the proforma takes its number, its labour, parts and notes; only the insurance company is added
+    if (q.body.est) {
+      const estId = str(q.body.est, 40).toUpperCase();
+      const [er] = await db.q('SELECT * FROM estimates WHERE id = ?', [estId]);
+      if (!er) fail(404, `Estimate ${estId} not found`);
+      if (er.used_in) fail(409, `${estId} is already loaded on job card ${er.used_in}`);
+      if ((await db.q('SELECT id FROM proformas WHERE id = ?', [estId])).length) fail(409, `${estId} already has a proforma: open it in Proformas`);
+      const insId = str(q.body.insurer_id, 36) || null;
+      if (insId && !(await db.q('SELECT id FROM insurers WHERE id = ?', [insId])).length) fail(400, 'Choose an insurance company from the list');
+      const e = estRow(er);
+      const [cu0 = {}] = e.cid ? await db.q('SELECT insurer_id, policy_no FROM customers WHERE id = ?', [e.cid]) : [];
+      await db.q('INSERT INTO proformas (id, cid, vid, guest_name, guest_phone, guest_plate, guest_brand, guest_model, insurer_id, policy_no, estimator_id, estimator, estimator_role, pdate, note, status, labours, parts, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))',
+        [estId, e.cid || null, e.vid || null, '', '', '', '', '', insId || cu0.insurer_id || null, insId ? '' : cu0.policy_no || '', q.u.id, q.u.name, q.u.role, dayKey(Date.now()), e.note, 'Draft', sendJson(e.labours), sendJson(e.parts)]);
+      return s.json(proRow((await db.q('SELECT * FROM proformas WHERE id = ?', [estId]))[0]));
+    }
     const { cid, vid } = q.body;
     let cu = {}, guest = { name: '', phone: '', plate: '', brand: '', model: '' };
     if (cid || vid) {
@@ -600,7 +616,10 @@ export function createApp({ cfg, db, notifier }) {
         j.labours[j.labours.length - 1].est = eid;
       }
       for (const pt of p.parts) await issueLine(j, pt, c, q.u, { waiting: true });
-      await c.q('INSERT INTO estimates (id, cid, vid, note, status, labours, parts, created, finalized_at, by_name, used_in, pro) VALUES (?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), ?, ?, ?)',
+      // a proforma made from a draft estimate finalizes that same estimate (customer and vehicle are added to it now)
+      if ((await c.q('SELECT id FROM estimates WHERE id = ? FOR UPDATE', [eid])).length) await c.q("UPDATE estimates SET cid = ?, vid = ?, note = ?, status = 'Finalized', labours = ?, parts = ?, finalized_at = UTC_TIMESTAMP(3), by_name = ?, used_in = ?, pro = ? WHERE id = ?",
+        [p.cid, p.vid, p.note, sendJson(p.labours), sendJson(p.parts), p.estimator || q.u.name, jid, p.id, eid]);
+      else await c.q('INSERT INTO estimates (id, cid, vid, note, status, labours, parts, created, finalized_at, by_name, used_in, pro) VALUES (?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), ?, ?, ?)',
         [eid, p.cid, p.vid, p.note, 'Finalized', sendJson(p.labours), sendJson(p.parts), p.estimator || q.u.name, jid, p.id]);
       await c.q('INSERT INTO jobs (id, cid, vid, note, status, created, labours, parts, inv, `log`, mileage, services, est, requests, payer, policy_no, claim_no, due_date, priority) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3), ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [jid, p.cid, p.vid, note, 'Created', sendJson(j.labours), sendJson(j.parts), sendJson(j.log), km, '[]', eid, '[]', ins ? ins.name : null, ins ? p.policy_no || null : null, p.claim_no || null, p.due_date || null, p.priority || null]);   // the invoice is made out to the insurance company

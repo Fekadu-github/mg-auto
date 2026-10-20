@@ -119,24 +119,31 @@ export function TelegramDialog({ id }) {
 // and is registered only when he returns, agrees, and the job card is created. It opens as a draft that saves itself.
 export function NewProformaDialog() {
   const { db, run, openModal, closeModal } = useApp();
-  const [f, , set] = usePersistedForm('form:new-proforma', { mode: 'walkin', cid: db.c[0]?.id || '', vid: '', guest_name: '', guest_phone: '', guest_plate: '', guest_brand: '', guest_model: '', insurer_id: '' });
-  const walk = f.mode !== 'reg';
+  const [f, , set] = usePersistedForm('form:new-proforma', { est: '', mode: 'est', cid: db.c[0]?.id || '', vid: '', guest_name: '', guest_phone: '', guest_plate: '', guest_brand: '', guest_model: '', insurer_id: '' });
+  const byEst = f.mode === 'est', walk = f.mode === 'walkin';
   const cid = db.c.some(c => c.id === f.cid) ? f.cid : db.c[0]?.id || '';
   const vehicles = db.v.filter(v => v.cid === cid), vid = vehicles.some(v => v.id === f.vid) ? f.vid : vehicles[0]?.id || '';
-  const ok = walk ? true : !!vid;   // a walk-in needs nothing: the estimation number and the insurance company are enough to start
+  const ok = byEst ? !!f.est.trim() : walk ? true : !!vid;   // a walk-in needs nothing: the estimation number and the insurance company are enough to start
   const create = async () => {
     if (!ok) return;
-    const body = walk ? { guest_name: f.guest_name, guest_phone: f.guest_phone, guest_plate: f.guest_plate, guest_brand: f.guest_brand, guest_model: f.guest_model, insurer_id: f.insurer_id } : { cid, vid };
+    const body = byEst ? { est: f.est, insurer_id: f.insurer_id } : walk ? { guest_name: f.guest_name, guest_phone: f.guest_phone, guest_plate: f.guest_plate, guest_brand: f.guest_brand, guest_model: f.guest_model, insurer_id: f.insurer_id } : { cid, vid };
     const r = await run(() => api('/proformas', 'POST', body));
-    if (r.ok) { set({ vid: '', guest_name: '', guest_phone: '', guest_plate: '', guest_brand: '', guest_model: '' }); openModal('proforma', { id: r.data.id }); }
+    if (r.ok) { set({ est: '', vid: '', guest_name: '', guest_phone: '', guest_plate: '', guest_brand: '', guest_model: '' }); openModal('proforma', { id: r.data.id }); }
   };
   return (
     <Dialog title="New proforma (estimation)" onClose={closeModal} actions={<><Btn onClick={create} disabled={!ok}>Create draft proforma</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
       <div className="row mt">
+        <Btn kind={byEst ? '' : 'ol'} onClick={() => set({ mode: 'est' })}>From a draft estimate (EST no)</Btn>
         <Btn kind={walk ? '' : 'ol'} onClick={() => set({ mode: 'walkin' })}>Walk-in (not registered)</Btn>
-        <Btn kind={walk ? 'ol' : ''} onClick={() => set({ mode: 'reg' })} disabled={!db.c.length}>Registered customer</Btn>
+        <Btn kind={f.mode === 'reg' ? '' : 'ol'} onClick={() => set({ mode: 'reg' })} disabled={!db.c.length}>Registered customer</Btn>
       </div>
-      {walk ? <>
+      {byEst ? <>
+        <div className="row mt">
+          <Field label="Estimation number" placeholder="EST-0001" value={f.est} onChange={e => set({ est: e.target.value })} />
+          <Field label="Insurance company"><select value={f.insurer_id} onChange={e => set({ insurer_id: e.target.value })}><option value="">Choose later</option>{db.ins.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
+        </div>
+        <p className="mu small">Type the EST number of a draft estimate (Estimates page): its labour, parts and notes are brought here, then you print the proforma for the insurance company. When they accept, issue it, add the customer and create the job card.</p>
+      </> : walk ? <>
         <div className="row mt">
           <Field label="Customer name" value={f.guest_name} onChange={e => set({ guest_name: e.target.value })} />
           <Field label="Phone" value={f.guest_phone} onChange={e => set({ guest_phone: e.target.value })} />
@@ -206,21 +213,25 @@ export function LabourTaskDialog({ id }) {
 // Start an estimate for a customer's vehicle (Body & Paints). It opens as a draft.
 export function NewEstimateDialog() {
   const { db, run, openModal, closeModal } = useApp();
-  const [f, bind, set, reset] = usePersistedForm('form:new-estimate', { cid: db.c[0]?.id || '', vid: '', note: '' });
+  const [f, bind, set, reset] = usePersistedForm('form:new-estimate', { none: true, cid: db.c[0]?.id || '', vid: '', note: '' });
   const vehicles = db.v.filter(v => v.cid === f.cid), vid = vehicles.some(v => v.id === f.vid) ? f.vid : vehicles[0]?.id || '';
   const create = async () => {
-    if (!vid) return;
-    const r = await run(() => api('/estimates', 'POST', { cid: f.cid, vid, note: f.note }));
+    if (!f.none && !vid) return;
+    const r = await run(() => api('/estimates', 'POST', f.none ? { note: f.note } : { cid: f.cid, vid, note: f.note }));
     if (r.ok) { reset(); openModal('estimate', { id: r.data.id }); }
   };
   return (
-    <Dialog title="New estimate" onClose={closeModal} actions={<><Btn onClick={create} disabled={!vid}>Create draft estimate</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
+    <Dialog title="New estimate" onClose={closeModal} actions={<><Btn onClick={create} disabled={!f.none && !vid}>Create draft estimate</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
       <div className="row mt">
+        <Btn kind={f.none ? '' : 'ol'} onClick={() => set({ none: true })}>No customer yet</Btn>
+        <Btn kind={f.none ? 'ol' : ''} onClick={() => set({ none: false })} disabled={!db.c.length}>Registered customer</Btn>
+      </div>
+      {f.none ? <p className="mu small">Only the estimation number is made. Add the labour and parts, then call it by its EST number in Proformas to print it for the insurance. The customer is added when the job card is created.</p> : <div className="row mt">
         <Field label="Customer"><select value={f.cid} onChange={e => set({ cid: e.target.value, vid: '' })}>{db.c.map(c => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}</select></Field>
         <Field label="Vehicle"><select value={vid} onChange={e => set({ vid: e.target.value })}>
           {vehicles.length ? vehicles.map(v => <option key={v.id} value={v.id}>{v.plate} · {vehicleName(v)}</option>) : <option value="">No vehicle – add one in Customers</option>}
         </select></Field>
-      </div>
+      </div>}
       <Field label="Damage / work description" {...bind('note')} />
     </Dialog>
   );
