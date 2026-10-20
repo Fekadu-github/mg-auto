@@ -3,7 +3,8 @@ import { SECTIONS, SECTION_CODE, sectionOption } from '../lib/constants.js';
 import { matchPart, money, rateOf } from '../lib/format.js';
 import PartSearch from './PartSearch.jsx';
 import TaskSearch from './TaskSearch.jsx';
-import { groupLines, groupTasks, serviceGroups } from '../lib/labourGroups.js';
+import { useState } from 'react';
+import { groupLines, groupTasks, serviceGroups, tasksForVehicle } from '../lib/labourGroups.js';
 
 const r2 = n => Math.round(n * 100) / 100;
 const num = v => parseFloat(v) || 0;
@@ -24,17 +25,21 @@ export const isListed = (tasks, groups) => {
 
 // Editable labour lines for a proforma or an estimate. Pick a task from the list (BP / ME / SV): its section, hours and cost fill themselves.
 // Or type any work by hand. Hours x labour rate fills a cost that is left empty; every cost can be typed over.
-export function LabourLines({ labs, setLabs, tasks, rate, services }) {
+export function LabourLines({ labs, setLabs, tasks, rate, services, brand }) {
   const set = (i, patch) => setLabs(ls => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
-  const groups = [...groupTasks(tasks), ...serviceGroups(services)];
-  const singles = (tasks || []).filter(x => !x.task);
+  const [allModels, setAllModels] = useState(false);
+  // only the lines of the vehicle's make are offered (brand empty or "show all" = the whole list); a line already on the sheet stays valid either way
+  const offered = allModels ? tasks : tasksForVehicle(tasks, brand);
+  const groups = [...groupTasks(offered), ...serviceGroups(services)];
+  const singles = (offered || []).filter(x => !x.task);
+  const allGroups = [...groupTasks(tasks), ...serviceGroups(services)];
   // a task is chosen from the list (typing a letter shows the matches); a task name brings all its lines, which replace this line
   const picked = (i, h) => {
     if (h.kind === 'group') return setLabs(ls => [...ls.slice(0, i), ...groupLines(h.g, rate), ...ls.slice(i + 1)]);
     const t = h.t;
     set(i, { desc: taskDesc(t), section: t.section, hours: t.hours || '', price: t.price || r2(t.hours * rateOf(rate, t.section)) || '' });
   };
-  const listed = isListed(tasks, groups);
+  const listed = isListed(tasks, allGroups);
   return (
     <>
       <Table head={['Task (choose the section first, then type a letter)', 'Section', 'Hours', 'Cost (ETB)', '']} empty={!labs.length && 'No labour yet.'}>
@@ -48,6 +53,7 @@ export function LabourLines({ labs, setLabs, tasks, rate, services }) {
           </tr>
         ))}
       </Table>
+      {!!(brand || '').trim() && <div className="mu small mt">{allModels ? 'Showing the labour of all models.' : `Showing the labour for ${brand} (and general lines).`} <button type="button" className="lnk" onClick={() => setAllModels(x => !x)}>{allModels ? `Only ${brand}` : 'Show all models'}</button></div>}
       <div className="mt"><Btn kind="ol" onClick={() => setLabs(ls => [...ls, { desc: '', section: '', hours: '', price: '' }])}>Add labour line</Btn> <span className="mu small">Hours x the section's rate ({SECTIONS.map(s => `${SECTION_CODE[s]} ${rateOf(rate, s)}`).join(' · ')} ETB/h) fills the cost; type another amount to change it.</span></div>
     </>
   );

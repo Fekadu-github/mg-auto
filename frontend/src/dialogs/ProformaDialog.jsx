@@ -99,7 +99,7 @@ export default function ProformaDialog({ id }) {
       )}
 
       <h3 className="mt">Labour</h3>
-      {open ? <LabourLines labs={f.labours} setLabs={setLabs} tasks={db.lt} services={db.st} rate={rate} /> : <p className="mu">{p.labours.map(l => `${l.desc} (${money(l.price)})`).join(', ') || 'No labour.'}</p>}
+      {open ? <LabourLines labs={f.labours} setLabs={setLabs} tasks={db.lt} services={db.st} rate={rate} brand={v.brand} /> : <p className="mu">{p.labours.map(l => `${l.desc} (${money(l.price)})`).join(', ') || 'No labour.'}</p>}
       <h3 className="mt">Parts</h3>
       {open ? <PartLines parts={f.parts} setParts={setParts} stock={db.p} /> : <p className="mu">{p.parts.map(x => `${x.qty} x ${x.name} (${money(x.price)})`).join(', ') || 'No parts.'}</p>}
 

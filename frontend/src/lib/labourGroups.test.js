@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupHours, groupLabel, groupLines, groupTasks, matchGroup } from './labourGroups.js';
+import { groupHours, groupLabel, groupLines, groupTasks, matchGroup, tasksForVehicle } from './labourGroups.js';
 
 const tasks = [
   { task: 'Bumper', name: 'Remove', section: 'Body & Paints', hours: 1.5, price: 600 },
@@ -16,4 +16,17 @@ describe('labour task groups', () => {
     expect(l.map(x => x.price)).toEqual([600, 1050]);
     expect(l[0].desc).toBe('Bumper: Remove');
   });
+});
+
+describe('tasksForVehicle', () => {
+  const t = (name, model_grp) => ({ name, model_grp, section: 'Body & Paints' });
+  const list = [t('a', 'Suzuki'), t('b', 'Toyota (SEDAN)'), t('c', 'Toyota (SUV)'), t('d', 'Others'), t('e', '')];
+  const names = xs => xs.map(x => x.name).join('');
+  it('shows only the make of the vehicle plus the general lines', () => {
+    expect(names(tasksForVehicle(list, 'Suzuki'))).toBe('ae');
+    expect(names(tasksForVehicle(list, 'toyota'))).toBe('bce');
+    expect(names(tasksForVehicle(list, 'Toyota Corolla'))).toBe('bce');
+  });
+  it('a make without its own group uses the Others lines', () => { expect(names(tasksForVehicle(list, 'MG'))).toBe('de'); });
+  it('no brand hides nothing', () => { expect(tasksForVehicle(list, '')).toHaveLength(5); expect(tasksForVehicle(list, undefined)).toHaveLength(5); });
 });

@@ -33,3 +33,15 @@ export const groupLines = (g, rate) => g.items.map(t => ({
   desc: key(t.name) === key(g.name) ? t.name : `${g.name}: ${t.name}`,
   section: t.section, hours: t.hours || '', price: t.price || r2((+t.hours || 0) * rateOf(rate, t.section)) || ''
 }));
+
+// Limit the labour list to the vehicle's make. The price book names a model group per line ("Suzuki", "Toyota (SEDAN)", "Others"):
+// a Toyota shows the lines of every "Toyota ..." group; a make with no group of its own (for example MG) shows the "Others" lines.
+// Lines without any model group are general and always show. No brand = nothing is hidden.
+export function tasksForVehicle(tasks, brand) {
+  const b = key(brand);
+  if (!b) return tasks || [];
+  const base = g => key(g).replace(/\(.*?\)/g, '').trim();   // "toyota (sedan)" -> "toyota"
+  const own = t => { const g = key(t.model_grp), s = base(t.model_grp); return !!g && (g.includes(b) || (!!s && b.includes(s))); };
+  const hasOwn = (tasks || []).some(own);
+  return (tasks || []).filter(t => !key(t.model_grp) || own(t) || (!hasOwn && /^others?$/.test(key(t.model_grp))));
+}

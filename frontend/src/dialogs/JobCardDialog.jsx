@@ -3,7 +3,7 @@ import { api } from '../api.js';
 import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Pill, StatusPill, Table } from '../components/ui.jsx';
 import { isListed, taskDesc } from '../components/Lines.jsx';
-import { groupLines, groupTasks, serviceGroups } from '../lib/labourGroups.js';
+import { groupLines, groupTasks, serviceGroups, tasksForVehicle } from '../lib/labourGroups.js';
 import TaskSearch from '../components/TaskSearch.jsx';
 import PartSearch from '../components/PartSearch.jsx';
 import { usePersistedForm as useForm } from '../lib/autosave.js';
@@ -117,7 +117,7 @@ export default function JobCardDialog({ id }) {
       <Table head={['Work', 'Price', 'Time', '']} empty={!j.labours.length && 'No labour yet. Add the work to be done.'}>
         {j.labours.map(l => <LabourRow key={l.id} job={j} l={l} canClock={work && !l.done && me.role !== 'SA'} canStop={ws} canRemove={labourOpen && !(l.logs || []).length} priceOpen={priceOpen} mgr={mgr} />)}
       </Table>
-      {labourOpen && <LabourForm id={j.id} rate={db.cfg.labourRates || db.cfg.labourRate} known={knownLabour} services={types} late={['Back with SA', 'Closed'].includes(j.status)} />}
+      {labourOpen && <LabourForm id={j.id} rate={db.cfg.labourRates || db.cfg.labourRate} known={knownLabour} brand={v.brand} services={types} late={['Back with SA', 'Closed'].includes(j.status)} />}
 
       <h3 className="mt">Parts issued</h3>
       <Table head={['Part', 'Qty', 'Unit', 'Total', '']} empty={!j.parts.length && 'No parts issued.'}>
@@ -313,9 +313,12 @@ function LabourRow({ job: j, l, canClock, canStop, canRemove, priceOpen, mgr }) 
 // Pick a task from the labour list (BP / ME / SV): its section, hours and cost fill themselves. Or type any work and its hours.
 // The cost is hours x labour rate unless the task has a fixed price, and it can still be typed over.
 const groupLabelText = g => `▤ ${g.name}`;
-function LabourForm({ id, rate, known, late, services }) {
+function LabourForm({ id, rate, known, late, services, brand }) {
   const { run, say } = useApp();
-  const groups = [...groupTasks(known), ...serviceGroups(services)];
+  const [allModels, setAllModels] = useState(false);
+  const offered = allModels ? known : tasksForVehicle(known, brand);   // only the lines of the vehicle's make (and general lines)
+  const groups = [...groupTasks(offered), ...serviceGroups(services)];
+  const allGroups = [...groupTasks(known), ...serviceGroups(services)];
   const [f, bind, set, reset] = useForm(`form:${id}:labour`, { desc: '', section: '', hours: '', price: '' });
   const priceFor = (h, section = f.section) => r2((parseFloat(h) || 0) * rateOf(rate, section)) || '';   // hours x the rate of the section
   // A task picked by its name adds all its lines to the card, one after the other
@@ -326,13 +329,13 @@ function LabourForm({ id, rate, known, late, services }) {
     }
     reset(); say?.(`Added all ${g.items.length} line(s) of "${g.name}".`);
   };
-  const singles = known.filter(x => !x.task);
+  const singles = offered.filter(x => !x.task);
   const picked = h => {
     if (h.kind === 'group') { set({ desc: groupLabelText(h.g) }); return addGroup(h.g); }
     const k = h.t;
     set({ desc: taskDesc(k), section: k.section, hours: k.hours || '', price: k.price || priceFor(k.hours, k.section) });
   };
-  const chosen = !!f.desc.trim() && isListed(known, groups)(f.desc);
+  const chosen = !!f.desc.trim() && isListed(known, allGroups)(f.desc);
   const add = async () => {
     if (!f.section) return say?.('Choose the section first.');
     if (!f.desc.trim()) return;
@@ -343,7 +346,8 @@ function LabourForm({ id, rate, known, late, services }) {
   return (
     <>
       <div className="row mt">
-        <div style={{ flex: '3 1 260px' }}><label>Labour task (type a letter of the code or task name)<TaskSearch groups={groups} singles={singles} section={f.section} disabled={!f.section} value={f.desc} onChange={text => set({ desc: text })} onPick={picked} invalid={!!f.desc.trim() && !chosen} /></label></div>
+        <div style={{ flex: '3 1 260px' }}><label>Labour task (type a letter of the code or task name)<TaskSearch groups={groups} singles={singles} section={f.section} disabled={!f.section} value={f.desc} onChange={text => set({ desc: text })} onPick={picked} invalid={!!f.desc.trim() && !chosen} /></label>
+          {!!(brand || '').trim() && <div className="mu small">{allModels ? 'Showing the labour of all models.' : `Showing the labour for ${brand} (and general lines).`} <button type="button" className="lnk" onClick={() => setAllModels(x => !x)}>{allModels ? `Only ${brand}` : 'Show all models'}</button></div>}</div>
         <Field label="Section (choose first)"><select value={f.section} onChange={e => set({ section: e.target.value, desc: '', hours: '', price: '' })}>{!f.section && <option value="">Choose section…</option>}{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
         <Field label="Hours" type="number" min="0" step="0.25" value={f.hours} onChange={e => set({ hours: e.target.value, price: priceFor(e.target.value) })} />
         <Field label={`Labour cost (ETB) · ${rateOf(rate, f.section)}/h`} type="number" min="0" {...bind('price')} />
