@@ -21,8 +21,8 @@ export default function ProformaDoc({ pro, customer: c = {}, vehicle: v = {}, in
         {pro.claim_no && <div>Claim no <b>{pro.claim_no}</b></div>}{pro.priority && <div>Priority {pro.priority}</div>}{pro.due_date && <div>Expected delivery {pro.due_date}</div>}
       </Letterhead>
       <section className="two">
-        <div><h4>Customer</h4><b>{c.name}</b><div>{c.id} · {c.phone}</div>{c.tin && <div>TIN {c.tin}</div>}<div>{area(c)}</div></div>
-        <div><h4>Vehicle</h4><b>{v.plate}</b> · {vehicleName(v)}<div>{[v.col, v.vin && `VIN ${v.vin}`, v.eng && `Engine ${v.eng}`].filter(Boolean).join(' · ')}</div>{v.mileage != null && <div>Mileage {Number(v.mileage).toLocaleString('en-US')} km</div>}</div>
+        <div><h4>Customer</h4><b>{c.name || '-'}</b><div>{[c.id, c.phone].filter(Boolean).join(' · ')}</div>{c.tin && <div>TIN {c.tin}</div>}<div>{area(c)}</div></div>
+        <div><h4>Vehicle</h4><b>{v.plate || '-'}</b> · {vehicleName(v)}<div>{[v.col, v.vin && `VIN ${v.vin}`, v.eng && `Engine ${v.eng}`].filter(Boolean).join(' · ')}</div>{v.mileage != null && <div>Mileage {Number(v.mileage).toLocaleString('en-US')} km</div>}</div>
       </section>
       <section className="two">
         <div><h4>Insurance</h4>{insurer ? <><b>{insurer.name}</b>{insurer.phone && <div>Tel {insurer.phone}</div>}<div>Policy no {pro.policy_no || '-'}</div></> : <b>No insurance: the customer pays</b>}</div>

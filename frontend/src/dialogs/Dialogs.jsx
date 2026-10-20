@@ -115,26 +115,46 @@ export function TelegramDialog({ id }) {
   );
 }
 
-// Start a first-hand (insurance) proforma for a customer's vehicle. It opens as a draft that saves itself.
+// Start a first-hand (insurance) proforma. The customer does NOT have to be registered: a walk-in is just written on the proforma,
+// and is registered only when he returns, agrees, and the job card is created. It opens as a draft that saves itself.
 export function NewProformaDialog() {
   const { db, run, openModal, closeModal } = useApp();
-  const [f, , set] = usePersistedForm('form:new-proforma', { cid: db.c[0]?.id || '', vid: '' });
+  const [f, , set] = usePersistedForm('form:new-proforma', { mode: 'walkin', cid: db.c[0]?.id || '', vid: '', guest_name: '', guest_phone: '', guest_plate: '', guest_brand: '', guest_model: '' });
+  const walk = f.mode !== 'reg';
   const cid = db.c.some(c => c.id === f.cid) ? f.cid : db.c[0]?.id || '';
   const vehicles = db.v.filter(v => v.cid === cid), vid = vehicles.some(v => v.id === f.vid) ? f.vid : vehicles[0]?.id || '';
+  const ok = walk ? !!(f.guest_name.trim() || f.guest_plate.trim()) : !!vid;
   const create = async () => {
-    if (!vid) return;
-    const r = await run(() => api('/proformas', 'POST', { cid, vid }));
-    if (r.ok) { set({ vid: '' }); openModal('proforma', { id: r.data.id }); }
+    if (!ok) return;
+    const body = walk ? { guest_name: f.guest_name, guest_phone: f.guest_phone, guest_plate: f.guest_plate, guest_brand: f.guest_brand, guest_model: f.guest_model } : { cid, vid };
+    const r = await run(() => api('/proformas', 'POST', body));
+    if (r.ok) { set({ vid: '', guest_name: '', guest_phone: '', guest_plate: '', guest_brand: '', guest_model: '' }); openModal('proforma', { id: r.data.id }); }
   };
   return (
-    <Dialog title="New insurance proforma" onClose={closeModal} actions={<><Btn onClick={create} disabled={!vid}>Create draft proforma</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
+    <Dialog title="New proforma (estimation)" onClose={closeModal} actions={<><Btn onClick={create} disabled={!ok}>Create draft proforma</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
       <div className="row mt">
-        <Field label="Customer (profile and insurance are taken from it)"><select value={cid} onChange={e => set({ cid: e.target.value, vid: '' })}>{db.c.map(c => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}</select></Field>
-        <Field label="Vehicle"><select value={vid} onChange={e => set({ vid: e.target.value })}>
-          {vehicles.length ? vehicles.map(v => <option key={v.id} value={v.id}>{v.plate} · {vehicleName(v)}</option>) : <option value="">No vehicle – add one in Customers</option>}
-        </select></Field>
+        <Btn kind={walk ? '' : 'ol'} onClick={() => set({ mode: 'walkin' })}>Walk-in (not registered)</Btn>
+        <Btn kind={walk ? 'ol' : ''} onClick={() => set({ mode: 'reg' })} disabled={!db.c.length}>Registered customer</Btn>
       </div>
-      <p className="mu small">The proforma is made before the job card. You pick the estimator, the insurance and the labour and parts on the next screen, and print it. The job card is created from it afterwards.</p>
+      {walk ? <>
+        <div className="row mt">
+          <Field label="Customer name" value={f.guest_name} onChange={e => set({ guest_name: e.target.value })} />
+          <Field label="Phone" value={f.guest_phone} onChange={e => set({ guest_phone: e.target.value })} />
+        </div>
+        <div className="row">
+          <Field label="Plate no" value={f.guest_plate} onChange={e => set({ guest_plate: e.target.value })} />
+          <Field label="Brand" value={f.guest_brand} onChange={e => set({ guest_brand: e.target.value })} />
+          <Field label="Model" value={f.guest_model} onChange={e => set({ guest_model: e.target.value })} />
+        </div>
+        <p className="mu small">No registration needed. Make the estimation, print it and give it to the customer (for example to take to his insurance). When he comes back and agrees, you register him and create the job card from this same estimation.</p>
+      </> : <>
+        <div className="row mt">
+          <Field label="Customer (profile and insurance are taken from it)"><select value={cid} onChange={e => set({ cid: e.target.value, vid: '' })}>{db.c.map(c => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}</select></Field>
+          <Field label="Vehicle"><select value={vid} onChange={e => set({ vid: e.target.value })}>
+            {vehicles.length ? vehicles.map(v => <option key={v.id} value={v.id}>{v.plate} · {vehicleName(v)}</option>) : <option value="">No vehicle – add one in Customers</option>}
+          </select></Field>
+        </div>
+      </>}
     </Dialog>
   );
 }
@@ -163,17 +183,20 @@ export function InsurerDialog({ id }) {
 export function LabourTaskDialog({ id }) {
   const { db, run, closeModal } = useApp();
   const t = db.lt.find(x => x.id === id);
-  const [f, bind] = useForm({ name: t?.name || '', section: t?.section || SECTIONS[1], hours: t?.hours || '', price: t?.price || '' });
-  const body = extra => ({ name: f.name, section: f.section, hours: parseFloat(f.hours) || 0, price: parseFloat(f.price) || 0, ...extra });
+  const [f, bind] = useForm({ code: t?.code || '', model_grp: t?.model_grp || '', task: t?.task || '', name: t?.name || '', section: t?.section || SECTIONS[1], hours: t?.hours || '', price: t?.price || '' });
+  const body = extra => ({ code: f.code, model_grp: f.model_grp, task: f.task, name: f.name, section: f.section, hours: parseFloat(f.hours) || 0, price: parseFloat(f.price) || 0, ...extra });
   const save = async () => { if (!f.name.trim()) return; const r = await run(() => api('/labour-tasks/' + id, 'PUT', body())); if (r.ok) closeModal(); };
   const retire = async () => { if (!confirm(`Remove "${t.name}" from the list?`)) return; const r = await run(() => api('/labour-tasks/' + id, 'PUT', body({ active: false }))); if (r.ok) closeModal(); };
   return (
     <Dialog title={`Edit ${t?.name || 'task'}`} onClose={closeModal} actions={<><Btn onClick={save}>Save</Btn><Btn kind="ol" onClick={retire}>Remove from list</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
       <div className="row mt">
-        <Field label="Task" grow="3 1 200px" {...bind('name')} />
+        <Field label="Labour code" {...bind('code')} />
+        <Field label="Model group" {...bind('model_grp')} />
+        <Field label="Task (group, empty = single line)" grow="2 1 180px" {...bind('task')} />
+        <Field label="Labour line" grow="3 1 200px" {...bind('name')} />
         <Field label="Section"><select {...bind('section')}>{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
         <Field label="Hours" type="number" min="0" step="0.25" {...bind('hours')} />
-        <Field label="Fixed price (ETB), empty = hours x rate" type="number" min="0" {...bind('price')} />
+        <Field label="Total cost (ETB), empty = hours x rate" type="number" min="0" {...bind('price')} />
       </div>
     </Dialog>
   );

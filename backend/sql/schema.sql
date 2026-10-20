@@ -171,19 +171,27 @@ CREATE TABLE IF NOT EXISTS insurers (
 -- The labour task list: what the Service Advisor picks from on proformas, estimates and job cards. Hours x labour rate, or a fixed price.
 CREATE TABLE IF NOT EXISTS labour_tasks (
   id CHAR(36) NOT NULL PRIMARY KEY,
+  code VARCHAR(40) NOT NULL DEFAULT '',       -- Labour Code from the Excel price book (BP-... / ME-...); empty for a line typed in by hand
+  model_grp VARCHAR(60) NOT NULL DEFAULT '',  -- Model Grp from the price book (Suzuki, Toyota (SEDAN), Others...)
+  task VARCHAR(200) NOT NULL DEFAULT '',   -- the task this line belongs to (picking the task adds all its lines); empty = a single stand-alone line
   name VARCHAR(200) NOT NULL,
   section VARCHAR(30) NOT NULL DEFAULT 'Mechanical Repairs',
   hours DECIMAL(6,2) NOT NULL DEFAULT 0,
   price DECIMAL(12,2) NOT NULL DEFAULT 0,
   active TINYINT(1) NOT NULL DEFAULT 1,
-  UNIQUE KEY labour_tasks_name (name, section)
+  UNIQUE KEY labour_tasks_name (code, model_grp, task, name, section)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- First-hand (insurance) proforma, made before any job card. Draft -> Issued (printed) -> Converted (job card and estimate created from it).
 CREATE TABLE IF NOT EXISTS proformas (
   id VARCHAR(40) NOT NULL PRIMARY KEY,
-  cid VARCHAR(40) NOT NULL,
-  vid CHAR(36) NOT NULL,
+  cid VARCHAR(40) NULL,            -- empty while the customer is a walk-in (not registered yet); filled when the job card is created
+  vid CHAR(36) NULL,
+  guest_name VARCHAR(120) NOT NULL DEFAULT '',    -- walk-in details, written on the proforma until the customer agrees and is registered
+  guest_phone VARCHAR(30) NOT NULL DEFAULT '',
+  guest_plate VARCHAR(30) NOT NULL DEFAULT '',
+  guest_brand VARCHAR(40) NOT NULL DEFAULT '',
+  guest_model VARCHAR(60) NOT NULL DEFAULT '',
   insurer_id CHAR(36) NULL,
   policy_no VARCHAR(60) NOT NULL DEFAULT '',
   estimator_id CHAR(36) NULL,

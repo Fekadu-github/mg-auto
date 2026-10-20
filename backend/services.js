@@ -80,5 +80,38 @@ export const DEFAULT_LABOUR = [
 export function normalizeTask(b, sections) {
   const name = str(b.name, 200);
   if (!name) fail(400, 'Describe the task');
-  return { name, section: sections.includes(b.section) ? b.section : sections[0], hours: Math.max(0, qn(b.hours) || 0), price: Math.max(0, qn(b.price) || 0), active: b.active === false || b.active === 0 ? 0 : 1 };
+  return { code: str(b.code, 40).toUpperCase(), model_grp: str(b.model_grp, 60), task: str(b.task, 200), name, section: sections.includes(b.section) ? b.section : sections[0], hours: Math.max(0, qn(b.hours) || 0), price: Math.max(0, qn(b.price) || 0), active: b.active === false || b.active === 0 ? 0 : 1 };
+}
+
+// ---- import of the labour list from the garage's Excel price book ----
+// The browser reads every sheet and sends each row as its filled cells in order: Labour Code | Labour Type Description | Model Grp | Hours Required.
+// Only those four are taken. The cost is never read from the sheet: it is always hours x the labour rate set in the system.
+// The section comes from the code: BP- = Body & Paints, ME- = Mechanical Repairs. SV- codes are not imported (the Type A / B / C
+// service packages already hold them) and neither is any other code. The same code + model group on several sheets is taken once.
+const CODE_SECTION = { BP: 'Body & Paints', ME: 'Mechanical Repairs' };
+const isNum = v => /^\d+([.,]\d+)?$/.test(String(v).replace(/,(?=\d{3}\b)/g, ''));
+
+export function normalizeImport(rows, sections) {
+  if (!Array.isArray(rows) || !rows.length) fail(400, 'The sheet has no rows to import');
+  if (rows.length > 6000) fail(400, 'Import at most 6000 rows at a time');
+  const out = [], skipped = [], seen = new Set(), ignored = { sv: 0, other: 0, duplicate: 0 };
+  for (const raw of rows) {
+    const c = (Array.isArray(raw) ? raw : []).map(x => String(x ?? '').trim()).filter(Boolean);
+    const code = str(c[0] || '', 40).toUpperCase(), prefix = /^([A-Z]{2})-/.exec(code)?.[1];
+    if (!prefix) { if (c.length >= 3) ignored.other++; continue; }
+    if (prefix === 'SV') { ignored.sv++; continue; }
+    const section = CODE_SECTION[prefix];
+    if (!section || !sections.includes(section)) { ignored.other++; continue; }
+    const name = str(c[1] || '', 200);
+    const hasModel = c[2] !== undefined && !isNum(c[2]);
+    const model = hasModel ? str(c[2], 60) : '', h = c[hasModel ? 3 : 2];
+    const hours = h === undefined ? NaN : +String(h).replace(/,/g, '');
+    if (!name) { skipped.push({ code, why: 'No description' }); continue; }
+    if (!(hours >= 0 && hours <= 999)) { skipped.push({ code, why: 'Hours missing or not a number' }); continue; }
+    const k = `${code}|${model}`.toLowerCase();
+    if (seen.has(k)) { ignored.duplicate++; continue; }
+    seen.add(k);
+    out.push({ code, task: '', name, model_grp: model, section, hours: Math.round(hours * 100) / 100, price: 0 });
+  }
+  return { lines: out, skipped, ignored };
 }

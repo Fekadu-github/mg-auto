@@ -8,7 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { fail } from './errors.js';
 import { adjustStock, newId, numberFor, J } from './db.js';
 import { dayKey, range, hoursReport, revenueReport } from './lib.js';
-import { isServiceVisit, nextService, normalizeService, normalizeTask } from './services.js';
+import { isServiceVisit, nextService, normalizeImport, normalizeService, normalizeTask } from './services.js';
 import * as rules from './rules.js';
 import { str, qn } from './rules.js';
 import * as S from './stock.js';
@@ -17,7 +17,7 @@ import { closeRunningClocks } from './workday.js';
 
 const jobRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, created: r.created, mileage: r.mileage ?? null, est: r.est || null, payer: r.payer || null, policy_no: r.policy_no || null, mileage_out: r.mileage_out ?? null, claim_no: r.claim_no || null, due_date: r.due_date || null, priority: r.priority || null, price_reqs: J(r.price_reqs, []), services: J(r.services, []), requests: J(r.requests, []), labours: J(r.labours, []), parts: J(r.parts, []), inv: J(r.inv, null), log: J(r.log, []) });
 const estRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), created: r.created, finalized_at: r.finalized_at, by_name: r.by_name, used_in: r.used_in, pro: r.pro || null });
-const proRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, insurer_id: r.insurer_id || null, policy_no: r.policy_no, estimator_id: r.estimator_id || null, estimator: r.estimator, estimator_role: r.estimator_role, pdate: r.pdate, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), est: r.est || null, job: r.job || null, claim_no: r.claim_no || '', priority: r.priority || '', due_date: r.due_date || null, terms: r.terms || '', created: r.created, updated: r.updated });
+const proRow = r => r && ({ id: r.id, cid: r.cid || null, vid: r.vid || null, guest_name: r.guest_name || '', guest_phone: r.guest_phone || '', guest_plate: r.guest_plate || '', guest_brand: r.guest_brand || '', guest_model: r.guest_model || '', insurer_id: r.insurer_id || null, policy_no: r.policy_no, estimator_id: r.estimator_id || null, estimator: r.estimator, estimator_role: r.estimator_role, pdate: r.pdate, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), est: r.est || null, job: r.job || null, claim_no: r.claim_no || '', priority: r.priority || '', due_date: r.due_date || null, terms: r.terms || '', created: r.created, updated: r.updated });
 const CUS = 'id, name, phone, city, sub, woreda, house, dob, notify, insurer_id, policy_no, tin, (tg_chat IS NOT NULL) AS tg, created_at';   // never the Telegram chat id or link token
 const svcRow = r => r && ({ code: r.code, name: r.name, interval_km: r.interval_km, labours: J(r.labours, []), parts: J(r.parts, []) });
 const VEH = 'id, cid, plate, vin, eng, col, brand, model, mileage, next_km, next_type, created_at';
@@ -94,7 +94,7 @@ export function createApp({ cfg, db, notifier }) {
       db.q('SELECT * FROM service_types WHERE active = 1 ORDER BY interval_km, code'),
       staff ? db.q('SELECT * FROM proformas ORDER BY created DESC, id DESC') : [],
       staff ? db.q('SELECT id, name, phone FROM insurers WHERE active = 1 ORDER BY name') : [],
-      staff ? db.q('SELECT id, name, section, hours, price FROM labour_tasks WHERE active = 1 ORDER BY section, name') : [],
+      staff ? db.q('SELECT id, code, model_grp, task, name, section, hours, price FROM labour_tasks WHERE active = 1 ORDER BY section, task, code, name, model_grp') : [],
       staff ? db.q("SELECT id, name, role FROM app_users WHERE role IN ('SA','WS','MGR','ADMIN') ORDER BY name") : []]);   // estimators: advisors and above, not technicians
     const rates = await labourRates(db);
     s.json({ c: c.map(r => ({ ...r, tg: !!r.tg })), v, j: j.map(jobRow), ...(sendParts ? { p: p.map(r => S.partView(r, mgr)) } : {}), pv, e: e.map(estRow), st: st.map(svcRow), pr: pr.map(proRow), ins, lt: lt.map(t => ({ ...t, hours: +t.hours, price: +t.price })), staff: people,
@@ -426,27 +426,50 @@ export function createApp({ cfg, db, notifier }) {
 
   app.post('/api/labour-tasks', auth('SA'), wrap(async (q, s) => {
     const f = normalizeTask(q.body, rules.SECTIONS), id = newId();
-    if ((await db.q('SELECT id FROM labour_tasks WHERE name = ? AND section = ?', [f.name, f.section])).length) fail(409, 'This task is already in the list');
-    await db.q('INSERT INTO labour_tasks (id, name, section, hours, price, active) VALUES (?,?,?,?,?,1)', [id, f.name, f.section, f.hours, f.price]);
+    if ((await db.q('SELECT id FROM labour_tasks WHERE code = ? AND model_grp = ? AND task = ? AND name = ? AND section = ?', [f.code, f.model_grp, f.task, f.name, f.section])).length) fail(409, 'This task is already in the list');
+    await db.q('INSERT INTO labour_tasks (id, code, model_grp, task, name, section, hours, price, active) VALUES (?,?,?,?,?,?,?,?,1)', [id, f.code, f.model_grp, f.task, f.name, f.section, f.hours, f.price]);
     s.json({ id, ...f });
+  }));
+  // Import the garage's Excel price book (the browser reads all its sheets and sends the rows). Only BP- and ME- codes are taken:
+  // Labour Code, Description, Model Grp and Hours. The cost is not imported: it is always hours x the labour rate in the system.
+  // A line already there (same code and model group) gets its description and hours updated. Nothing is deleted.
+  app.post('/api/labour-tasks/import', auth('SA'), wrap(async (q, s) => {
+    const { lines, skipped, ignored } = normalizeImport(q.body.rows, rules.SECTIONS);
+    let added = 0, updated = 0;
+    await db.tx(async c => {
+      for (const l of lines) {
+        const r = await c.q('UPDATE labour_tasks SET name = ?, section = ?, hours = ?, price = 0, active = 1 WHERE code = ? AND model_grp = ?', [l.name, l.section, l.hours, l.code, l.model_grp]);
+        if (r.affectedRows) updated++;
+        else { await c.q('INSERT INTO labour_tasks (id, code, model_grp, task, name, section, hours, price, active) VALUES (?,?,?,?,?,?,?,0,1)', [newId(), l.code, l.model_grp, '', l.name, l.section, l.hours]); added++; }
+      }
+    });
+    s.json({ added, updated, skipped, ignored });
   }));
   app.put('/api/labour-tasks/:id', auth('SA'), wrap(async (q, s) => {
     const f = normalizeTask(q.body, rules.SECTIONS);
-    if ((await db.q('SELECT id FROM labour_tasks WHERE name = ? AND section = ? AND id <> ?', [f.name, f.section, q.params.id])).length) fail(409, 'This task is already in the list');
-    const r = await db.q('UPDATE labour_tasks SET name = ?, section = ?, hours = ?, price = ?, active = ? WHERE id = ?', [f.name, f.section, f.hours, f.price, f.active, q.params.id]);
+    if ((await db.q('SELECT id FROM labour_tasks WHERE code = ? AND model_grp = ? AND task = ? AND name = ? AND section = ? AND id <> ?', [f.code, f.model_grp, f.task, f.name, f.section, q.params.id])).length) fail(409, 'This task is already in the list');
+    const r = await db.q('UPDATE labour_tasks SET code = ?, model_grp = ?, task = ?, name = ?, section = ?, hours = ?, price = ?, active = ? WHERE id = ?', [f.code, f.model_grp, f.task, f.name, f.section, f.hours, f.price, f.active, q.params.id]);
     if (!r.affectedRows) fail(404, 'Task not found');
     s.json({ id: q.params.id, ...f });
   }));
 
   // ---- first-hand (insurance) proforma: draft, issued, then turned into a job card + estimate ----
   app.post('/api/proformas', auth('SA'), wrap(async (q, s) => {
+    // A proforma can be made for a walk-in who is not registered: name, phone and vehicle are just written on it.
+    // The customer and vehicle are registered only when he comes back, agrees, and the job card is created.
     const { cid, vid } = q.body;
-    const [cu] = await db.q('SELECT insurer_id, policy_no FROM customers WHERE id = ?', [cid]);
-    if (!cu || !(await db.q('SELECT id FROM vehicles WHERE id = ? AND cid = ?', [vid, cid])).length) fail(400, 'Vehicle does not belong to this customer');
+    let cu = {}, guest = { name: '', phone: '', plate: '', brand: '', model: '' };
+    if (cid || vid) {
+      [cu = {}] = await db.q('SELECT insurer_id, policy_no FROM customers WHERE id = ?', [cid]);
+      if (!(await db.q('SELECT id FROM customers WHERE id = ?', [cid])).length || !(await db.q('SELECT id FROM vehicles WHERE id = ? AND cid = ?', [vid, cid])).length) fail(400, 'Vehicle does not belong to this customer');
+    } else {
+      guest = { name: str(q.body.guest_name, 120), phone: str(q.body.guest_phone, 30), plate: str(q.body.guest_plate, 30), brand: str(q.body.guest_brand, 40), model: str(q.body.guest_model, 60) };
+      if (!guest.name && !guest.plate) fail(400, 'Write the customer name or the plate number');
+    }
     const id = await db.tx(async c => {
       const id = await numberFor(c, 'estimate', 'EST-');   // one number: the proforma keeps it when it becomes the estimate
-      await c.q('INSERT INTO proformas (id, cid, vid, insurer_id, policy_no, estimator_id, estimator, estimator_role, pdate, note, status, labours, parts, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))',
-        [id, cid, vid, cu.insurer_id || null, cu.policy_no || '', q.u.id, q.u.name, q.u.role, dayKey(Date.now()), str(q.body.note, 500), 'Draft', '[]', '[]']);   // starts with the customer's own insurance and the signed-in user as estimator
+      await c.q('INSERT INTO proformas (id, cid, vid, guest_name, guest_phone, guest_plate, guest_brand, guest_model, insurer_id, policy_no, estimator_id, estimator, estimator_role, pdate, note, status, labours, parts, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))',
+        [id, cid || null, vid || null, guest.name, guest.phone, guest.plate, guest.brand, guest.model, cu.insurer_id || null, cu.policy_no || '', q.u.id, q.u.name, q.u.role, dayKey(Date.now()), str(q.body.note, 500), 'Draft', '[]', '[]']);   // starts with the customer's own insurance and the signed-in user as estimator
       return id;
     });
     s.json(proRow((await db.q('SELECT * FROM proformas WHERE id = ?', [id]))[0]));
@@ -457,8 +480,8 @@ export function createApp({ cfg, db, notifier }) {
       if (!row) fail(404, 'Proforma not found');
       const p = proRow(row);
       await fn(p, { c, body: q.body, u: q.u });
-      await c.q('UPDATE proformas SET insurer_id = ?, policy_no = ?, estimator_id = ?, estimator = ?, estimator_role = ?, pdate = ?, note = ?, status = ?, labours = ?, parts = ?, claim_no = ?, priority = ?, due_date = ?, terms = ?, updated = UTC_TIMESTAMP(3) WHERE id = ?',
-        [p.insurer_id, p.policy_no, p.estimator_id, p.estimator, p.estimator_role, p.pdate, p.note, p.status, sendJson(p.labours), sendJson(p.parts), p.claim_no || '', p.priority || '', p.due_date || null, p.terms || '', p.id]);
+      await c.q('UPDATE proformas SET guest_name = ?, guest_phone = ?, guest_plate = ?, guest_brand = ?, guest_model = ?, insurer_id = ?, policy_no = ?, estimator_id = ?, estimator = ?, estimator_role = ?, pdate = ?, note = ?, status = ?, labours = ?, parts = ?, claim_no = ?, priority = ?, due_date = ?, terms = ?, updated = UTC_TIMESTAMP(3) WHERE id = ?',
+        [p.guest_name || '', p.guest_phone || '', p.guest_plate || '', p.guest_brand || '', p.guest_model || '', p.insurer_id, p.policy_no, p.estimator_id, p.estimator, p.estimator_role, p.pdate, p.note, p.status, sendJson(p.labours), sendJson(p.parts), p.claim_no || '', p.priority || '', p.due_date || null, p.terms || '', p.id]);
       return proRow((await c.q('SELECT * FROM proformas WHERE id = ?', [p.id]))[0]);
     });
     s.json(saved);
@@ -471,6 +494,7 @@ export function createApp({ cfg, db, notifier }) {
       p.insurer_id = str(body.insurer_id, 36) || null;
       if (p.insurer_id && !(await c.q('SELECT id FROM insurers WHERE id = ?', [p.insurer_id])).length) fail(400, 'Choose an insurance company from the list');
     }
+    if (!p.cid) for (const [k, n] of [['guest_name', 120], ['guest_phone', 30], ['guest_plate', 30], ['guest_brand', 40], ['guest_model', 60]]) if (body[k] !== undefined) p[k] = str(body[k], n);
     if (body.policy_no !== undefined) p.policy_no = str(body.policy_no, 60);
     if (rules.dateOk(body.pdate)) p.pdate = body.pdate;
     if (body.claim_no !== undefined) p.claim_no = str(body.claim_no, 60);
@@ -500,6 +524,33 @@ export function createApp({ cfg, db, notifier }) {
       if (!row) fail(404, 'Proforma not found');
       const p = proRow(row);
       rules.checkConvert(p);
+      // He came back and agreed: only now is a walk-in registered (or linked to a customer who already exists), and the proforma moves to him
+      if (!p.cid) {
+        const km0 = rules.cleanKm(q.body.mileage);
+        if (q.body.cid) {
+          const [cu] = await c.q('SELECT id FROM customers WHERE id = ?', [q.body.cid]);
+          if (!cu) fail(400, 'Customer not found');
+          if (q.body.vid) {
+            if (!(await c.q('SELECT id FROM vehicles WHERE id = ? AND cid = ?', [q.body.vid, cu.id])).length) fail(400, 'Vehicle does not belong to this customer');
+            p.vid = q.body.vid;
+          } else {
+            if (!p.guest_plate) fail(400, 'Write the plate number to register the vehicle');
+            if (km0 === null) fail(400, 'Enter the current mileage (km): it is registered with the vehicle');
+            p.vid = newId();
+            await c.q('INSERT INTO vehicles (id, cid, plate, vin, eng, col, brand, model, mileage, created_at) VALUES (?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [p.vid, cu.id, p.guest_plate, '', '', '', p.guest_brand, p.guest_model, km0]);
+          }
+          p.cid = cu.id;
+        } else {
+          if (!p.guest_name || !p.guest_phone) fail(400, 'Write the customer name and phone to register him');
+          if (!p.guest_plate) fail(400, 'Write the plate number to register the vehicle');
+          if (km0 === null) fail(400, 'Enter the current mileage (km): it is registered with the vehicle');
+          p.cid = await numberFor(c, 'customer', 'CUS-'); p.vid = newId();
+          const [ins0] = p.insurer_id ? await c.q('SELECT id FROM insurers WHERE id = ?', [p.insurer_id]) : [];
+          await c.q('INSERT INTO customers (id, name, phone, city, sub, woreda, house, dob, notify, insurer_id, policy_no, tin, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [p.cid, p.guest_name, p.guest_phone, '', '', '', '', null, 'both', ins0 ? ins0.id : null, ins0 ? p.policy_no || '' : '', '']);
+          await c.q('INSERT INTO vehicles (id, cid, plate, vin, eng, col, brand, model, mileage, created_at) VALUES (?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [p.vid, p.cid, p.guest_plate, '', '', '', p.guest_brand, p.guest_model, km0]);
+        }
+        await c.q('UPDATE proformas SET cid = ?, vid = ? WHERE id = ?', [p.cid, p.vid, p.id]);
+      }
       const [veh] = await c.q('SELECT mileage FROM vehicles WHERE id = ? AND cid = ?', [p.vid, p.cid]);
       const km = rules.checkMileage(rules.cleanKm(q.body.mileage), veh?.mileage);
       const rates = await labourRates(c);

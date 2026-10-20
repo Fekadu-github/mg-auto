@@ -26,7 +26,11 @@ export const NEW_COLUMNS = [
   ['jobs', 'mileage', 'INT NULL'], ['jobs', 'services', 'JSON NULL'], ['jobs', 'est', 'VARCHAR(40) NULL'], ['jobs', 'requests', 'JSON NULL'], ['jobs', 'payer', 'VARCHAR(160) NULL'], ['jobs', 'policy_no', 'VARCHAR(60) NULL'],
   ['customers', 'tin', "VARCHAR(40) NOT NULL DEFAULT ''"], ['inventory', 'category', "VARCHAR(60) NOT NULL DEFAULT ''"], ['inventory', 'cost', 'DECIMAL(12,2) NOT NULL DEFAULT 0'],
   ['jobs', 'mileage_out', 'INT NULL'], ['jobs', 'claim_no', 'VARCHAR(60) NULL'], ['jobs', 'due_date', 'DATE NULL'], ['jobs', 'priority', 'VARCHAR(20) NULL'], ['jobs', 'price_reqs', 'JSON NULL'],
-  ['proformas', 'claim_no', "VARCHAR(60) NOT NULL DEFAULT ''"], ['proformas', 'priority', "VARCHAR(20) NOT NULL DEFAULT ''"], ['proformas', 'due_date', 'DATE NULL'], ['proformas', 'terms', "VARCHAR(1000) NOT NULL DEFAULT ''"]
+  ['proformas', 'claim_no', "VARCHAR(60) NOT NULL DEFAULT ''"], ['proformas', 'priority', "VARCHAR(20) NOT NULL DEFAULT ''"], ['proformas', 'due_date', 'DATE NULL'], ['proformas', 'terms', "VARCHAR(1000) NOT NULL DEFAULT ''"],
+  ['proformas', 'guest_name', "VARCHAR(120) NOT NULL DEFAULT ''"], ['proformas', 'guest_phone', "VARCHAR(30) NOT NULL DEFAULT ''"], ['proformas', 'guest_plate', "VARCHAR(30) NOT NULL DEFAULT ''"],
+  ['proformas', 'guest_brand', "VARCHAR(40) NOT NULL DEFAULT ''"], ['proformas', 'guest_model', "VARCHAR(60) NOT NULL DEFAULT ''"],
+  ['labour_tasks', 'task', "VARCHAR(200) NOT NULL DEFAULT ''"],
+  ['labour_tasks', 'code', "VARCHAR(40) NOT NULL DEFAULT ''"], ['labour_tasks', 'model_grp', "VARCHAR(60) NOT NULL DEFAULT ''"]
 ];
 
 
@@ -63,6 +67,17 @@ export function createDb(env = process.env) {
     for (const [table, col, ddl] of NEW_COLUMNS) {
       const [rows] = await pool.query('SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?', [table, col]);
       if (!rows.length) await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${col}\` ${ddl}`);
+    }
+    // Older databases: the labour list was unique on (name, section); a task now has several lines, so the key includes the task
+    const [oldKey] = await pool.query("SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'labour_tasks' AND INDEX_NAME = 'labour_tasks_name' GROUP BY INDEX_NAME HAVING COUNT(*) = 2");
+    if (oldKey.length) await pool.query('ALTER TABLE labour_tasks DROP INDEX labour_tasks_name, ADD UNIQUE KEY labour_tasks_name (task, name, section)');
+    // The Excel price book has the same description under several codes and model groups, so the key also holds the code and the model group
+    const [midKey] = await pool.query("SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'labour_tasks' AND INDEX_NAME = 'labour_tasks_name' GROUP BY INDEX_NAME HAVING COUNT(*) = 3");
+    if (midKey.length) await pool.query('ALTER TABLE labour_tasks DROP INDEX labour_tasks_name, ADD UNIQUE KEY labour_tasks_name (code, model_grp, task, name, section)');
+    // Older databases made the proforma's customer and vehicle required: a walk-in proforma has neither yet
+    for (const [col, ddl] of [['cid', 'VARCHAR(40) NULL'], ['vid', 'CHAR(36) NULL']]) {
+      const [[c]] = await pool.query("SELECT IS_NULLABLE AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'proformas' AND COLUMN_NAME = ?", [col]);
+      if (c && c.n === 'NO') await pool.query(`ALTER TABLE proformas MODIFY COLUMN \`${col}\` ${ddl}`);
     }
     const [roleCol] = (await pool.query("SELECT COLUMN_TYPE AS t FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_users' AND COLUMN_NAME = 'role'"))[0];
     if (roleCol && lacksManagerRole(roleCol.t)) await pool.query(`ALTER TABLE app_users MODIFY COLUMN role ${ROLE_ENUM} NOT NULL`);

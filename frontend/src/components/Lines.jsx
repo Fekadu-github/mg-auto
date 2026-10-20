@@ -2,24 +2,32 @@ import { Btn, Table } from './ui.jsx';
 import { SECTIONS, SECTION_CODE, sectionOption } from '../lib/constants.js';
 import { matchPart, money, rateOf } from '../lib/format.js';
 import PartSearch from './PartSearch.jsx';
+import { groupHours, groupLabel, groupLines, groupTasks, matchGroup } from '../lib/labourGroups.js';
 
 const r2 = n => Math.round(n * 100) / 100;
 const num = v => parseFloat(v) || 0;
 const key = s => (s || '').trim().toLowerCase();
 // A typed text points to a task of the list: "BP · Panel beating" (as the list shows it) or just the name
-export const matchTask = (tasks, text) => (key(text) ? (tasks || []).find(t => key(`${SECTION_CODE[t.section]} · ${t.name}`) === key(text) || key(t.name) === key(text)) : undefined);
+// A line from the Excel price book is shown with its code and model group ("BP-BR101A · Apron, Repair - One Side · Suzuki"): the same description exists under several codes and models
+export const taskLabel = t => (t.code ? `${t.code} · ${t.name}${t.model_grp ? ' · ' + t.model_grp : ''}` : `${SECTION_CODE[t.section]} · ${t.name}`);
+export const taskDesc = t => (t.code ? `${t.name} (${t.code})` : t.name);
+export const matchTask = (tasks, text) => (key(text) ? (tasks || []).find(t => key(taskLabel(t)) === key(text) || (!t.code && key(t.name) === key(text))) : undefined);
 
 // Editable labour lines for a proforma or an estimate. Pick a task from the list (BP / ME / SV): its section, hours and cost fill themselves.
 // Or type any work by hand. Hours x labour rate fills a cost that is left empty; every cost can be typed over.
 export function LabourLines({ labs, setLabs, tasks, rate }) {
   const set = (i, patch) => setLabs(ls => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  const groups = groupTasks(tasks);
   const typed = (i, text) => {
-    const t = matchTask(tasks, text);
-    set(i, t ? { desc: t.name, section: t.section, hours: t.hours || '', price: t.price || r2(t.hours * rateOf(rate, t.section)) || '' } : { desc: text });
+    // a task picked by its name brings all its lines: they replace this line
+    const g = matchGroup(groups, text);
+    if (g) return setLabs(ls => [...ls.slice(0, i), ...groupLines(g, rate), ...ls.slice(i + 1)]);
+    const t = matchTask(tasks.filter(x => !x.task), text);
+    set(i, t ? { desc: taskDesc(t), section: t.section, hours: t.hours || '', price: t.price || r2(t.hours * rateOf(rate, t.section)) || '' } : { desc: text });
   };
   return (
     <>
-      <Table head={['Task (pick from the list or type)', 'Section', 'Hours', 'Cost (ETB)', '']} empty={!labs.length && 'No labour yet.'}>
+      <Table head={['Task (search by task name, or type)', 'Section', 'Hours', 'Cost (ETB)', '']} empty={!labs.length && 'No labour yet.'}>
         {labs.map((l, i) => (
           <tr key={i}>
             <td><input aria-label="Labour task" list="task-list" autoComplete="off" value={l.desc} onChange={x => typed(i, x.target.value)} /></td>
@@ -30,7 +38,7 @@ export function LabourLines({ labs, setLabs, tasks, rate }) {
           </tr>
         ))}
       </Table>
-      <datalist id="task-list">{(tasks || []).map(t => <option key={t.id} value={`${SECTION_CODE[t.section]} · ${t.name}`}>{t.hours} h</option>)}</datalist>
+      <datalist id="task-list">{groups.map(g => <option key={g.name} value={groupLabel(g)}>{groupHours(g)} h · all lines</option>)}{(tasks || []).filter(t => !t.task).map(t => <option key={t.id} value={taskLabel(t)}>{t.hours} h</option>)}</datalist>
       <div className="mt"><Btn kind="ol" onClick={() => setLabs(ls => [...ls, { desc: '', section: 'Mechanical Repairs', hours: '', price: '' }])}>Add labour line</Btn> <span className="mu small">Hours x the section's rate ({SECTIONS.map(s => `${SECTION_CODE[s]} ${rateOf(rate, s)}`).join(' · ')} ETB/h) fills the cost; type another amount to change it.</span></div>
     </>
   );
