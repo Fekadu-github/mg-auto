@@ -41,8 +41,10 @@ export function createApp({ cfg, db, notifier }) {
   const auth = (...roles) => (q, s, n) => {
     try { q.u = jwt.verify((q.headers.authorization || '').slice(7), KEY); }
     catch { return s.status(401).json({ error: 'Sign in required' }); }
-    // the Administrator and the Manager can do everything a listed role can; a route listed for 'ADMIN' alone (staff accounts) stays with the Administrator
-    const open = roles.length === 1 && roles[0] === 'ADMIN' ? ['ADMIN'] : ['ADMIN', 'MGR', ...roles];
+    // the Administrator has unlimited permission: every route is open to him, whatever roles are listed.
+    // The Manager can do everything a listed role can; a route listed for 'ADMIN' alone (staff accounts) stays with the Administrator
+    if (q.u.role === 'ADMIN') return n();
+    const open = roles.length === 1 && roles[0] === 'ADMIN' ? ['ADMIN'] : ['MGR', ...roles];
     if (roles.length && !open.includes(q.u.role)) return s.status(403).json({ error: 'Your role cannot do this' });
     n();
   };

@@ -13,6 +13,7 @@ export const NOTIFY_OPTIONS = [['both', 'SMS + Telegram'], ['sms', 'SMS only'], 
 export const POLL_MS = 15000;
 
 // What each role may do on screen (the server enforces the same rules; this only decides which buttons to show)
+export const isAdmin = me => me?.role === 'ADMIN';                   // unlimited: every screen and every action
 export const isSA = me => ['SA', 'MGR', 'ADMIN'].includes(me?.role);
 export const isWS = me => ['WS', 'MGR', 'ADMIN'].includes(me?.role);
 export const isMgr = me => ['MGR', 'ADMIN'].includes(me?.role);       // costs, prices, Excel import/export, cancelling sales, inventory and custom reports
