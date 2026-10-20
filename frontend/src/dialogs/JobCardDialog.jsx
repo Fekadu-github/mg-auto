@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Pill, StatusPill, Table } from '../components/ui.jsx';
-import { matchTask } from '../components/Lines.jsx';
+import { matchTask, taskDesc } from '../components/Lines.jsx';
+import { groupHours, groupLabel, groupLines, groupTasks, matchGroup } from '../lib/labourGroups.js';
 import PartSearch from '../components/PartSearch.jsx';
 import { usePersistedForm as useForm } from '../lib/autosave.js';
 import { CLOCK_REASONS, SECTIONS, SECTION_CODE, STATUSES, STATUS_NAME, isMgr, isSA, isTech, isWS, sectionOption } from '../lib/constants.js';
@@ -82,7 +83,7 @@ export default function JobCardDialog({ id }) {
   const nextDue = done && serviceVisit && v.next_km ? types.find(x => x.code === v.next_type) : null;
   const pendingPrices = (j.price_reqs || []).filter(r => r.status === 'Requested'), waiting = j.parts.filter(p => p.waiting);
   const mgr = isMgr(me), askPrice = async (path, req) => { const r = await run(() => put(j.id, path, req)); return r.ok ? r.data : false; };
-  const knownLabour = [...(db.lt || []).map(t => ({ name: t.name, section: t.section, hours: t.hours, price: t.price })),
+  const knownLabour = [...(db.lt || []).map(t => ({ code: t.code, model_grp: t.model_grp, task: t.task, name: t.name, section: t.section, hours: t.hours, price: t.price })),
     ...types.flatMap(x => x.labours).map(l => ({ name: l.desc, section: 'Regular Service', hours: l.hours, price: l.price }))];
 
   return (
@@ -306,12 +307,23 @@ function LabourRow({ job: j, l, canClock, canStop, canRemove, priceOpen, mgr }) 
 // Pick a task from the labour list (BP / ME / SV): its section, hours and cost fill themselves. Or type any work and its hours.
 // The cost is hours x labour rate unless the task has a fixed price, and it can still be typed over.
 function LabourForm({ id, rate, known, late }) {
-  const { run } = useApp();
+  const { run, say } = useApp();
+  const groups = groupTasks(known);
   const [f, bind, set, reset] = useForm(`form:${id}:labour`, { desc: '', section: SECTIONS[1], hours: '', price: '' });
   const priceFor = (h, section = f.section) => r2((parseFloat(h) || 0) * rateOf(rate, section)) || '';   // hours x the rate of the section
+  // A task picked by its name adds all its lines to the card, one after the other
+  const addGroup = async g => {
+    for (const l of groupLines(g, rate)) {
+      const r = await run(() => post(id, '/labour', { desc: l.desc, section: l.section, price: parseFloat(l.price) || 0, hours: parseFloat(l.hours) || 0 }));
+      if (!r.ok) return;
+    }
+    reset(); say?.(`Added all ${g.items.length} line(s) of "${g.name}".`);
+  };
   const onDesc = e => {
-    const text = e.target.value, k = matchTask(known, text);
-    set(k ? { desc: k.name, section: k.section, hours: k.hours || '', price: k.price || priceFor(k.hours, k.section) } : { desc: text });
+    const text = e.target.value, g = matchGroup(groups, text);
+    if (g) { set({ desc: text }); return addGroup(g); }
+    const k = matchTask(known.filter(x => !x.task), text);
+    set(k ? { desc: taskDesc(k), section: k.section, hours: k.hours || '', price: k.price || priceFor(k.hours, k.section) } : { desc: text });
   };
   const add = async () => {
     if (!f.desc.trim()) return;
@@ -321,15 +333,15 @@ function LabourForm({ id, rate, known, late }) {
   return (
     <>
       <div className="row mt">
-        <Field label="Labour task (pick from the list or type)" grow="3 1 200px" list="labour-list" autoComplete="off" value={f.desc} onChange={onDesc} />
+        <Field label="Labour task (search by task name, or type)" grow="3 1 200px" list="labour-list" autoComplete="off" value={f.desc} onChange={onDesc} />
         <Field label="Section"><select {...bind('section')}>{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
         <Field label="Hours" type="number" min="0" step="0.25" value={f.hours} onChange={e => set({ hours: e.target.value, price: priceFor(e.target.value) })} />
         <Field label={`Labour cost (ETB) · ${rateOf(rate, f.section)}/h`} type="number" min="0" {...bind('price')} />
         <Btn onClick={add}>Add labour</Btn>
       </div>
-      <datalist id="labour-list">{known.map((x, i) => <option key={i} value={`${SECTION_CODE[x.section]} · ${x.name}`}>{x.hours} h</option>)}</datalist>
+      <datalist id="labour-list">{groups.map(g => <option key={g.name} value={groupLabel(g)}>{groupHours(g)} h · adds all lines</option>)}{known.filter(x => !x.task).map((x, i) => <option key={i} value={`${SECTION_CODE[x.section]} · ${x.name}`}>{x.hours} h</option>)}</datalist>
       <div className="mu small">
-        {f.price ? `Labour cost: ETB ${money(f.price)}${f.hours ? ` (${f.hours} h x ${rateOf(rate, f.section)})` : ''}. Type another amount to change it.` : 'Pick a task and the hours and labour cost fill themselves.'}
+        {f.price ? `Labour cost: ETB ${money(f.price)}${f.hours ? ` (${f.hours} h x ${rateOf(rate, f.section)})` : ''}. Type another amount to change it.` : 'Pick a task (▤) to add all its lines at once, or pick one line and its hours and cost fill themselves.'}
         {late && ' The card is not in the workshop: this is added as a billing line. To have it done, return the card to the workshop first.'}
       </div>
     </>

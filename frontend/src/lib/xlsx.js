@@ -1,5 +1,5 @@
 // Read and write .xlsx files with nothing but the browser's own zip support (no library to install).
-//   readXlsx(arrayBuffer)  -> Promise<rows>   the first sheet as an array of rows, each an array of cell values (text or number)
+//   readXlsx(arrayBuffer, allSheets?)  -> Promise<rows>   the first sheet (or every sheet, one after the other) as an array of rows, each an array of cell values (text or number)
 //   writeXlsx(rows, name)  -> Uint8Array      one sheet; the first row is bold
 // An .xlsx file is a zip of small XML files. Reading uses DecompressionStream; writing stores the files without compression.
 
@@ -73,41 +73,46 @@ const colNo = ref => { let n = 0; for (const ch of ref.replace(/[0-9]/g, '')) n 
 const colName = i => { let s = ''; for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s; return s; };
 
 // ---------- read ----------
-export async function readXlsx(buf) {
+export async function readXlsx(buf, allSheets = false) {
   const files = unzip(buf), get = async n => (files.has(n) ? files.get(n)() : '');
-  // which file is the first sheet: workbook.xml names it, workbook.xml.rels says where it is
-  let sheetPath = 'xl/worksheets/sheet1.xml';
-  const wb = await get('xl/workbook.xml'), rid = /<sheet\b[^>]*\br:id="([^"]+)"/.exec(wb)?.[1];
-  if (rid) {
-    const rel = [...(await get('xl/_rels/workbook.xml.rels')).matchAll(/<Relationship\b[^>]*>/g)].map(m => m[0]).find(r => new RegExp(`\\bId="${rid}"`).test(r));
-    const target = rel && /\bTarget="([^"]+)"/.exec(rel)?.[1];
-    if (target) sheetPath = target.startsWith('/') ? target.slice(1) : 'xl/' + target.replace(/^\.\//, '');
-  }
-  if (!files.has(sheetPath)) throw new Error('The Excel file has no sheet to read.');
+  // which files are the sheets: workbook.xml names them, workbook.xml.rels says where they are
+  const wb = await get('xl/workbook.xml'), rels = [...(await get('xl/_rels/workbook.xml.rels')).matchAll(/<Relationship\b[^>]*>/g)].map(m => m[0]);
+  const pathOf = rid => {
+    const rel = rels.find(r => new RegExp(`\\bId="${rid}"`).test(r)), target = rel && /\bTarget="([^"]+)"/.exec(rel)?.[1];
+    return target ? (target.startsWith('/') ? target.slice(1) : 'xl/' + target.replace(/^\.\//, '')) : null;
+  };
+  const rids = [...wb.matchAll(/<sheet\b[^>]*\br:id="([^"]+)"/g)].map(m => m[1]);
+  let paths = (allSheets ? rids : rids.slice(0, 1)).map(pathOf).filter(p => p && files.has(p));
+  if (!paths.length && files.has('xl/worksheets/sheet1.xml')) paths = ['xl/worksheets/sheet1.xml'];
+  if (!paths.length) throw new Error('The Excel file has no sheet to read.');
   const shared = [...(await get('xl/sharedStrings.xml')).matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map(m => texts(m[1]));
-  const sheet = await get(sheetPath), rows = [];
-  let nextRow = 0;
-  for (const rm of sheet.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
-    const rn = /\br="(\d+)"/.exec(rm[1])?.[1], ri = rn ? +rn - 1 : nextRow;
-    nextRow = ri + 1;
-    if (ri > 50000) throw new Error('The sheet has too many rows (the limit is 50,000).');
-    const row = rows[ri] = rows[ri] || [];
-    let nextCol = 0;
-    for (const cm of (rm[2] || '').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
-      const ref = /\br="([A-Z]+\d+)"/.exec(cm[1])?.[1], ci = ref ? colNo(ref) : nextCol, t = /\bt="([^"]+)"/.exec(cm[1])?.[1];
-      nextCol = ci + 1;
-      const body = cm[2] || '', v = /<v\b[^>]*>([\s\S]*?)<\/v>/.exec(body)?.[1];
-      let val;
-      if (t === 'inlineStr') val = texts(body);
-      else if (v === undefined) val = '';
-      else if (t === 's') val = shared[+v] ?? '';
-      else if (t === 'str' || t === 'e') val = unesc(v);
-      else if (t === 'b') val = v === '1' ? 'TRUE' : 'FALSE';
-      else val = v === '' || isNaN(+v) ? unesc(v) : +v;
-      if (ci < 200) row[ci] = val;
+  const out = [];
+  for (const sheetPath of paths) {
+    const sheet = await get(sheetPath), rows = [];
+    let nextRow = 0;
+    for (const rm of sheet.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
+      const rn = /\br="(\d+)"/.exec(rm[1])?.[1], ri = rn ? +rn - 1 : nextRow;
+      nextRow = ri + 1;
+      if (ri > 50000) throw new Error('The sheet has too many rows (the limit is 50,000).');
+      const row = rows[ri] = rows[ri] || [];
+      let nextCol = 0;
+      for (const cm of (rm[2] || '').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        const ref = /\br="([A-Z]+\d+)"/.exec(cm[1])?.[1], ci = ref ? colNo(ref) : nextCol, t = /\bt="([^"]+)"/.exec(cm[1])?.[1];
+        nextCol = ci + 1;
+        const body = cm[2] || '', v = /<v\b[^>]*>([\s\S]*?)<\/v>/.exec(body)?.[1];
+        let val;
+        if (t === 'inlineStr') val = texts(body);
+        else if (v === undefined) val = '';
+        else if (t === 's') val = shared[+v] ?? '';
+        else if (t === 'str' || t === 'e') val = unesc(v);
+        else if (t === 'b') val = v === '1' ? 'TRUE' : 'FALSE';
+        else val = v === '' || isNaN(+v) ? unesc(v) : +v;
+        if (ci < 200) row[ci] = val;
+      }
     }
+    out.push(...Array.from(rows, r => Array.from(r || [], c => c ?? '')));    // fill the gaps
   }
-  return Array.from(rows, r => Array.from(r || [], c => c ?? ''));    // fill the gaps
+  return out;
 }
 
 // First row = headers. Rows below become objects keyed by the header text; empty rows are dropped.

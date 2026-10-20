@@ -18,7 +18,7 @@ export default function ProformaDialog({ id }) {
   const { db, me, run, say, refresh, openModal, closeModal, cust, veh } = useApp();
   const { print } = usePrint();
   const p = db.pr.find(x => x.id === id);
-  const fromServer = p && { insurer_id: p.insurer_id || '', policy_no: p.policy_no || '', estimator_id: p.estimator_id || '', pdate: p.pdate, note: p.note || '', claim_no: p.claim_no || '', priority: p.priority || '', due_date: p.due_date || '', terms: p.terms || '', labours: p.labours, parts: p.parts };
+  const fromServer = p && { guest_name: p.guest_name || '', guest_phone: p.guest_phone || '', guest_plate: p.guest_plate || '', guest_brand: p.guest_brand || '', guest_model: p.guest_model || '', insurer_id: p.insurer_id || '', policy_no: p.policy_no || '', estimator_id: p.estimator_id || '', pdate: p.pdate, note: p.note || '', claim_no: p.claim_no || '', priority: p.priority || '', due_date: p.due_date || '', terms: p.terms || '', labours: p.labours, parts: p.parts };
   const open = !!p && p.status !== 'Converted' && isSA(me);
   const [init] = useState(() => restoreDraft('pro:' + id, fromServer, p?.updated ? Date.parse(p.updated) : 0));   // a copy on this PC older than the server's is dropped
   const [f, setF] = useState(() => (init.value ? { ...init.value, labours: init.value.labours.map(l => ({ ...l })), parts: init.value.parts.map(x => ({ ...x })) } : null));
@@ -26,7 +26,8 @@ export default function ProformaDialog({ id }) {
   const { state, flush } = useAutosave('pro:' + id, f, { enabled: open && !!f, startDirty: init.restored, save: async v => { await api('/proformas/' + id, 'PUT', v); refresh().catch(() => {}); } });
   if (!p || !f) return <Dialog title="Proforma" onClose={closeModal}><p className="mu">This proforma no longer exists.</p></Dialog>;
 
-  const c = cust(p.cid), v = veh(p.vid), rate = db.cfg.labourRates || db.cfg.labourRate, vat = db.cfg.vat, converted = p.status === 'Converted';
+  const walkIn = !p.cid;   // not registered yet: the customer and vehicle details live on the proforma itself
+  const c = walkIn ? { name: f.guest_name, phone: f.guest_phone } : cust(p.cid), v = walkIn ? { plate: f.guest_plate, brand: f.guest_brand, model: f.guest_model } : veh(p.vid), rate = db.cfg.labourRates || db.cfg.labourRate, vat = db.cfg.vat, converted = p.status === 'Converted';
   const insurer = db.ins.find(x => x.id === f.insurer_id), estimator = db.staff.find(x => x.id === f.estimator_id);
   const set = patch => setF(s => ({ ...s, ...patch }));
   const setLabs = fn => setF(s => ({ ...s, labours: fn(s.labours) })), setParts = fn => setF(s => ({ ...s, parts: fn(s.parts) }));
@@ -44,7 +45,8 @@ export default function ProformaDialog({ id }) {
   const makeJob = async () => {
     const mileage = km2 !== '' ? km2 : v.mileage ?? '';
     if (mileage === '') return say('Enter the vehicle mileage (km).');
-    if (!confirm(`Create the job card from ${id}?\n\nIts labour and parts are loaded on the job card (stock parts leave stock now) and ${id} becomes the job card's estimate.`)) return;
+    if (walkIn && (!f.guest_name.trim() || !f.guest_phone.trim() || !f.guest_plate.trim())) return say('To register him, write the customer name, phone and plate number first.');
+    if (!confirm(`${walkIn ? `Register ${f.guest_name} (${f.guest_plate}) as a new customer and create` : 'Create'} the job card from ${id}?\n\nIts labour and parts are loaded on the job card (stock parts leave stock now) and ${id} becomes the job card's estimate.`)) return;
     if (!(await saved())) return;
     const r = await run(() => api(`/proformas/${id}/convert`, 'POST', { mileage: parseFloat(mileage) }));
     if (r.ok) openModal('job', { id: r.data.job });
@@ -52,10 +54,21 @@ export default function ProformaDialog({ id }) {
 
   return (
     <Dialog title={<>{p.id} <Pill tone={p.status === 'Draft' ? 'a' : 'g'}>{p.status === 'Converted' ? `became ${p.job}` : p.status}</Pill></>} onClose={closeModal}>
-      <div className="g g2">
-        <div className="box"><b>{c.name}</b> <span className="mu">{c.id}</span><br />{c.phone}<br /><span className="mu">{[c.city, c.sub, c.woreda, c.house].filter(Boolean).join(', ')}</span></div>
-        <div className="box"><b>{v.plate}</b> · {vehicleName(v)}<br /><span className="mu">Mileage {v.mileage != null ? km(v.mileage) : 'not recorded'} · made {dt(p.created)}</span></div>
-      </div>
+      {walkIn && open ? <>
+        <div className="box"><Pill tone="a">Not registered</Pill> <span className="mu small">Customer and vehicle are written here only. He is registered when you create the job card.</span></div>
+        <div className="row mt">
+          <Field label="Customer name" value={f.guest_name} onChange={e => set({ guest_name: e.target.value })} />
+          <Field label="Phone" value={f.guest_phone} onChange={e => set({ guest_phone: e.target.value })} />
+          <Field label="Plate no" value={f.guest_plate} onChange={e => set({ guest_plate: e.target.value })} />
+          <Field label="Brand" value={f.guest_brand} onChange={e => set({ guest_brand: e.target.value })} />
+          <Field label="Model" value={f.guest_model} onChange={e => set({ guest_model: e.target.value })} />
+        </div>
+      </> : (
+        <div className="g g2">
+          <div className="box"><b>{c.name}</b> <span className="mu">{c.id}</span><br />{c.phone}<br /><span className="mu">{[c.city, c.sub, c.woreda, c.house].filter(Boolean).join(', ')}</span></div>
+          <div className="box"><b>{v.plate}</b> · {vehicleName(v)}<br /><span className="mu">Mileage {v.mileage != null ? km(v.mileage) : 'not recorded'} · made {dt(p.created)}</span></div>
+        </div>
+      )}
 
       {open ? <>
         <div className="row mt">
@@ -70,7 +83,7 @@ export default function ProformaDialog({ id }) {
           <Field label="Policy no" value={f.policy_no} onChange={e => set({ policy_no: e.target.value })} />
         </div>
         <div className="mu small">
-          {c.insurer_id ? <>Customer profile insurance: {db.ins.find(x => x.id === c.insurer_id)?.name || 'not in the list'}{c.policy_no ? `, policy ${c.policy_no}` : ''}. <button type="button" className="lnk" onClick={() => set({ insurer_id: c.insurer_id, policy_no: c.policy_no || '' })}>Use it</button></> : 'The customer has no insurance in the profile.'}
+          {walkIn ? 'Choose the insurance company here if the customer is from insurance.' : c.insurer_id ? <>Customer profile insurance: {db.ins.find(x => x.id === c.insurer_id)?.name || 'not in the list'}{c.policy_no ? `, policy ${c.policy_no}` : ''}. <button type="button" className="lnk" onClick={() => set({ insurer_id: c.insurer_id, policy_no: c.policy_no || '' })}>Use it</button></> : 'The customer has no insurance in the profile.'}
         </div>
         <Field label="Damage / work description" value={f.note} onChange={e => set({ note: e.target.value })} />
         <div className="row">
@@ -97,7 +110,7 @@ export default function ProformaDialog({ id }) {
       {open && p.status === 'Issued' && (
         <div className="row mt">
           <Field label="Mileage now (km), for the job card" type="number" min="0" value={km2 !== '' ? km2 : v.mileage ?? ''} onChange={e => setKm(e.target.value)} />
-          <Btn kind="gr" onClick={makeJob}>Create job card from this proforma</Btn>
+          <Btn kind="gr" onClick={makeJob}>{walkIn ? 'Register customer and create job card' : 'Create job card from this proforma'}</Btn>
         </div>
       )}
       <div className="row mt">

@@ -8,13 +8,15 @@ import { ROLES, SECTIONS, isMgr, isSA, isTech } from '../lib/constants.js';
 import { InsuranceFields } from '../dialogs/Dialogs.jsx';
 import { SECTION_CODE, sectionOption } from '../lib/constants.js';
 import { usePersistedForm } from '../lib/autosave.js';
+import { downloadXlsx, readXlsx } from '../lib/xlsx.js';
+import { groupCost, groupHours, groupTasks } from '../lib/labourGroups.js';
 import { activeClock, dt, downloadCsv, jobTotals, km, money, rateOf, tot, today, vehicleName } from '../lib/format.js';
 
 export const PAGE_INFO = {
   dash: ['Garage today', 'Today in the garage: what is waiting to be dispatched, in the workshop, ready to close, or waiting for hand-over.'],
   jobs: ['Job cards', 'Every job card from creation to delivery. Open one to dispatch it, clock labour, issue parts, close it and invoice.'],
   shop: ['Workshop', 'Job cards sent to the workshop and the technicians who are clocked in now.'],
-  pro: ['Insurance proformas', 'First-hand proformas for insurance, made before the job card: estimator, insurance, labour and parts. Everything saves by itself; the job card is created from an issued proforma.'],
+  pro: ['Insurance proformas', 'Estimations made before the job card, for walk-ins (no registration needed) or registered customers: estimator, insurance, labour and parts. Everything saves by itself. When the customer returns and agrees, he is registered and the job card is created from the issued proforma.'],
   ins: ['Insurance companies', 'The registered insurance companies. Pick one on a customer profile or on a proforma.'],
   lab: ['Labour list', 'The labour tasks (BP body & paints, ME mechanical) that are picked on proformas, estimates and job cards. Hours x labour rate gives the cost, unless a fixed price is set.'],
   est: ['Estimates', 'Body & Paints estimates. A draft can be changed; a finalized estimate is locked and is loaded on a job card by its number.'],
@@ -99,14 +101,15 @@ export function Workshop() {
 export function Proformas() {
   const { db, me, cust, veh, openModal } = useApp();
   const [q, setQ] = useState('');
-  const list = db.pr.filter(p => (p.id + cust(p.cid).name + veh(p.vid).plate + p.estimator).toLowerCase().includes(q.toLowerCase()));
+  const who = p => (p.cid ? cust(p.cid).name : p.guest_name) || '', plate = p => (p.vid ? veh(p.vid).plate : p.guest_plate) || '';
+  const list = db.pr.filter(p => (p.id + who(p) + plate(p) + p.estimator).toLowerCase().includes(q.toLowerCase()));
   return (
     <>
-      <div className="row mt"><input aria-label="Search proformas" placeholder="Search by number, customer, plate or estimator" value={q} onChange={x => setQ(x.target.value)} />{isSA(me) && <Btn onClick={() => (db.c.length ? openModal('newProforma') : alert('Add a customer first.'))}>New proforma</Btn>}</div>
+      <div className="row mt"><input aria-label="Search proformas" placeholder="Search by number, customer, plate or estimator" value={q} onChange={x => setQ(x.target.value)} />{isSA(me) && <Btn onClick={() => openModal('newProforma')}>New proforma</Btn>}</div>
       <div className="mt"><Table head={['Estimation no', 'Date', 'Customer', 'Vehicle', 'Insurance', 'Estimator', 'Status', { t: 'Total', r: 1 }]} empty={!list.length && 'No proformas yet.'}>
         {list.map(p => (
           <tr key={p.id} className="k" tabIndex={0} onClick={() => openModal('proforma', { id: p.id })} onKeyDown={x => x.key === 'Enter' && openModal('proforma', { id: p.id })}>
-            <td><b>{p.id}</b></td><td>{p.pdate}</td><td>{cust(p.cid).name}</td><td>{veh(p.vid).plate}</td><td>{db.ins.find(i => i.id === p.insurer_id)?.name || <span className="mu">customer pays</span>}</td>
+            <td><b>{p.id}</b></td><td>{p.pdate}</td><td>{who(p) || <span className="mu">-</span>}{!p.cid && <> <Pill tone="a">not registered</Pill></>}</td><td>{plate(p)}</td><td>{db.ins.find(i => i.id === p.insurer_id)?.name || <span className="mu">customer pays</span>}</td>
             <td>{p.estimator}</td><td><Pill tone={p.status === 'Draft' ? 'a' : 'g'}>{p.status === 'Converted' ? `→ ${p.job}` : p.status}</Pill></td><td className="r">{money(tot(p, db.cfg.vat).total)}</td>
           </tr>
         ))}
@@ -133,23 +136,55 @@ export function Insurance() {
 export function LabourList() {
   const { db, me, run, openModal } = useApp();
   const sa = isSA(me), rates = db.cfg.labourRates || { default: db.cfg.labourRate }, [q, setQ] = useState('');
-  const [f, bind, , reset] = usePersistedForm('form:new-task', { name: '', section: SECTIONS[1], hours: '', price: '' });
+  const [f, bind, , reset] = usePersistedForm('form:new-task', { code: '', model_grp: '', task: '', name: '', section: SECTIONS[1], hours: '', price: '' });
   const add = async () => {
     if (!f.name.trim()) return alert('Describe the task.');
-    const r = await run(() => api('/labour-tasks', 'POST', { name: f.name, section: f.section, hours: parseFloat(f.hours) || 0, price: parseFloat(f.price) || 0 }));
+    const r = await run(() => api('/labour-tasks', 'POST', { code: f.code, model_grp: f.model_grp, task: f.task, name: f.name, section: f.section, hours: parseFloat(f.hours) || 0, price: parseFloat(f.price) || 0 }));
     if (r.ok) reset();
   };
-  const list = db.lt.filter(t => (t.name + SECTION_CODE[t.section]).toLowerCase().includes(q.toLowerCase()));
+  const list = db.lt.filter(t => ((t.code || '') + ' ' + (t.model_grp || '') + ' ' + (t.task || '') + ' ' + t.name + ' ' + SECTION_CODE[t.section]).toLowerCase().includes(q.toLowerCase()));
+  const groups = groupTasks(list), single = list.filter(t => !t.task), [open, setOpen] = useState({}), [res, setRes] = useState(null);
+  const rowCost = t => t.price || Math.round(t.hours * rateOf(rates, t.section) * 100) / 100;
+  const template = () => downloadXlsx('labour-list-template.xlsx', [['Labour Code', 'Labour Type Description', 'Model Grp', 'Hours Required'],
+    ['BP-BR101A', 'Apron, Repair - One Side', 'Suzuki', 2], ['ME-BR101', 'ABS System, Diagnosis', 'Suzuki', 5.25]], 'Labour list');
+  const importFile = async e => {
+    const file = e.target.files?.[0]; e.target.value = '';
+    if (!file) return;
+    let rows;
+    try { rows = await readXlsx(await file.arrayBuffer(), true); } catch (x) { return alert(x.message || 'This file could not be read. Use an .xlsx file.'); }   // every sheet
+    // keep only the four columns that are used (code, description, model group, hours); the same line on several sheets is sent once
+    const seen = new Set(), send = [];
+    for (const r of rows) {
+      const c = r.map(x => String(x ?? '').trim()).filter(Boolean).slice(0, 4), k = c.join('|').toLowerCase();
+      if (c.length < 3 || seen.has(k)) continue;
+      seen.add(k); send.push(c);
+    }
+    const r = await run(() => api('/labour-tasks/import', 'POST', { rows: send }));
+    if (r.ok) setRes(r.data);
+  };
   return (
     <>
       {isMgr(me) && <RatesBox rates={rates} />}
       {sa && <div className="box mt"><h3>New labour task</h3><div className="row">
-        <Field label="Task" grow="3 1 200px" {...bind('name')} /><Field label="Section"><select {...bind('section')}>{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
-        <Field label="Hours" type="number" min="0" step="0.25" {...bind('hours')} /><Field label="Fixed price (ETB), empty = hours x rate" type="number" min="0" {...bind('price')} /><Btn onClick={add}>Save task</Btn>
+        <Field label="Labour code" {...bind('code')} /><Field label="Model group" {...bind('model_grp')} /><Field label="Task (group, optional)" grow="2 1 180px" {...bind('task')} /><Field label="Labour line" grow="3 1 200px" {...bind('name')} /><Field label="Section"><select {...bind('section')}>{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
+        <Field label="Hours" type="number" min="0" step="0.25" {...bind('hours')} /><Field label="Total cost (ETB), empty = hours x rate" type="number" min="0" {...bind('price')} /><Btn onClick={add}>Save task</Btn>
       </div></div>}
+      {sa && <div className="box mt"><h3>Import from Excel</h3>
+        <p className="mu small">Choose the price-book Excel file (all its sheets are read). Only these are taken: Labour Code · Labour Type Description · Model Grp · Hours Required. The section comes from the code: BP- → Body &amp; Paints, ME- → Mechanical Repairs. SV- codes are not imported (they are in the Service types: choose Type A or B on the job card). The cost is not read from the file: it is always hours × the labour rate above. Existing lines are updated, nothing is deleted.</p>
+        <div className="row"><label className="b ol" style={{ cursor: 'pointer' }}>Choose Excel file<input type="file" accept=".xlsx" hidden onChange={importFile} /></label><Btn kind="ol" onClick={template}>Download the template</Btn></div>
+        {res && <p className="mt"><b>{res.added}</b> added · <b>{res.updated}</b> updated{res.ignored && <span className="mu small"> · not imported: {res.ignored.sv} SV · {res.ignored.other} other codes · {res.ignored.duplicate} repeated on other sheets</span>}{res.skipped.length ? <> · <b>{res.skipped.length}</b> skipped: {res.skipped.slice(0, 8).map(x => `${x.code} (${x.why})`).join('; ')}{res.skipped.length > 8 ? '…' : ''}</> : ''}</p>}
+      </div>}
       <div className="mt"><input aria-label="Search tasks" placeholder="Search tasks or BP / ME" value={q} onChange={e => setQ(e.target.value)} /></div>
-      <div className="mt"><Table head={['Section', 'Task', { t: 'Hours', r: 1 }, { t: 'Cost (ETB)', r: 1 }, '']} empty={!list.length && 'No labour tasks yet.'}>
-        {list.map(t => <tr key={t.id}><td><b>{SECTION_CODE[t.section]}</b> <span className="mu small">{t.section}</span></td><td>{t.name}</td><td className="r">{t.hours}</td><td className="r">{money(t.price || Math.round(t.hours * rateOf(rates, t.section) * 100) / 100)}{!t.price && <span className="mu small"> ({t.hours} x {rateOf(rates, t.section)})</span>}</td><td className="acts">{sa && <Btn kind="ol" onClick={() => openModal('labourTask', { id: t.id })}>Edit</Btn>}</td></tr>)}
+      <div className="mt"><Table head={['Section', 'Task / labour line', { t: 'Hours', r: 1 }, { t: 'Total cost (ETB)', r: 1 }, '']} empty={!list.length && 'No labour tasks yet.'}>
+        {SECTIONS.flatMap(sec => {
+          const gs = groups.filter(g => g.items.some(t => t.section === sec)), ss = single.filter(t => t.section === sec);
+          if (!gs.length && !ss.length) return [];
+          return [<tr key={'h' + sec}><td colSpan={5}><b>{SECTION_CODE[sec]}</b> <span className="mu small">{sec}</span></td></tr>,
+            ...gs.flatMap(g => { const items = g.items.filter(t => t.section === sec), o = open[g.name] || !!q;
+              return [<tr key={sec + g.name}><td /><td><button type="button" className="lnk" onClick={() => setOpen(x => ({ ...x, [g.name]: !x[g.name] }))}>{o ? '▾' : '▸'} <b>{g.name}</b></button> <span className="mu small">{items.length} line{items.length === 1 ? '' : 's'}</span></td><td className="r">{groupHours({ items })}</td><td className="r"><b>{money(groupCost({ items }, rates))}</b></td><td /></tr>,
+                ...(o ? items.map(t => <tr key={t.id}><td /><td style={{ paddingLeft: 28 }}>{t.name}</td><td className="r">{t.hours}</td><td className="r">{money(rowCost(t))}{!t.price && <span className="mu small"> ({t.hours} x {rateOf(rates, t.section)})</span>}</td><td className="acts">{sa && <Btn kind="ol" onClick={() => openModal('labourTask', { id: t.id })}>Edit</Btn>}</td></tr>) : [])]; }),
+            ...ss.map(t => <tr key={t.id}><td /><td>{t.name}{t.code && <span className="mu small"> · {t.code}{t.model_grp ? ' · ' + t.model_grp : ''}</span>}</td><td className="r">{t.hours}</td><td className="r">{money(rowCost(t))}{!t.price && <span className="mu small"> ({t.hours} x {rateOf(rates, t.section)})</span>}</td><td className="acts">{sa && <Btn kind="ol" onClick={() => openModal('labourTask', { id: t.id })}>Edit</Btn>}</td></tr>)];
+        })}
       </Table></div>
     </>
   );
