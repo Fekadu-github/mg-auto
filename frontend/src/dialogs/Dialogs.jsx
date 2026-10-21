@@ -4,7 +4,7 @@ import { api } from '../api.js';
 import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Table, useForm } from '../components/ui.jsx';
 import { NOTIFY_OPTIONS } from '../lib/constants.js';
-import { dt, km, vehicleName } from '../lib/format.js';
+import { dt, km, vehicleName, cur } from '../lib/format.js';
 import { SECTION_CODE, SECTIONS, sectionOption } from '../lib/constants.js';
 import { usePersistedForm } from '../lib/autosave.js';
 import { suggestService } from '../lib/services.js';
@@ -188,7 +188,7 @@ export function LabourTaskDialog({ id }) {
         <Field label="Labour line" grow="3 1 200px" {...bind('name')} />
         <Field label="Section"><select {...bind('section')}>{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
         <Field label="Hours" type="number" min="0" step="0.25" {...bind('hours')} />
-        <Field label="Total cost (ETB), empty = hours x rate" type="number" min="0" {...bind('price')} />
+        <Field label={`Total cost (${cur()}), empty = hours x rate`} type="number" min="0" {...bind('price')} />
       </div>
     </Dialog>
   );

@@ -1,3 +1,4 @@
+import ApprovalBox from '../components/ApprovalBox.jsx';
 import { useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../store.jsx';
@@ -6,7 +7,7 @@ import { LabourLines, PartLines } from '../components/Lines.jsx';
 import CustomerPicker from '../components/CustomerPicker.jsx';
 import { ROLES, isAdmin, isSA } from '../lib/constants.js';
 import { restoreDraft, useAutosave } from '../lib/autosave.js';
-import { dt, km, money, pct, rateOf, tot, vehicleName } from '../lib/format.js';
+import { dt, km, money, pct, rateOf, tot, vehicleName, cur } from '../lib/format.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import ProformaDoc from '../print/ProformaDoc.jsx';
 
@@ -122,9 +123,10 @@ export default function ProformaDialog({ id }) {
 
       <div className="box mt r">
         Labour {money(t.l)} · Parts {money(t.p)} · VAT {pct(t.rate)}% {money(t.vat)}
-        <br /><b className="cn total">Proforma total ETB {money(t.total)}</b>
+        <br /><b className="cn total">Proforma total {cur()} {money(t.total)}</b>
       </div>
       {open && <div className="mt"><SaveState state={state} restored={init.restored} /></div>}
+      {isSA(me) && p.status !== 'Draft' && <ApprovalBox kind="proforma" id={p.id} />}
 
       {open && p.status === 'Issued' && (
         <div className="row mt">

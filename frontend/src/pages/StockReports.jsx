@@ -6,7 +6,7 @@ import { useApp } from '../store.jsx';
 import { Btn, Field, Pill, Stat, Table } from '../components/ui.jsx';
 import { isMgr } from '../lib/constants.js';
 import { buildReport, OPS } from '../lib/customReport.js';
-import { dt, downloadCsv, money, today } from '../lib/format.js';
+import { dt, downloadCsv, money, today, cur } from '../lib/format.js';
 import { downloadXlsx } from '../lib/xlsx.js';
 
 const TABS = [['sales', 'Sales'], ['lost', 'Lost sales'], ['inv', 'Inventory control', true], ['custom', 'User-defined report', true]];
@@ -51,12 +51,12 @@ function useReport(path, range, say, dated = true) {
 function SalesReport({ range, say }) {
   const d = useReport('/reports/sales', range, say);
   if (!d) return <p className="mu mt">Loading…</p>;
-  const csv = () => downloadCsv(`sales_${range.from}_${range.to}.csv`, [['Date', 'Number', 'Type', 'Customer', 'TIN', 'Subtotal', 'VAT', 'Total (ETB)', 'By']].concat(d.sales.map(x => [dt(x.date), x.id, x.kind, x.customer, x.tin, x.sub, x.vat, x.total, x.by])));
+  const csv = () => downloadCsv(`sales_${range.from}_${range.to}.csv`, [['Date', 'Number', 'Type', 'Customer', 'TIN', 'Subtotal', 'VAT', `Total (${cur()})`, 'By']].concat(d.sales.map(x => [dt(x.date), x.id, x.kind, x.customer, x.tin, x.sub, x.vat, x.total, x.by])));
   return (
     <>
       <div className="row mt"><h2 style={{ flex: 1 }}>Point-of-sale sales</h2><Btn kind="ol" onClick={csv}>Download CSV</Btn></div>
-      <div className="g g2 mt">{[['Sales', d.sum.count], ['Cash sales', money(d.sum.cash)], ['Credit sales', money(d.sum.credit)], ['Total incl. VAT (ETB)', money(d.sum.total)]].map(([a, b]) => <Stat key={a} label={a} value={b} small />)}</div>
-      {d.cancelled.count > 0 && <p className="mu small">{d.cancelled.count} cancelled sale(s) worth ETB {money(d.cancelled.total)} are left out.</p>}
+      <div className="g g2 mt">{[['Sales', d.sum.count], ['Cash sales', money(d.sum.cash)], ['Credit sales', money(d.sum.credit)], [`Total incl. VAT (${cur()})`, money(d.sum.total)]].map(([a, b]) => <Stat key={a} label={a} value={b} small />)}</div>
+      {d.cancelled.count > 0 && <p className="mu small">{d.cancelled.count} cancelled sale(s) worth {cur()} {money(d.cancelled.total)} are left out.</p>}
       <div className="mt"><Table head={['Day', ...['Sales', 'Cash', 'Credit', 'Subtotal', 'VAT', 'Total'].map(t => ({ t, r: 1 }))]} empty={!d.days.length && 'No sales in this period.'}>
         {d.days.map(x => <tr key={x.day}><td>{x.day}</td><td className="r">{x.count}</td><td className="r">{money(x.cash)}</td><td className="r">{money(x.credit)}</td><td className="r">{money(x.sub)}</td><td className="r">{money(x.vat)}</td><td className="r"><b>{money(x.total)}</b></td></tr>)}
       </Table></div>

@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useApp } from '../store.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
+import LangToggle from './LangToggle.jsx';
+import { t } from '../lib/i18n.js';
 
 const B = { garage: 'MADEG', system: 'MG Auto', motto: 'Your car, our care', company: 'MADEG Garage · MG Auto', place: 'Gurdshola, around Top Ten Hotel', phone: '0980766566' };
 
@@ -18,10 +20,10 @@ function Rosette() {
 // Cover and sign-in page
 export default function Cover() {
   const { signIn } = useApp();
-  const [u, setU] = useState(''), [p, setP] = useState(''), [err, setErr] = useState(''), [busy, setBusy] = useState(false);
+  const [u, setU] = useState(''), [p, setP] = useState(''), [err, setErr] = useState(''), [busy, setBusy] = useState(false), [code, setCode] = useState(''), [step2, setStep2] = useState(false);
   const submit = async e => {
     e.preventDefault(); setErr(''); setBusy(true);
-    try { await signIn(u.trim(), p); } catch (x) { setErr(x.message); setBusy(false); }
+    try { const r = await signIn(u.trim(), p, step2 ? code.replace(/\s/g, '') : ''); if (r?.need2fa) { setStep2(true); setBusy(false); } } catch (x) { setErr(x.message); setBusy(false); if (step2) setCode(''); }
   };
   return (
     <div className="cv">
@@ -35,15 +37,18 @@ export default function Cover() {
         <div className="motto">{B.motto}</div><div className="bar" />
       </section>
       <section className="cv-r">
-        <div className="cv-top"><ThemeToggle /></div>
+        <div className="cv-top"><LangToggle /> <ThemeToggle /></div>
         <form className="in" onSubmit={submit}>
           <div className="cv-k">{B.garage} Garage</div>
-          <h2>Sign in</h2>
+          <h2>{t('Sign in')}</h2>
           <div className="cv-card">
-            <div className="f"><label htmlFor="lu">Username</label><input id="lu" autoComplete="username" autoFocus value={u} onChange={e => setU(e.target.value)} /></div>
-            <div className="f"><label htmlFor="lp">Password</label><input id="lp" type="password" autoComplete="current-password" value={p} onChange={e => setP(e.target.value)} /></div>
+            {!step2 ? <>
+              <div className="f"><label htmlFor="lu">{t('Username')}</label><input id="lu" autoComplete="username" autoFocus value={u} onChange={e => setU(e.target.value)} /></div>
+              <div className="f"><label htmlFor="lp">{t('Password')}</label><input id="lp" type="password" autoComplete="current-password" value={p} onChange={e => setP(e.target.value)} /></div>
+            </> : <div className="f"><label htmlFor="lc">{t('Two-step code')}</label><input id="lc" inputMode="numeric" autoComplete="one-time-code" maxLength={7} autoFocus value={code} onChange={e => setCode(e.target.value)} /><div className="mu small">{t('Enter the 6-digit code from your authenticator app')}</div></div>}
             {err && <p className="cv-err" role="alert">{err}</p>}
-            <button className="cv-btn" type="submit" disabled={busy || !u || !p}>{busy ? 'Signing in…' : 'Sign in'}</button>
+            <button className="cv-btn" type="submit" disabled={busy || !u || !p || (step2 && code.replace(/\s/g, '').length !== 6)}>{busy ? t('Signing in…') : step2 ? t('Confirm') : t('Sign in')}</button>
+            {step2 && <button className="cv-btn" type="button" style={{ marginTop: 8, opacity: .8 }} onClick={() => { setStep2(false); setCode(''); setErr(''); }}>{t('Back')}</button>}
           </div>
           <div className="cv-note">{B.company}<br />{B.place} · {B.phone}</div>
         </form>

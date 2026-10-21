@@ -14,6 +14,10 @@ import { Invoices, PointOfSale } from './pages/Pos.jsx';
 import StockReports from './pages/StockReports.jsx';
 import Audit from './pages/Audit.jsx';
 import { ROLES, isMgr, isSA, isTech } from './lib/constants.js';
+import { t } from './lib/i18n.js';
+import LangToggle from './components/LangToggle.jsx';
+import Approve from './pages/Approve.jsx';
+import { TwoFactorNag } from './components/TwoFactorNag.jsx';
 
 const PAGES = { dash: Dashboard, jobs: JobCards, pro: Proformas, est: Estimates, ins: Insurance, lab: LabourList, svc: Services, shop: Workshop, cust: Customers, inv: Parts, pur: Purchases, pos: PointOfSale, invc: Invoices, srep: StockReports, rep: Reports, staff: Staff, audit: Audit };
 
@@ -53,22 +57,23 @@ function Shell() {
   return (
     <div className="app">
       <aside className="sb">
-        <div className="sb-top"><img className="sb-logo" src="/madeg-logo.png" alt="" /><div><div className="sb-n1">MADEG</div><div className="sb-n2">Garage · MG Auto</div></div><ThemeToggle className="sb-tt" /></div>
+        <div className="sb-top"><img className="sb-logo" src="/madeg-logo.png" alt="" /><div><div className="sb-n1">MADEG</div><div className="sb-n2">Garage · MG Auto</div></div><LangToggle /> <ThemeToggle className="sb-tt" /></div>
         <nav className="sb-mid" aria-label="Main">
-          {menu.map(([k, n]) => <button key={k} type="button" className={tab === k ? 'on' : ''} aria-current={tab === k ? 'page' : undefined} onClick={() => go(k)}>{ICONS[k]}<span>{n}</span></button>)}
+          {menu.map(([k, n]) => <button key={k} type="button" className={tab === k ? 'on' : ''} aria-current={tab === k ? 'page' : undefined} onClick={() => go(k)}>{ICONS[k]}<span>{t(n)}</span></button>)}
         </nav>
         <div className="sb-bot">
           <div className="av" aria-hidden="true">{(me.name || '?').slice(0, 1).toUpperCase()}</div>
           <div className="who"><b>{me.name}</b><span>{ROLES[me.role]}</span></div>
-          <button type="button" className="so" onClick={signOut} aria-label="Sign out" title="Sign out">
+          <button type="button" className="so" onClick={signOut} aria-label={t('Sign out')} title={t('Sign out')}>
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>
           </button>
         </div>
       </aside>
       <main className="page">
         <div className="pg" key={tab}>
-          <h1>{tab === 'rep' && isTech(me) ? 'My hours' : title}</h1>
-          <p className="pd">{text}</p>
+          <h1>{t(tab === 'rep' && isTech(me) ? 'My hours' : title)}</h1>
+          {isMgr(me) && <TwoFactorNag go={go} />}
+          <p className="pd">{t(text)}</p>
           {opening ? <PageLoader label={`Opening ${tab === 'rep' && isTech(me) ? 'My hours' : title}`} /> : <Page />}
         </div>
       </main>
@@ -101,5 +106,8 @@ function Root() {
 }
 
 export default function App() {
+  // The customer's approval page opens from a link and needs no sign-in
+  const m = /^#\/approve\/([A-Za-z0-9]{20,64})/.exec(location.hash);
+  if (m) return <Approve token={m[1]} />;
   return <AppProvider><PrintProvider><Root /></PrintProvider></AppProvider>;
 }

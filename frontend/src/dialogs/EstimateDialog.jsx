@@ -1,3 +1,4 @@
+import ApprovalBox from '../components/ApprovalBox.jsx';
 import { useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../store.jsx';
@@ -5,7 +6,7 @@ import { Btn, Dialog, Field, Pill, SaveState, Table } from '../components/ui.jsx
 import { isAdmin, isSA, SECTION_CODE } from '../lib/constants.js';
 import { LabourLines, PartLines } from '../components/Lines.jsx';
 import { restoreDraft, useAutosave } from '../lib/autosave.js';
-import { dt, money, pct, r2, rateOf, tot, vehicleName } from '../lib/format.js';
+import { dt, money, pct, r2, rateOf, tot, vehicleName, cur } from '../lib/format.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import EstimateDoc from '../print/EstimateDoc.jsx';
 import { downloadXlsx } from '../lib/xlsx.js';
@@ -15,7 +16,7 @@ const num = v => parseFloat(v) || 0;
 const Total = ({ t }) => (
   <div className="box mt r">
     Labour {money(t.l)} · Parts {money(t.p)} · VAT {pct(t.rate)}% {money(t.vat)}
-    <br /><b className="cn total">Estimate total ETB {money(t.total)}</b>
+    <br /><b className="cn total">Estimate total {cur()} {money(t.total)}</b>
   </div>
 );
 
@@ -95,6 +96,7 @@ export default function EstimateDialog({ id, jid }) {
       )}
 
       <Total t={t} />
+      {!draft && isSA(me) && <ApprovalBox kind="estimate" id={e.id} />}
       <div className="row mt">
         <Btn kind="ol" onClick={printIt}>Print estimate (A4)</Btn>
         <Btn kind="ol" onClick={download}>Download (Excel)</Btn>

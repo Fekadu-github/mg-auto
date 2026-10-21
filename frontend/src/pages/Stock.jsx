@@ -5,7 +5,7 @@ import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Pill, Table } from '../components/ui.jsx';
 import { usePersistedForm } from '../lib/autosave.js';
 import { isMgr, isSA } from '../lib/constants.js';
-import { dt, money } from '../lib/format.js';
+import { dt, money, cur } from '../lib/format.js';
 import { MAKES, PREFIX_HINT, downloadInventory, lowKey, lowParts, makeOf, priceFromCost } from '../lib/stock.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import GrnDoc from '../print/GrnDoc.jsx';
@@ -36,8 +36,8 @@ export function Parts() {
           <Field label="Part number (S, T or B first)" {...bind('code')} aria-invalid={badCode} />
           <Field label="Description" grow="3 1 200px" {...bind('name')} />
           <Field label="Category" {...bind('category')} />
-          <Field label="Cost (ETB)" type="number" min="0" step="any" {...bind('cost')} />
-          <Field label={`Price (ETB) · fills as cost x ${db.cfg.markup}`} type="number" min="0" step="any" value={shownPrice} onChange={e => set({ price: e.target.value, priceTyped: true })} />
+          <Field label={`Cost (${cur()})`} type="number" min="0" step="any" {...bind('cost')} />
+          <Field label={`Price (${cur()}) · fills as cost x ${db.cfg.markup}`} type="number" min="0" step="any" value={shownPrice} onChange={e => set({ price: e.target.value, priceTyped: true })} />
           <Field label="Opening quantity" type="number" min="0" step="any" {...bind('stock')} />
           <Field label="Minimum stock" type="number" min="0" step="any" {...bind('reorder')} />
           <Btn onClick={add}>Save item</Btn>

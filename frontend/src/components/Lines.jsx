@@ -1,6 +1,6 @@
 import { Btn, Table } from './ui.jsx';
 import { SECTIONS, SECTION_CODE, sectionOption } from '../lib/constants.js';
-import { matchPart, money, rateOf } from '../lib/format.js';
+import { matchPart, money, rateOf, cur } from '../lib/format.js';
 import PartSearch from './PartSearch.jsx';
 import TaskSearch from './TaskSearch.jsx';
 import { useState } from 'react';
@@ -42,7 +42,7 @@ export function LabourLines({ labs, setLabs, tasks, rate, services, brand }) {
   const listed = isListed(tasks, allGroups);
   return (
     <>
-      <Table head={['Task (choose the section first, then type a letter)', 'Section', 'Hours', 'Cost (ETB)', '']} empty={!labs.length && 'No labour yet.'}>
+      <Table head={['Task (choose the section first, then type a letter)', 'Section', 'Hours', `Cost (${cur()})`, '']} empty={!labs.length && 'No labour yet.'}>
         {labs.map((l, i) => (
           <tr key={i}>
             <td style={{ minWidth: 300 }}><TaskSearch groups={groups} singles={singles} section={l.section} disabled={!l.section} value={l.desc} onChange={text => set(i, { desc: text })} onPick={h => picked(i, h)} invalid={!!l.desc?.trim() && !listed(l.desc)} />{!!l.desc?.trim() && !listed(l.desc) && <div className="small" style={{ color: 'var(--rd)' }}>Choose a task from the list.</div>}</td>
@@ -54,7 +54,7 @@ export function LabourLines({ labs, setLabs, tasks, rate, services, brand }) {
         ))}
       </Table>
       {!!(brand || '').trim() && <div className="mu small mt">{allModels ? 'Showing the labour of all models.' : `Showing the labour for ${brand} (and general lines).`} <button type="button" className="lnk" onClick={() => setAllModels(x => !x)}>{allModels ? `Only ${brand}` : 'Show all models'}</button></div>}
-      <div className="mt"><Btn kind="ol" onClick={() => setLabs(ls => [...ls, { desc: '', section: '', hours: '', price: '' }])}>Add labour line</Btn> <span className="mu small">Hours x the section's rate ({SECTIONS.map(s => `${SECTION_CODE[s]} ${rateOf(rate, s)}`).join(' · ')} ETB/h) fills the cost; type another amount to change it.</span></div>
+      <div className="mt"><Btn kind="ol" onClick={() => setLabs(ls => [...ls, { desc: '', section: '', hours: '', price: '' }])}>Add labour line</Btn> <span className="mu small">Hours x the section's rate ({SECTIONS.map(s => `${SECTION_CODE[s]} ${rateOf(rate, s)}`).join(' · ')} {cur()}/h) fills the cost; type another amount to change it.</span></div>
     </>
   );
 }

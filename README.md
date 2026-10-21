@@ -179,3 +179,12 @@ The insurance proforma and the Body & Paints estimate print on one A4 sheet mode
 - **Backups:** switch on the automatic daily backup of your MySQL provider (and keep at least 7 days). A manual copy: `mysqldump --single-transaction -h HOST -u USER -p DBNAME > mg_auto_$(date +%F).sql`. Try a restore on an empty database once.
 - **Uptime:** point a free monitor (UptimeRobot or similar) at `https://<your-service>.onrender.com/health`.
 - **What a competitive product is expected to have:** see `docs/INTERNATIONAL_READINESS.md`.
+
+
+## Security, language, approval and inspection (v2.1)
+- **Backups:** `docs/BACKUP_RESTORE.md`, `backend/scripts/backup.sh`, `backend/scripts/restore-test.sh`. Switch on the provider's daily backup and try one restore.
+- **Two-step sign-in:** the Manager and the Administrator turn it on in **Staff → Two-step sign-in** (authenticator app, 6-digit code; no extra package). After that, signing in asks for the code. If a phone is lost, the Manager/Administrator presses **Reset two-step** beside the person in Staff. A reminder shows on every screen until it is on.
+- **Language and currency:** the **አማ / EN** button (sidebar, sign-in page and customer page) switches language. The Manager sets the currency code in **Staff → Currency** (default ETB). To translate more screens, wrap their texts in `t('English text')` and add the Amharic pair in `frontend/src/lib/i18n.js`.
+- **Customer approval by link:** on a finalized estimate or an issued proforma, press **Make approval link**, send it (copy, Telegram, SMS). The customer opens it on his phone without signing in, sees a frozen copy of the document, types his name and approves or declines. The result (name, time, comment) shows on the document. A link works 14 days; making a new one withdraws the old one. If the frontend and API are on different hosts, set `VITE_API_URL` as before; the link uses the address of the frontend.
+- **Reception inspection and photos:** on every job card: checklist (OK / Problem / N/A), fuel level, existing damage, valuables, keys, and up to 20 photos (taken with the phone camera, shrunk to about 1280 px in the browser, stored in the database). Service Advisor and Workshop Supervisor can add; only the Service Advisor can delete photos; locked once invoiced.
+- **Database:** new tables `approvals`, `job_inspections`, `job_photos` and new `app_users` columns are created by `npm run migrate` (also at every start). Photos make the database grow: keep the backups large enough.

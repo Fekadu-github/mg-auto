@@ -2,6 +2,10 @@
 export const TZ = 'Africa/Addis_Ababa';
 
 export const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
+// The currency shown next to prices: set by the manager (Staff screen), loaded with the rest of the settings
+let CUR = 'ETB';
+export const cur = () => CUR;
+export const setCurrency = c => { if (c) CUR = String(c); };
 export const money = n => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 // Dates always show Addis Ababa time, whatever the device clock is set to
 export const dt = t => (t ? new Date(t).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short', timeZone: TZ }) : '');

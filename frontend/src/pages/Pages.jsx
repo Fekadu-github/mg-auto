@@ -10,7 +10,10 @@ import { SECTION_CODE, sectionOption } from '../lib/constants.js';
 import { usePersistedForm } from '../lib/autosave.js';
 import { downloadXlsx, readXlsx, rowsToObjects } from '../lib/xlsx.js';
 import { groupCost, groupHours, groupTasks } from '../lib/labourGroups.js';
-import { activeClock, dt, downloadCsv, jobTotals, km, money, rateOf, tot, today, vehicleName } from '../lib/format.js';
+import TwoFactor from '../components/TwoFactor.jsx';
+import CurrencyBox from '../components/CurrencyBox.jsx';
+import { t } from '../lib/i18n.js';
+import { activeClock, dt, downloadCsv, jobTotals, km, money, rateOf, tot, today, vehicleName, cur } from '../lib/format.js';
 
 export const PAGE_INFO = {
   dash: ['Garage today', 'Today in the garage: what is waiting to be dispatched, in the workshop, ready to close, or waiting for hand-over.'],
@@ -182,7 +185,7 @@ export function LabourList() {
       {isMgr(me) && <RatesBox rates={rates} />}
       {sa && <div className="box mt"><h3>New labour task</h3><div className="row">
         <Field label="Labour code" {...bind('code')} /><Field label="Model group" {...bind('model_grp')} /><Field label="Task (group, optional)" grow="2 1 180px" {...bind('task')} /><Field label="Labour line" grow="3 1 200px" {...bind('name')} /><Field label="Section"><select {...bind('section')}>{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
-        <Field label="Hours" type="number" min="0" step="0.25" {...bind('hours')} /><Field label="Total cost (ETB), empty = hours x rate" type="number" min="0" {...bind('price')} /><Btn onClick={add}>Save task</Btn>
+        <Field label="Hours" type="number" min="0" step="0.25" {...bind('hours')} /><Field label={`Total cost (${cur()}), empty = hours x rate`} type="number" min="0" {...bind('price')} /><Btn onClick={add}>Save task</Btn>
       </div></div>}
       {sa && <div className="box mt"><h3>Import from Excel</h3>
         <p className="mu small">Choose the price-book Excel file (all its sheets are read). Only these are taken: Labour Code · Labour Type Description · Model Grp · Hours Required. The section comes from the code: BP- → Body &amp; Paints, ME- → Mechanical Repairs. SV- codes are not imported (they are in the Service types: choose Type A or B on the job card). The cost is not read from the file: it is always hours × the labour rate above. Existing lines are updated, nothing is deleted.</p>
@@ -190,7 +193,7 @@ export function LabourList() {
         {res && <p className="mt"><b>{res.added}</b> added · <b>{res.updated}</b> updated{res.ignored && <span className="mu small"> · not imported: {res.ignored.sv} SV · {res.ignored.other} other codes · {res.ignored.duplicate} repeated on other sheets</span>}{res.skipped.length ? <> · <b>{res.skipped.length}</b> skipped: {res.skipped.slice(0, 8).map(x => `${x.code} (${x.why})`).join('; ')}{res.skipped.length > 8 ? '…' : ''}</> : ''}</p>}
       </div>}
       <div className="mt"><input aria-label="Search tasks" placeholder="Search tasks or BP / ME" value={q} onChange={e => setQ(e.target.value)} /></div>
-      <div className="mt"><Table head={['Section', 'Task / labour line', { t: 'Hours', r: 1 }, { t: 'Total cost (ETB)', r: 1 }, '']} empty={!list.length && 'No labour tasks yet.'}>
+      <div className="mt"><Table head={['Section', 'Task / labour line', { t: 'Hours', r: 1 }, { t: `Total cost (${cur()})`, r: 1 }, '']} empty={!list.length && 'No labour tasks yet.'}>
         {SECTIONS.flatMap(sec => {
           const gs = groups.filter(g => g.items.some(t => t.section === sec)), ss = single.filter(t => t.section === sec);
           if (!gs.length && !ss.length) return [];
@@ -212,12 +215,12 @@ function RatesBox({ rates }) {
   const [f, setF] = useState(init);
   const save = async () => { const r = await run(() => api('/settings/labour-rates', 'PUT', { rates: f })); if (r.ok) say('Labour rates saved. They apply to labour added from now on.'); };
   return (
-    <div className="box mt"><h3>Labour rate per hour (ETB)</h3>
+    <div className="box mt"><h3>Labour rate per hour ({cur()})</h3>
       <div className="row">
         {SECTIONS.map(s => <Field key={s} label={`${SECTION_CODE[s]} · ${s}`} type="number" min="0" step="any" placeholder={String(rates.default)} value={f[s]} onChange={e => setF(x => ({ ...x, [s]: e.target.value }))} />)}
         <Btn onClick={save}>Save rates</Btn>
       </div>
-      <div className="mu small">An empty box uses the standard rate ({rates.default} ETB/h). Hours x the rate of the section fills the labour cost; the price can still be typed over.</div>
+      <div className="mu small">An empty box uses the standard rate ({rates.default} {cur()}/h). Hours x the rate of the section fills the labour cost; the price can still be typed over.</div>
     </div>
   );
 }
@@ -318,8 +321,8 @@ export function Reports() {
         <p className="mu">Days are Addis Ababa days.{!tech && ' Revenue counts cash and credit invoices on the day they were issued; proformas are quotes and are not counted.'}</p>
       </div>
       {rev && <>
-        <div className="row mt"><h2 style={{ flex: 1 }}>Revenue</h2><Btn kind="ol" onClick={() => downloadCsv(`revenue_${range.from}_${range.to}.csv`, [['Date', 'Invoice', 'Job card', 'Customer', 'Plate', 'Type', 'Labour', 'Parts', 'VAT', 'Total (ETB)']].concat(rev.invoices.map(x => [dt(x.date), x.no, x.jc, x.customer, x.plate, x.type, x.labour, x.parts, x.vat, x.total])))}>Download CSV</Btn></div>
-        <div className="g g2 mt">{[['Invoices', rev.sum.count], ['Cash invoices', money(rev.sum.cash)], ['Credit invoices (to collect)', money(rev.sum.credit)], ['Total incl. VAT (ETB)', money(rev.sum.total)]].map(([a, b]) => <Stat key={a} label={a} value={b} small />)}</div>
+        <div className="row mt"><h2 style={{ flex: 1 }}>Revenue</h2><Btn kind="ol" onClick={() => downloadCsv(`revenue_${range.from}_${range.to}.csv`, [['Date', 'Invoice', 'Job card', 'Customer', 'Plate', 'Type', 'Labour', 'Parts', 'VAT', `Total (${cur()})`]].concat(rev.invoices.map(x => [dt(x.date), x.no, x.jc, x.customer, x.plate, x.type, x.labour, x.parts, x.vat, x.total])))}>Download CSV</Btn></div>
+        <div className="g g2 mt">{[['Invoices', rev.sum.count], ['Cash invoices', money(rev.sum.cash)], ['Credit invoices (to collect)', money(rev.sum.credit)], [`Total incl. VAT (${cur()})`, money(rev.sum.total)]].map(([a, b]) => <Stat key={a} label={a} value={b} small />)}</div>
         <div className="mt"><Table head={['Day', ...['Invoices', 'Cash', 'Credit', 'Labour', 'Parts', 'VAT', 'Total'].map(t => ({ t, r: 1 }))]} empty={!rev.days.length && 'No invoices in this period.'}>
           {rev.days.map(d => <tr key={d.day}><td>{d.day}</td><td className="r">{d.count}</td><td className="r">{money(d.cash)}</td><td className="r">{money(d.credit)}</td><td className="r">{money(d.labour)}</td><td className="r">{money(d.parts)}</td><td className="r">{money(d.vat)}</td><td className="r"><b>{money(d.total)}</b></td></tr>)}
         </Table></div>
@@ -373,8 +376,11 @@ export function Staff() {
   };
   const del = async u => { if (confirm(`Delete the account of ${u.name} (${u.username})?\nHe will not be able to sign in again. This cannot be undone.`)) await run(() => api('/users/' + u.id, 'DELETE')); };
   const set = p => setEd(e => ({ ...e, ...p }));
+  const reset2fa = async u => { if (confirm(`${t('Reset two-step')}: ${u.name}?`)) await run(() => api('/users/' + u.id, 'PUT', { reset2fa: true })); };
   return (
     <>
+      <TwoFactor />
+      <CurrencyBox />
       <div className="box mt"><h3>New staff account</h3><div className="row">
         <Field label="Full name" {...bind('name')} /><Field label="Username" autoComplete="off" {...bind('username')} />
         <PasswordBox label="Password (8+ characters)" {...bind('password')} />
@@ -392,6 +398,7 @@ export function Staff() {
       <div className="mt"><Table head={['Name', 'Username', 'Role', '']}>{users.map(u => <tr key={u.id}><td>{u.name}{u.id === me.id && <span className="mu small"> (you)</span>}</td><td>{u.username}</td><td>{ROLES[u.role]}</td>
         <td className="acts"><Btn kind="ol" onClick={() => setEd({ id: u.id, mode: 'edit', name: u.name, username: u.username, role: u.role, password: '' })}>Edit</Btn>
           <Btn kind="ol" onClick={() => setEd({ id: u.id, mode: 'pass', name: u.name, username: u.username, role: u.role, password: '' })}>Change password</Btn>
+          {u.tfa && <Btn kind="ol" onClick={() => reset2fa(u)}>{t('Reset two-step')}</Btn>}
           {u.id !== me.id && <Btn kind="ol" onClick={() => del(u)}>Delete</Btn>}</td></tr>)}</Table></div>
     </>
   );

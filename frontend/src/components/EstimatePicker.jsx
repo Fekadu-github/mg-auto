@@ -4,7 +4,7 @@ import { useApp } from '../store.jsx';
 import { Table } from './ui.jsx';
 import { searchEstimates } from '../lib/search.js';
 import { SECTION_CODE } from '../lib/constants.js';
-import { money, tot } from '../lib/format.js';
+import { money, tot, cur } from '../lib/format.js';
 
 // "Mohammed A · AA-12345": who an estimate is for. An estimate made before the customer was registered shows the walk-in written on its proforma.
 export function useEstimateWho() {
@@ -50,7 +50,7 @@ export default function EstimatePicker({ label, estimates, value, onChange, onPi
           {hits.map((e, i) => (
             <li key={e.id} role="option" aria-selected={i === hi} className={i === hi ? 'on' : ''} onMouseDown={x => { x.preventDefault(); pick(e); }} onMouseEnter={() => setHi(i)}>
               <b>{e.id}</b> <span>{[who(e), e.note].filter(Boolean).join(' · ') || 'no customer yet'}</span>
-              <span className="ps-meta">{e.status === 'Draft' ? 'draft · ' : ''}{e.labours.length} labour · {e.parts.length} parts · ETB {money(tot(e, db.cfg.vat).total)}</span>
+              <span className="ps-meta">{e.status === 'Draft' ? 'draft · ' : ''}{e.labours.length} labour · {e.parts.length} parts · {cur()} {money(tot(e, db.cfg.vat).total)}</span>
             </li>
           ))}
           {!hits.length && <li className="ps-none" onMouseDown={x => x.preventDefault()}>{text.trim() ? <>No estimate matches “{text.trim()}”.</> : 'No estimate is waiting.'}</li>}
@@ -73,7 +73,7 @@ export function EstimatePreview({ est }) {
       <Table head={['Part', { t: 'Qty', r: 1 }, { t: 'Selling price', r: 1 }, { t: 'Total', r: 1 }]} empty={!est.parts.length && 'No parts.'}>
         {est.parts.map((p, i) => <tr key={i}><td>{p.code && <span className="mu">{p.code} </span>}{p.name}</td><td className="r">{p.qty}</td><td className="r">{money(p.price)}</td><td className="r">{money(p.qty * p.price)}</td></tr>)}
       </Table>
-      <div className="r mt">Labour {money(t.l)} · Parts {money(t.p)} · VAT {money(t.vat)} · <b>Total ETB {money(t.total)}</b></div>
+      <div className="r mt">Labour {money(t.l)} · Parts {money(t.p)} · VAT {money(t.vat)} · <b>Total {cur()} {money(t.total)}</b></div>
     </div>
   );
 }

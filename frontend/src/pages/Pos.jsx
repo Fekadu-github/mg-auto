@@ -5,7 +5,7 @@ import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Pill, Stat, Table, useForm } from '../components/ui.jsx';
 import PartSearch from '../components/PartSearch.jsx';
 import { isMgr, isSA } from '../lib/constants.js';
-import { dt, money, pct, r2, today } from '../lib/format.js';
+import { dt, money, pct, r2, today, cur } from '../lib/format.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import { usePersistedState } from '../lib/autosave.js';
 import SaleDoc, { saleSize } from '../print/SaleDoc.jsx';
@@ -45,7 +45,7 @@ export function PointOfSale() {
   };
   const reprint = s => print(<SaleDoc sale={s} garage={db.cfg.garage} />, saleSize(s));
   const cancel = async s => {
-    const reason = prompt(`Cancel ${s.id} (ETB ${money(s.totals.total)})?\n\nThe parts go back into stock and the sale leaves the reports.\nWhy is it cancelled?`);
+    const reason = prompt(`Cancel ${s.id} (${cur()} ${money(s.totals.total)})?\n\nThe parts go back into stock and the sale leaves the reports.\nWhy is it cancelled?`);
     if (!reason?.trim()) return;
     const r = await run(() => api(`/sales/${s.id}/cancel`, 'POST', { reason }));
     if (r.ok) { say(`${s.id} cancelled and the parts are back in stock.`); loadSales(); }
@@ -89,7 +89,7 @@ export function PointOfSale() {
           {f.kind === 'Proforma' && <label style={{ flex: '0 0 auto', display: 'flex', gap: 6, alignItems: 'center', fontSize: 14, color: 'var(--tx)' }}><input type="checkbox" style={{ width: 'auto' }} checked={f.show_codes} onChange={e => patch({ show_codes: e.target.checked })} />Show part numbers on the proforma</label>}
         </div>
         <div className="row mt">
-          <div className="r" style={{ flex: 1 }}>Subtotal {money(sub)} · VAT {pct(db.cfg.vat)}% {money(vat)}<br /><b className="cn total">Total ETB {money(total)}</b></div>
+          <div className="r" style={{ flex: 1 }}>Subtotal {money(sub)} · VAT {pct(db.cfg.vat)}% {money(vat)}<br /><b className="cn total">Total {cur()} {money(total)}</b></div>
           <Btn kind={f.kind === 'Proforma' ? 'ol' : 'gr'} onClick={complete} disabled={busy || !lines.length}>{label}</Btn>
           {(lines.length > 0 || f.name || f.phone || f.tin || f.note) && <Btn kind="ol" onClick={() => { if (confirm('Clear this sale and start over?')) { setLines([]); setF(EMPTY); } }}>Start over</Btn>}
         </div>
@@ -122,13 +122,13 @@ export function PaymentDialog({ inv, onClose, onDone }) {
   const [f, bind] = useForm({ amount: String(inv.balance), method: 'Cash', note: '' });
   const save = async () => {
     const r = await run(() => api('/payments', 'POST', { source: inv.source, ref: inv.ref, amount: num(f.amount), method: f.method, note: f.note }));
-    if (r.ok) { say(r.data.balance > 0 ? `Payment recorded. ETB ${money(r.data.balance)} still to pay.` : `${inv.no} is fully paid.`); onDone(); }
+    if (r.ok) { say(r.data.balance > 0 ? `Payment recorded. ${cur()} ${money(r.data.balance)} still to pay.` : `${inv.no} is fully paid.`); onDone(); }
   };
   return (
     <Dialog title={`Payment · ${inv.no}`} onClose={onClose} actions={<><Btn kind="gr" onClick={save} disabled={!(num(f.amount) > 0) || inv.balance <= 0}>Record payment</Btn><Btn kind="ol" onClick={onClose}>Close</Btn></>}>
       <p>{inv.customer || 'Customer'} · invoice total <b>{money(inv.total)}</b> · paid {money(inv.paid)} · <b>balance {money(inv.balance)}</b></p>
       <div className="row mt">
-        <Field label="Amount received (ETB)" type="number" min="0.01" step="any" {...bind('amount')} />
+        <Field label={`Amount received (${cur()})`} type="number" min="0.01" step="any" {...bind('amount')} />
         <Field label="Method"><select {...bind('method')}>{METHODS.map(m => <option key={m}>{m}</option>)}</select></Field>
         <Field label="Note (reference, cheque no…)" grow="2 1 200px" {...bind('note')} />
       </div>

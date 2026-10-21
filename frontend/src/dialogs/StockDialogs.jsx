@@ -5,7 +5,7 @@ import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Table, useForm } from '../components/ui.jsx';
 import PartSearch from '../components/PartSearch.jsx';
 import { isMgr } from '../lib/constants.js';
-import { money, r2 } from '../lib/format.js';
+import { money, r2, cur } from '../lib/format.js';
 import { MAKES, makeOf, priceFromCost, readItemsFile, templateRows } from '../lib/stock.js';
 import { downloadXlsx } from '../lib/xlsx.js';
 import { usePrint } from '../print/PrintHost.jsx';
@@ -26,8 +26,8 @@ export function EditPartDialog({ id }) {
       <p className="mu small">{makeOf(p.code) ? `${makeOf(p.code)} part.` : ''} The part number cannot be changed. The quantity changes through a purchase (GRN), a sale, a job card or a stock count.</p>
       <div className="row mt">
         <Field label="Description" grow="3 1 200px" {...bind('name')} /><Field label="Category" {...bind('category')} />
-        <Field label="Cost (ETB)" type="number" min="0" step="any" value={f.cost} onChange={onCost} />
-        <Field label={`Price (ETB, before VAT) · cost x ${db.cfg.markup}`} type="number" min="0" step="any" {...bind('price')} />
+        <Field label={`Cost (${cur()})`} type="number" min="0" step="any" value={f.cost} onChange={onCost} />
+        <Field label={`Price (${cur()}, before VAT) · cost x ${db.cfg.markup}`} type="number" min="0" step="any" {...bind('price')} />
         <Field label="Reorder level" type="number" min="0" step="any" {...bind('reorder')} />
       </div>
       <p className="mu small">Typing the cost fills the price (cost x {db.cfg.markup}); type another price to override it. A price change applies to sales and job cards from now on; lines already on job cards keep their price.</p>
@@ -134,7 +134,7 @@ export function GrnDialog({ pid }) {
 
   if (saved) return (
     <Dialog title={`${saved.id} saved`} onClose={closeModal} actions={<><Btn onClick={() => printIt(saved)}>Print GRN (A4)</Btn><Btn kind="ol" onClick={closeModal}>Close</Btn></>}>
-      <p>The quantities are in stock. {saved.supplier}{saved.ref ? ` · ${saved.ref}` : ''} · total cost <b>ETB {money(saved.total)}</b>.</p>
+      <p>The quantities are in stock. {saved.supplier}{saved.ref ? ` · ${saved.ref}` : ''} · total cost <b>{cur()} {money(saved.total)}</b>.</p>
       <Table head={['Part number', 'Description', { t: 'Qty', r: 1 }, { t: 'Cost', r: 1 }, { t: 'Price before', r: 1 }, { t: 'Price now', r: 1 }]}>
         {saved.lines.map(l => <tr key={l.pid}><td><b>{l.code}</b></td><td>{l.name}</td><td className="r">{l.qty}</td><td className="r">{money(l.cost)}</td><td className="r">{money(l.price_before)}</td><td className="r">{money(l.price_after)}{l.price_after !== l.price_before ? ' ✓' : ''}</td></tr>)}
       </Table>
@@ -149,7 +149,7 @@ export function GrnDialog({ pid }) {
       {restored && lines.length > 0 && <p className="mu small" role="status">Your unfinished GRN was restored from this device. Check it, then save it, or press Start over.</p>}
       <div className="mt"><PartSearch label="Find the part to add (type the part number or description)" stock={db.p} value={text} onChange={setText} onPick={add} /></div>
       <p className="mu small">Only parts already in the stock list can be bought here. {mgr ? 'To buy a part that is not in the list, create the item first (Parts stock → New item or Import).' : 'A part that is not in the list is created by the manager.'}</p>
-      <div className="mt"><Table head={['Part', { t: 'In stock', r: 1 }, { t: 'Quantity bought', r: 1 }, { t: 'Cost each (ETB)', r: 1 }, ...(mgr ? [{ t: 'New price', r: 1 }] : []), { t: 'Line total', r: 1 }, '']} empty={!lines.length && 'Search for a part above to add it.'}>
+      <div className="mt"><Table head={['Part', { t: 'In stock', r: 1 }, { t: 'Quantity bought', r: 1 }, { t: `Cost each (${cur()})`, r: 1 }, ...(mgr ? [{ t: 'New price', r: 1 }] : []), { t: 'Line total', r: 1 }, '']} empty={!lines.length && 'Search for a part above to add it.'}>
         {lines.map((l, i) => {
           const p = part(l.pid), auto = priceFromCost(l.cost, db.cfg.markup);
           return (
@@ -164,7 +164,7 @@ export function GrnDialog({ pid }) {
           );
         })}
       </Table></div>
-      <div className="box mt r"><b className="cn total">Total cost ETB {money(total)}</b></div>
+      <div className="box mt r"><b className="cn total">Total cost {cur()} {money(total)}</b></div>
       <p className="mu small">The cost is kept on the part. Its price follows as cost x {db.cfg.markup} unless the price was set by hand.{mgr ? ' Type a new price on a line to set it yourself.' : ''} Every change is written in the part's history.</p>
     </Dialog>
   );

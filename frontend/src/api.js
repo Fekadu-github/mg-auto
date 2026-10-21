@@ -15,3 +15,19 @@ export async function api(path, method = 'GET', body) {
   if (!r.ok) throw Object.assign(new Error(d.error || 'Request failed'), { status: r.status });
   return d;
 }
+
+// A picture from the server (it needs the sign-in header, so an <img src> cannot fetch it): returns an object URL for the picture
+export async function apiBlobUrl(path) {
+  const r = await fetch(BASE + '/api' + path, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+  if (!r.ok) throw new Error('Cannot load the picture');
+  return URL.createObjectURL(await r.blob());
+}
+// Send a picture as the request body
+export async function apiUpload(path, blob) {
+  let r;
+  try { r = await fetch(BASE + '/api' + path, { method: 'POST', headers: { 'Content-Type': blob.type || 'image/jpeg', ...(token && { Authorization: 'Bearer ' + token }) }, body: blob }); }
+  catch { throw new Error('Cannot reach the server. Check your connection and try again.'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(d.error || 'Upload failed'), { status: r.status });
+  return d;
+}

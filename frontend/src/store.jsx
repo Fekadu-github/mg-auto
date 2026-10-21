@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api, setToken, setExpiredHandler } from './api.js';
 import { POLL_MS } from './lib/constants.js';
+import { setCurrency } from './lib/format.js';
 
 const Ctx = createContext(null);
 export const useApp = () => useContext(Ctx);
@@ -32,14 +33,15 @@ export function AppProvider({ children }) {
     const d = await api('/data' + (pvRef.current ? '?pv=' + encodeURIComponent(pvRef.current) : ''));
     const u = ['ADMIN', 'MGR'].includes(meRef.current?.role) ? await api('/users') : [];
     if (meRef.current) {
-      pvRef.current = d.pv || '';
+      pvRef.current = d.pv || ''; setCurrency(d.cfg?.currency);
       setDb(prev => (d.p === undefined ? { ...d, p: prev.p } : d));   // no stock list in the answer = unchanged: keep the one we have
       setUsers(u); setReady(true);
     }
   }, []);
 
-  const signIn = useCallback(async (username, password) => {
-    const d = await api('/auth/login', 'POST', { username, password });
+  const signIn = useCallback(async (username, password, code) => {
+    const d = await api('/auth/login', 'POST', { username, password, ...(code ? { code } : {}) });
+    if (d.need2fa) return { need2fa: true };   // the password was right: the Manager or Administrator now gives the code from his phone
     setToken(d.token); save(d.token, d.user); meRef.current = d.user; setAuth({ me: d.user, tok: d.token });
     await refresh();
   }, [refresh]);

@@ -25,14 +25,14 @@ Status: **Done** = in the project now · **Partly** = exists, can go further · 
 
 | Area | Expectation | Status |
 |---|---|---|
-| Backups | Automatic daily database backup with a tested restore | Next: switch on the provider's backups (see README, "Backups") |
-| Two-step sign-in (2FA) | One-time code for manager and administrator | Next |
-| Languages | Amharic / English switch, right-to-left ready | Next |
-| Currency and tax | Currency and tax rules in settings instead of code | Partly (VAT and rates in settings, currency text fixed) |
+| Backups | Automatic daily database backup with a tested restore | Runbook, backup script and restore-test script added (`docs/BACKUP_RESTORE.md`). **You still have to switch it on at the provider and run one restore.** |
+| Two-step sign-in (2FA) | One-time code for manager and administrator | Done (authenticator app; each person turns it on in Staff; lost phone: reset by the Manager/Administrator) |
+| Languages | Amharic / English switch, right-to-left ready | Done for the menu, sign-in and all new screens; other texts stay English until wrapped in `t()` (`frontend/src/lib/i18n.js`) |
+| Currency and tax | Currency and tax rules in settings instead of code | Done (VAT, rates and the currency code are settings; the currency shows on screens, prints and exports) |
 | Accessibility | Keyboard use, screen-reader labels, contrast (WCAG 2.1 AA) | Partly |
 | Integrations | Documented API (OpenAPI), accounting export, payment links | Next |
-| Customer portal | Customer sees progress and approves the estimate online | Next |
-| Digital inspection | Photos and checklist at reception | Next |
+| Customer portal | Customer approves the estimate or proforma online | Done (approval link; progress tracking not yet) |
+| Digital inspection | Photos and checklist at reception | Done (job card: checklist, fuel, valuables, up to 20 photos) |
 | Analytics | Technician efficiency, workshop utilisation, margin per job | Partly (hours and sales reports) |
 | Reliability | Error tracking, uptime alert on `/health`, load test | Next |
 | Privacy | Data export and deletion on request, retention rules | Partly (audit retention done) |

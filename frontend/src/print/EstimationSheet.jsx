@@ -1,4 +1,4 @@
-import { TZ, birrInWords, dt, money, pct, splitCode, tot } from '../lib/format.js';
+import { TZ, birrInWords, dt, money, pct, splitCode, tot, cur } from '../lib/format.js';
 import { DEFAULT_TERMS } from '../lib/constants.js';
 import { GARAGE, Letterhead } from './InvoiceDoc.jsx';
 
@@ -53,7 +53,7 @@ export default function EstimationSheet({ no, date, draft, walkIn, customer: c =
       <div className="est-wd"><b>Work description:</b> {note || '-'}</div>
 
       <table className="items est-items">
-        <thead><tr><th className="code">Code</th><th>Description</th><th className="r qty">Qty</th><th className="r">Unit price</th><th className="r">Amount (ETB)</th></tr></thead>
+        <thead><tr><th className="code">Code</th><th>Description</th><th className="r qty">Qty</th><th className="r">Unit price</th><th className="r">Amount ({cur()})</th></tr></thead>
         <tbody>
           {!L.length && !P.length && <tr><td colSpan="5">No items.</td></tr>}
           {L.length > 0 && <>

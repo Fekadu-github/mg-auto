@@ -16,6 +16,8 @@ import { str, qn } from './rules.js';
 import * as S from './stock.js';
 import { mountStock, recordLost, shortage } from './pos.js';
 import { closeRunningClocks } from './workday.js';
+import { mountExtras } from './extras.js';
+import { verifyTotp } from './totp.js';
 
 const jobRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, created: r.created, mileage: r.mileage ?? null, est: r.est || null, payer: r.payer || null, policy_no: r.policy_no || null, mileage_out: r.mileage_out ?? null, claim_no: r.claim_no || null, due_date: r.due_date || null, priority: r.priority || null, price_reqs: J(r.price_reqs, []), services: J(r.services, []), requests: J(r.requests, []), labours: J(r.labours, []), parts: J(r.parts, []), inv: J(r.inv, null), log: J(r.log, []) });
 const estRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), created: r.created, finalized_at: r.finalized_at, by_name: r.by_name, used_in: r.used_in, pro: r.pro || null });
@@ -79,18 +81,26 @@ export function createApp({ cfg, db, notifier }) {
     if (t.n >= 10) fail(429, 'Too many attempts. Try again in 15 minutes.');
     const [u] = await db.q('SELECT * FROM app_users WHERE username = ?', [str(q.body.username).toLowerCase()]);
     if (!u || !(await bcrypt.compare(str(q.body.password, 100), u.pass_hash))) { t.n++; tries.set(ip, t); fail(401, 'Wrong username or password'); }
+    // Two-step sign-in: the Manager and the Administrator who switched it on also give the 6-digit code from their authenticator app
+    const tfa = ['MGR', 'ADMIN'].includes(u.role) && !!u.totp_on;
+    if (tfa) {
+      if (!str(q.body.code, 12)) return s.json({ need2fa: true });   // password was right: now ask for the code (the attempt is not cleared yet)
+      const step = verifyTotp(u.totp_secret, q.body.code);
+      if (step === null || (u.totp_last != null && step <= Number(u.totp_last))) { t.n++; tries.set(ip, t); fail(401, 'Wrong or already used code'); }
+      await db.q('UPDATE app_users SET totp_last = ? WHERE id = ?', [step, u.id]);
+    }
     tries.delete(ip);
     const user = { id: u.id, name: u.name, role: u.role };
-    s.json({ user, token: jwt.sign(user, KEY, { expiresIn: '12h' }) });
+    s.json({ user: { ...user, tfa }, token: jwt.sign(user, KEY, { expiresIn: '12h' }) });
   }));
   // ---- staff accounts ----
   // The Administrator manages every account. The Manager manages his own and all the others, except Administrator accounts.
   const ROLE_LIST = ['SA', 'WS', 'TECH', 'MGR', 'ADMIN'];
-  const userRow = r => ({ id: r.id, username: r.username, name: r.name, role: r.role });
+  const userRow = r => ({ id: r.id, username: r.username, name: r.name, role: r.role, tfa: !!r.totp_on });
   const mayTouch = (me, target) => me.role === 'ADMIN' || target.role !== 'ADMIN';
   const mayGive = (me, role) => ROLE_LIST.includes(role) && (me.role === 'ADMIN' || role !== 'ADMIN');
   const dup = e => { if (e?.code === 'ER_DUP_ENTRY') fail(409, 'This username is already used'); throw e; };
-  app.get('/api/users', auth('MGR'), wrap(async (q, s) => s.json((await db.q('SELECT id, username, name, role FROM app_users ORDER BY created_at, username')).filter(r => mayTouch(q.u, r)))));
+  app.get('/api/users', auth('MGR'), wrap(async (q, s) => s.json((await db.q('SELECT id, username, name, role, totp_on AS tfa FROM app_users ORDER BY created_at, username')).filter(r => mayTouch(q.u, r)))));
   app.post('/api/users', auth('MGR'), wrap(async (q, s) => {
     const { name, username, password, role } = q.body;
     if (!str(name) || !str(username)) fail(400, 'Name and username are required');
@@ -116,6 +126,7 @@ export function createApp({ cfg, db, notifier }) {
       sets.push('role = ?'); vals.push(b.role);
     }
     if (b.password) { if (str(b.password, 100).length < 8) fail(400, 'Password needs at least 8 characters'); sets.push('pass_hash = ?'); vals.push(await bcrypt.hash(str(b.password, 100), 10)); }
+    if (b.reset2fa) { sets.push('totp_on = 0', 'totp_secret = NULL', 'totp_last = NULL'); }   // lost phone: he can set up two-step sign-in again
     if (!sets.length) return s.json(userRow(t));
     await db.q(`UPDATE app_users SET ${sets.join(', ')} WHERE id = ?`, [...vals, t.id]).catch(dup);
     if (t.id !== q.u.id) revoked.set(t.id, Date.now());   // his old sign-in stops working: he signs in again with the new details
@@ -155,7 +166,7 @@ export function createApp({ cfg, db, notifier }) {
       staff ? db.q("SELECT id, name, role FROM app_users WHERE role IN ('SA','WS','MGR','ADMIN') ORDER BY name") : []]);   // estimators: advisors and above, not technicians
     const rates = await labourRates(db);
     s.json({ c: c.map(r => ({ ...r, tg: !!r.tg })), v, j: j.map(jobRow), ...(sendParts ? { p: p.map(r => S.partView(r, mgr)) } : {}), pv, e: e.map(estRow), st: st.map(svcRow), pr: pr.map(proRow), ins, lt: lt.map(t => ({ ...t, hours: +t.hours, price: +t.price })), staff: people,
-      cfg: { vat: cfg.vat, markup: S.DEFAULT_MARKUP, labourRate: cfg.labourRate, labourRates: rateMap(rates), priceLimitPct: cfg.priceLimitPct, workEnd: cfg.workEnd, tgBot: notifier.botName, sms: notifier.smsReady, garage: cfg.garage } });
+      cfg: { vat: cfg.vat, markup: S.DEFAULT_MARKUP, labourRate: cfg.labourRate, currency: await getSetting(db, 'currency', 'ETB'), labourRates: rateMap(rates), priceLimitPct: cfg.priceLimitPct, workEnd: cfg.workEnd, tgBot: notifier.botName, sms: notifier.smsReady, garage: cfg.garage } });
   }));
 
   // ---- customers & vehicles ----
@@ -253,6 +264,7 @@ export function createApp({ cfg, db, notifier }) {
   };
   // Items (create, edit, Excel import, bulk price), GRN, point of sale, payments, lost sales and the stock reports: see pos.js. Manager-only where it touches cost or price.
   mountStock({ app, db, cfg, auth, wrap });
+  mountExtras({ app, db, cfg, auth, wrap, getSetting });
   app.post('/api/inventory/:id/receive', auth('SA'), wrap(async (q, s) => {
     const n = qn(q.body.qty);
     if (!(n > 0)) fail(400, 'Enter a quantity above zero');

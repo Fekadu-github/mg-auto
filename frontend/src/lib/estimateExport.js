@@ -1,4 +1,4 @@
-import { dt, tot, vehicleName } from './format.js';
+import { dt, tot, vehicleName, cur } from './format.js';
 import { SECTION_CODE } from './constants.js';
 
 const num = v => parseFloat(v) || 0;
@@ -18,11 +18,11 @@ export function estimateRows(est, { customer: c = {}, vehicle: v = {}, vat = 0.1
     ['Vehicle', [v.plate, vehicleName(v)].filter(Boolean).join(' · ')],
     ...(est.note ? [['Damage / work', est.note]] : []),
     [],
-    ['#', 'Description', 'Type', 'Hours', 'Qty', 'Unit price', 'Amount (ETB)'],
+    ['#', 'Description', 'Type', 'Hours', 'Qty', 'Unit price', `Amount (${cur()})`],
     ...labours.map(l => [++n, l.desc, `Labour ${SECTION_CODE[l.section] || ''}`.trim(), num(l.hours) || '', 1, l.price, l.price]),
     ...parts.map(p => [++n, `${p.code ? p.code + ' ' : ''}${p.name}`, 'Part', '', p.qty, p.price, Math.round(p.qty * p.price * 100) / 100]),
     [],
     ['', '', '', '', '', 'Labour', t.l], ['', '', '', '', '', 'Parts', t.p], ['', '', '', '', '', 'Subtotal', t.sub],
-    ['', '', '', '', '', `VAT ${Math.round(t.rate * 1000) / 10}%`, t.vat], ['', '', '', '', '', 'Total (ETB)', t.total]
+    ['', '', '', '', '', `VAT ${Math.round(t.rate * 1000) / 10}%`, t.vat], ['', '', '', '', '', `Total (${cur()})`, t.total]
   ];
 }

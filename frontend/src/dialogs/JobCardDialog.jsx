@@ -1,3 +1,4 @@
+import Inspection from '../components/Inspection.jsx';
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../store.jsx';
@@ -9,7 +10,7 @@ import PartSearch from '../components/PartSearch.jsx';
 import EstimatePicker, { EstimatePreview } from '../components/EstimatePicker.jsx';
 import { usePersistedForm as useForm } from '../lib/autosave.js';
 import { CLOCK_REASONS, SECTIONS, SECTION_CODE, STATUSES, STATUS_NAME, isAdmin, isMgr, isSA, isTech, isWS, sectionOption } from '../lib/constants.js';
-import { activeClock, dt, jobTotals, km, labourHours, lastDoc, matchPart, money, pct, rateOf, tot, vehicleName } from '../lib/format.js';
+import { activeClock, dt, jobTotals, km, labourHours, lastDoc, matchPart, money, pct, rateOf, tot, vehicleName, cur } from '../lib/format.js';
 import { suggestService } from '../lib/services.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import InvoiceDoc, { invoiceSize } from '../print/InvoiceDoc.jsx';
@@ -116,6 +117,8 @@ export default function JobCardDialog({ id }) {
 
       {sa && ['Created', 'Dispatched'].includes(j.status) && !j.inv && types.length > 0 && <ServicePanel job={j} vehicle={v} types={types} />}
 
+      <Inspection job={j} canEdit={(sa || ws) && !j.inv} canDelete={sa && !j.inv} />
+
       <h3 className="mt">Labour</h3>
       {labourOpen && <EstimateLoader job={j} estimates={db.e || []} />}
       <Table head={['Work', 'Price', 'Time', '']} empty={!j.labours.length && 'No labour yet. Add the work to be done.'}>
@@ -152,13 +155,13 @@ export default function JobCardDialog({ id }) {
 
       <div className="box mt r">
         {et && <>
-          Estimate {est.id}: Labour {money(et.l)} · Parts {money(et.p)} · Total ETB {money(et.total)}
-          <br />Added on this card (tasks and parts): Labour {money(r2(t.l - et.l))} · Parts {money(r2(t.p - et.p))} · Total ETB {money(r2(t.total - et.total))}
+          Estimate {est.id}: Labour {money(et.l)} · Parts {money(et.p)} · Total {cur()} {money(et.total)}
+          <br />Added on this card (tasks and parts): Labour {money(r2(t.l - et.l))} · Parts {money(r2(t.p - et.p))} · Total {cur()} {money(r2(t.total - et.total))}
           <br /><span className="mu small">Prices are before VAT; the totals include VAT. Final = estimate + added.</span>
           <hr />
         </>}
         Final labour {money(t.l)} · Final parts {money(t.p)} · VAT {pct(t.rate)}% {money(t.vat)}
-        <br /><b className="cn total">Total ETB {money(t.total)}</b>
+        <br /><b className="cn total">Total {cur()} {money(t.total)}</b>
       </div>
       {priceOpen && <p className="mu small">Labour, parts and selling prices can be edited here until the invoice is issued{done ? ' (the card is closed, so added tasks are billing lines; use "Return to workshop" for work that must be done)' : ''}. Every price change is written in the job card history.</p>}
       <div className="row mt">{actions || <span className="mu">No action for your role at this stage.</span>}{isAdmin(me) && <Btn kind="ol" onClick={removeJob}>Delete job card</Btn>}</div>
@@ -361,11 +364,11 @@ function LabourForm({ id, rate, known, late, services, brand }) {
           {!!(brand || '').trim() && <div className="mu small">{allModels ? 'Showing the labour of all models.' : `Showing the labour for ${brand} (and general lines).`} <button type="button" className="lnk" onClick={() => setAllModels(x => !x)}>{allModels ? `Only ${brand}` : 'Show all models'}</button></div>}</div>
         <Field label="Section (choose first)"><select value={f.section} onChange={e => set({ section: e.target.value, desc: '', hours: '', price: '' })}>{!f.section && <option value="">Choose section…</option>}{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
         <Field label="Hours" type="number" min="0" step="0.25" value={f.hours} onChange={e => set({ hours: e.target.value, price: priceFor(e.target.value) })} />
-        <Field label={`Labour cost (ETB) · ${rateOf(rate, f.section)}/h`} type="number" min="0" {...bind('price')} />
+        <Field label={`Labour cost (${cur()}) · ${rateOf(rate, f.section)}/h`} type="number" min="0" {...bind('price')} />
         <Btn onClick={add}>Add labour</Btn>
       </div>
       <div className="mu small">
-        {f.price ? `Labour cost: ETB ${money(f.price)}${f.hours ? ` (${f.hours} h x ${rateOf(rate, f.section)})` : ''}. Type another amount to change it.` : 'Choose the section, then type a letter and pick a task from the list (▤ adds all its lines); its section, hours and cost fill themselves.'}
+        {f.price ? `Labour cost: ${cur()} ${money(f.price)}${f.hours ? ` (${f.hours} h x ${rateOf(rate, f.section)})` : ''}. Type another amount to change it.` : 'Choose the section, then type a letter and pick a task from the list (▤ adds all its lines); its section, hours and cost fill themselves.'}
         {late && ' The card is not in the workshop: this is added as a billing line. To have it done, return the card to the workshop first.'}
       </div>
     </>
@@ -391,11 +394,11 @@ function PartForm({ id, stock }) {
       <div className="row mt">
         <PartSearch label="Part (type the part number or description)" grow="3 1 200px" stock={stock} value={f.name} onChange={name => set({ name, price: '' })} onPick={x => set({ name: `${x.code} · ${x.name}`, price: '' })} onMissing={lost} />
         <Field label="Qty" type="number" min="0.01" step="any" {...bind('qty')} />
-        <Field label="Selling price (ETB)" type="number" min="0" value={shown} onChange={bind('price').onChange} />
+        <Field label={`Selling price (${cur()})`} type="number" min="0" value={shown} onChange={bind('price').onChange} />
         <Btn onClick={add}>Issue part</Btn>
       </div>
       <div className="mu small">
-        {p ? `${p.stock} in stock · list price ${money(p.price)} filled in. Line total ETB ${money(qty * (parseFloat(shown) || 0))}.`
+        {p ? `${p.stock} in stock · list price ${money(p.price)} filled in. Line total ${cur()} ${money(qty * (parseFloat(shown) || 0))}.`
           : f.name ? 'Not in the stock list: stock will not be tracked for this line. Type its selling price.' : ''}
       </div>
       {p && p.stock < qty && <label className="mu small" style={{ display: 'block' }}><input type="checkbox" checked={!!f.wait} onChange={e => set({ wait: e.target.checked })} style={{ width: 'auto' }} /> Only {p.stock} in stock: add it as <b>waiting for stock</b> (nothing leaves stock until it is received).</label>}

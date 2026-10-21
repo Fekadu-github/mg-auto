@@ -305,3 +305,40 @@ CREATE TABLE IF NOT EXISTS audit_log (
   KEY audit_at (at),
   KEY audit_user (user_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Customer approval of an estimate or proforma by link. The snapshot is what the customer was shown; the long random token is the key.
+CREATE TABLE IF NOT EXISTS approvals (
+  token CHAR(48) NOT NULL PRIMARY KEY,
+  kind ENUM('estimate','proforma') NOT NULL,
+  ref VARCHAR(40) NOT NULL,
+  status ENUM('Pending','Approved','Declined','Revoked') NOT NULL DEFAULT 'Pending',
+  snapshot JSON NOT NULL,
+  by_name VARCHAR(120) NOT NULL DEFAULT '',
+  created DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  expires DATETIME(3) NOT NULL,
+  decided_at DATETIME(3) NULL,
+  decided_name VARCHAR(120) NULL,
+  decided_note VARCHAR(300) NULL,
+  decided_ip VARCHAR(60) NULL,
+  KEY approvals_ref (kind, ref)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Reception inspection checklist and photos of the vehicle, per job card
+CREATE TABLE IF NOT EXISTS job_inspections (
+  job_id VARCHAR(40) NOT NULL PRIMARY KEY,
+  data JSON NOT NULL,
+  by_name VARCHAR(120) NOT NULL DEFAULT '',
+  updated DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  CONSTRAINT job_inspections_job_fk FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS job_photos (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  job_id VARCHAR(40) NOT NULL,
+  label VARCHAR(60) NOT NULL DEFAULT '',
+  mime VARCHAR(20) NOT NULL,
+  data MEDIUMBLOB NOT NULL,
+  by_name VARCHAR(120) NOT NULL DEFAULT '',
+  created DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY job_photos_job (job_id),
+  CONSTRAINT job_photos_job_fk FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
