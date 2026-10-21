@@ -56,6 +56,8 @@ export default function ProformaDialog({ id }) {
     const r = await run(() => api(`/proformas/${id}/issue`, 'POST'));
     if (r.ok) { say(`${id} finalized${linkedEst ? ` (estimate ${id} finalized with it)` : ''}.`); closeModal(); goPage('pro'); }
   };
+  // Save: store the draft, then go straight to the Proformas list, so there is no need to press Close
+  const save = async () => { if (!(await saved())) return; say(`${id} saved.`); closeModal(); goPage('pro'); };
   const remove = async () => { if (!confirm(`Delete proforma ${id}?`)) return; const r = await run(() => api('/proformas/' + id, 'DELETE')); if (r.ok) { closeModal(); goPage('pro'); } };
   const makeJob = async () => {
     const mileage = km2 !== '' ? km2 : knownKm;
@@ -134,6 +136,7 @@ export default function ProformaDialog({ id }) {
       )}
       <div className="row mt">
         <Btn kind={p.status === 'Draft' ? 'ol' : ''} onClick={printIt}>Print proforma (A4)</Btn>
+        {open && <Btn onClick={save}>Save</Btn>}
         {open && p.status === 'Draft' && <Btn kind="gr" onClick={issue}>Finalize proforma</Btn>}
         {open && p.status === 'Draft' && <Btn kind="ol" onClick={remove}>Delete draft</Btn>}
         {converted && <Btn kind="ol" onClick={() => openModal('job', { id: p.job })}>Open job card {p.job}</Btn>}

@@ -51,9 +51,10 @@ export default function EstimateDialog({ id, jid }) {
   const linked = db.pr.find(x => x.id === e.id && x.status !== 'Converted');   // the proforma made from this estimate (same EST number)
   const printIt = async () => { if (await ready()) print(<EstimateDoc est={doc()} customer={docC} vehicle={docV} pro={src} insurer={srcIns} walkIn={walkIn} garage={db.cfg.garage} vat={vat} />, 'a4'); };
   const download = async () => { if (await ready()) downloadXlsx(`${e.id}-${e.status.toLowerCase()}.xlsx`, estimateRows(doc(), { customer: c, vehicle: v, vat }), 'Estimate'); };
-  const save = async () => { if (!(await flush())) say('The draft is not saved yet. Wait a moment and try again.'); };
   // A decision (finalize, back to draft) closes this window and shows the list, so there is nothing to close by hand; from a job card it returns to the card
   const done = msg => { say(msg); if (jid) openModal('job', { id: jid }); else { closeModal(); goPage('est'); } };
+  // Save: store the draft, then go straight to the list (or back to the job card it was opened from), so there is no need to press Close
+  const save = async () => { if (!(await flush())) return say('The draft is not saved yet. Wait a moment and try again.'); done(`${e.id} saved.`); };
   const finalize = async () => {
     if (!(await flush())) return say('The draft is not saved yet. Wait a moment and try again.');
     const r = await run(() => api(`/estimates/${e.id}/finalize`, 'POST'));
@@ -90,7 +91,7 @@ export default function EstimateDialog({ id, jid }) {
       <div className="row mt">
         <Btn kind="ol" onClick={printIt}>Print estimate (A4)</Btn>
         <Btn kind="ol" onClick={download}>Download (Excel)</Btn>
-        {edit && <><Btn onClick={save}>Save now</Btn><Btn kind="gr" onClick={finalize}>Finalize estimate</Btn><Btn kind="ol" onClick={remove}>Delete draft</Btn></>}
+        {edit && <><Btn onClick={save}>Save</Btn><Btn kind="gr" onClick={finalize}>Finalize estimate</Btn><Btn kind="ol" onClick={remove}>Delete draft</Btn></>}
         {isAdmin(me) && !draft && !e.used_in && <Btn kind="ol" onClick={remove}>Delete estimate</Btn>}
         {sa && !draft && !e.used_in && jc && jc.status === 'Created' && !jc.est && (!e.vid || jc.vid === e.vid) && <Btn kind="gr" onClick={loadOnJob}>Load on {jid}</Btn>}
         {sa && !draft && !e.used_in && <Btn kind="ol" onClick={reopen}>Back to draft</Btn>}
