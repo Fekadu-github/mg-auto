@@ -176,7 +176,8 @@ export function createApp({ cfg, db, notifier }) {
     if (!j) return false;
     for (const p of J(j.parts, [])) if (p.pid && !p.waiting && +p.qty > 0) await adjustStock(c, p.pid, +p.qty, 'Job card deleted', id, by, '');
     await c.q('UPDATE estimates SET used_in = NULL WHERE used_in = ?', [id]);
-    await c.q('UPDATE proformas SET job = NULL WHERE job = ?', [id]);
+    // the proforma goes back to Finalized (not left "Converted" with no job card): it can be used again, and its estimate is free again
+    await c.q("UPDATE proformas SET status = 'Issued', job = NULL, est = NULL, updated = UTC_TIMESTAMP(3) WHERE job = ?", [id]);
     await c.q("DELETE FROM payments WHERE source = 'job' AND ref = ?", [id]);
     await c.q('DELETE FROM notifications WHERE job = ?', [id]);
     await c.q('DELETE FROM jobs WHERE id = ?', [id]);

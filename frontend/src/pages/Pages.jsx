@@ -111,7 +111,7 @@ export function Proformas() {
         {list.map(p => (
           <tr key={p.id} className="k" tabIndex={0} onClick={() => openModal('proforma', { id: p.id })} onKeyDown={x => x.key === 'Enter' && openModal('proforma', { id: p.id })}>
             <td><b>{p.id}</b></td><td>{p.pdate}</td><td>{who(p) || <span className="mu">-</span>}{!p.cid && <> <Pill tone="a">not registered</Pill></>}</td><td>{plate(p)}</td><td>{db.ins.find(i => i.id === p.insurer_id)?.name || <span className="mu">customer pays</span>}</td>
-            <td>{p.estimator}</td><td><Pill tone={p.status === 'Draft' ? 'a' : 'g'}>{p.status === 'Converted' ? `→ ${p.job}` : p.status === 'Issued' ? 'Finalized' : p.status}</Pill></td><td className="r">{money(tot(p, db.cfg.vat).total)}</td>
+            <td>{p.estimator}</td><td><Pill tone={p.status === 'Draft' ? 'a' : 'g'}>{p.status === 'Converted' ? (p.job ? `→ ${p.job}` : 'Job card removed') : p.status === 'Issued' ? 'Finalized' : p.status}</Pill></td><td className="r">{money(tot(p, db.cfg.vat).total)}</td>
           </tr>
         ))}
       </Table></div>

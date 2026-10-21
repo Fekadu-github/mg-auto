@@ -72,7 +72,7 @@ export default function ProformaDialog({ id }) {
   };
 
   return (
-    <Dialog title={<>{p.id} <Pill tone={p.status === 'Draft' ? 'a' : 'g'}>{p.status === 'Converted' ? `became ${p.job}` : STATUS_LABEL[p.status] || p.status}</Pill></>} onClose={closeModal}>
+    <Dialog title={<>{p.id} <Pill tone={p.status === 'Draft' ? 'a' : 'g'}>{p.status === 'Converted' ? (p.job ? `became ${p.job}` : 'job card removed') : STATUS_LABEL[p.status] || p.status}</Pill></>} onClose={closeModal}>
       {walkIn && open ? <>
         <div className="box"><Pill tone="a">Not registered</Pill> <span className="mu small">Customer and vehicle are written here only. He is registered when you create the job card.</span></div>
         <div className="row mt">
@@ -139,7 +139,7 @@ export default function ProformaDialog({ id }) {
         {open && <Btn onClick={save}>Save</Btn>}
         {open && p.status === 'Draft' && <Btn kind="gr" onClick={issue}>Finalize proforma</Btn>}
         {open && p.status === 'Draft' && <Btn kind="ol" onClick={remove}>Delete draft</Btn>}
-        {converted && <Btn kind="ol" onClick={() => openModal('job', { id: p.job })}>Open job card {p.job}</Btn>}
+        {converted && p.job && <Btn kind="ol" onClick={() => openModal('job', { id: p.job })}>Open job card {p.job}</Btn>}
       </div>
       {open && p.status === 'Draft' && <p className="mu small">Finalize it when the estimator and the lines are final (or once the insurance company accepts the printed draft){linkedEst ? <>; estimate {id} is finalized with it</> : ''}. {linkedEst?.status === 'Draft' ? 'It also becomes finalized by itself when estimate ' + id + ' is finalized. ' : ''}Then pick the estimate when the job card is created, or add the customer and create the job card here. A finalized proforma can still be edited until the job card is created.</p>}
     </Dialog>

@@ -89,6 +89,12 @@ export function createDb(env = process.env) {
     if (!m) for (const t of DEFAULT_LABOUR) await pool.query('INSERT IGNORE INTO labour_tasks (id, name, section, hours, price) VALUES (UUID(),?,?,?,?)', [t.name, t.section, t.hours, t.price]);
     for (const i of DEFAULT_INSURERS) await pool.query('INSERT IGNORE INTO insurers (id, name, phone, active) VALUES (UUID(),?,?,1)', [i.name, i.phone]);   // the contact directory's companies; INSERT IGNORE skips a name already there
     if (!n) for (const t of DEFAULT_SERVICES) await pool.query('INSERT IGNORE INTO service_types (code, name, interval_km, labours, parts, active) VALUES (?,?,?,?,?,1)', [t.code, t.name, t.interval_km, JSON.stringify(t.labours), JSON.stringify(t.parts)]);
+    // Repair: a proforma left "Converted" with no job card (the card was deleted) goes back to Finalized so it can be used again,
+    // and an estimate that says it is on a job card that no longer exists is free again. Never stops the start.
+    try {
+      await pool.query("UPDATE proformas SET status = 'Issued', job = NULL, est = NULL WHERE status = 'Converted' AND (job IS NULL OR NOT EXISTS (SELECT 1 FROM jobs x WHERE x.id = proformas.job))");
+      await pool.query('UPDATE estimates SET used_in = NULL WHERE used_in IS NOT NULL AND NOT EXISTS (SELECT 1 FROM jobs x WHERE x.id = estimates.used_in)');
+    } catch (e) { console.error('Repair of proformas/estimates skipped:', e.message); }
   }
 
   return { pool, q, tx, migrate, close: () => pool.end() };
