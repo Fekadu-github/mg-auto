@@ -32,3 +32,23 @@ export function searchEstimates(list, text, who = () => '', limit = 8) {
   });
   return out.sort((a, b) => b[0] - a[0] || a[1] - b[1]).slice(0, limit).map(x => x[2]);
 }
+
+// Find a customer by typing: one letter is enough. Matches the start of the name (or any word of it), the customer number, the phone, or a plate / brand / model of his vehicles.
+export function searchCustomers(customers, vehicles, text, limit = 8) {
+  const toks = String(text || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const words = s => s.split(/[^a-z0-9]+/).filter(Boolean);
+  const cars = new Map();
+  for (const v of vehicles || []) cars.set(v.cid, `${cars.get(v.cid) || ''} ${v.plate || ''} ${v.brand || ''} ${v.model || ''}`.toLowerCase());
+  const out = [];
+  (customers || []).forEach((c, idx) => {
+    const name = String(c.name || '').toLowerCase(), id = String(c.id).toLowerCase(), phone = String(c.phone || '').replace(/\s+/g, ''), car = cars.get(c.id) || '', cw = words(car);
+    let score = 0;
+    for (const t of toks) {
+      const s = name.startsWith(t) ? 100 : words(name).some(w => w.startsWith(t)) ? 80 : id.includes(t) ? 60 : t.length > 1 && phone.includes(t) ? 50 : cw.some(w => w.startsWith(t)) || (t.length > 1 && car.includes(t)) ? 40 : 0;
+      if (!s) return;
+      score += s;
+    }
+    out.push([score, name, idx, c]);
+  });
+  return out.sort((a, b) => b[0] - a[0] || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : a[2] - b[2])).slice(0, limit).map(x => x[3]);
+}

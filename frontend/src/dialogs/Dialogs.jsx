@@ -9,6 +9,7 @@ import { SECTION_CODE, SECTIONS, sectionOption } from '../lib/constants.js';
 import { usePersistedForm } from '../lib/autosave.js';
 import { suggestService } from '../lib/services.js';
 import EstimatePicker, { EstimatePreview } from '../components/EstimatePicker.jsx';
+import CustomerPicker from '../components/CustomerPicker.jsx';
 import JobCardDialog from './JobCardDialog.jsx';
 import EstimateDialog from './EstimateDialog.jsx';
 import ProformaDialog from './ProformaDialog.jsx';
@@ -37,7 +38,7 @@ export function NewJobDialog() {
   return (
     <Dialog title="New job card" onClose={closeModal} actions={<><Btn onClick={create} disabled={!vid}>Create job card</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
       <div className="row mt">
-        <Field label="Customer"><select value={f.cid} onChange={e => set({ cid: e.target.value, vid: '', km: '', est: '' })}>{db.c.map(c => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}</select></Field>
+        <CustomerPicker label="Customer" value={f.cid} onPick={id => set({ cid: id, vid: '', km: '', est: '' })} />
         <Field label="Vehicle"><select value={vid} onChange={e => set({ vid: e.target.value, km: '', est: '' })}>
           {vehicles.length ? vehicles.map(v => <option key={v.id} value={v.id}>{v.plate} · {vehicleName(v)}</option>) : <option value="">No vehicle – add one in Customers</option>}
         </select></Field>
@@ -125,54 +126,26 @@ export function TelegramDialog({ id }) {
   );
 }
 
-// Start a first-hand (insurance) proforma. The customer does NOT have to be registered: a walk-in is just written on the proforma,
-// and is registered only when he returns, agrees, and the job card is created. It opens as a draft that saves itself.
+// Start a proforma. A proforma never gets a number of its own: it is made from an estimation (draft or finalized) and takes its EST number.
+// Type a letter or number, click the estimate, and its labour, parts and notes are brought into the proforma, which opens ready to edit and print.
 export function NewProformaDialog() {
   const { db, run, openModal, closeModal } = useApp();
-  const [f, , set] = usePersistedForm('form:new-proforma', { est: '', mode: 'est', cid: db.c[0]?.id || '', vid: '', guest_name: '', guest_phone: '', guest_plate: '', guest_brand: '', guest_model: '', insurer_id: '' });
-  const byEst = f.mode === 'est', walk = f.mode === 'walkin';
-  const cid = db.c.some(c => c.id === f.cid) ? f.cid : db.c[0]?.id || '';
-  const vehicles = db.v.filter(v => v.cid === cid), vid = vehicles.some(v => v.id === f.vid) ? f.vid : vehicles[0]?.id || '';
-  const ok = byEst ? !!f.est.trim() : walk ? true : !!vid;   // a walk-in needs nothing: the estimation number and the insurance company are enough to start
+  const [f, , set] = usePersistedForm('form:new-proforma', { est: '', insurer_id: '' });
+  // Estimates that can still become a proforma: not on a job card and without a proforma yet (draft or finalized)
+  const open = db.e.filter(e => !e.used_in && !db.pr.some(p => p.id === e.id)), typed = String(f.est || '').trim(), picked = open.find(e => e.id.toUpperCase() === typed.toUpperCase());
   const create = async () => {
-    if (!ok) return;
-    const body = byEst ? { est: f.est, insurer_id: f.insurer_id } : walk ? { guest_name: f.guest_name, guest_phone: f.guest_phone, guest_plate: f.guest_plate, guest_brand: f.guest_brand, guest_model: f.guest_model, insurer_id: f.insurer_id } : { cid, vid };
-    const r = await run(() => api('/proformas', 'POST', body));
-    if (r.ok) { set({ est: '', vid: '', guest_name: '', guest_phone: '', guest_plate: '', guest_brand: '', guest_model: '' }); openModal('proforma', { id: r.data.id }); }
+    if (!picked) return;
+    const r = await run(() => api('/proformas', 'POST', { est: picked.id, insurer_id: f.insurer_id }));
+    if (r.ok) { set({ est: '' }); openModal('proforma', { id: r.data.id }); }
   };
   return (
-    <Dialog title="New proforma (estimation)" onClose={closeModal} actions={<><Btn onClick={create} disabled={!ok}>Create draft proforma</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
+    <Dialog title="New proforma (from an estimate)" onClose={closeModal} actions={<><Btn onClick={create} disabled={!picked}>Create proforma</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
       <div className="row mt">
-        <Btn kind={byEst ? '' : 'ol'} onClick={() => set({ mode: 'est' })}>From a draft estimate (EST no)</Btn>
-        <Btn kind={walk ? '' : 'ol'} onClick={() => set({ mode: 'walkin' })}>Walk-in (not registered)</Btn>
-        <Btn kind={f.mode === 'reg' ? '' : 'ol'} onClick={() => set({ mode: 'reg' })} disabled={!db.c.length}>Registered customer</Btn>
+        <EstimatePicker label="Estimation number" grow="2 1 260px" estimates={open} value={f.est || ''} onChange={x => set({ est: x })} onPick={e => set({ est: e.id })} />
+        <Field label="Insurance company"><select value={f.insurer_id} onChange={e => set({ insurer_id: e.target.value })}><option value="">Choose later</option>{db.ins.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
       </div>
-      {byEst ? <>
-        <div className="row mt">
-          <Field label="Estimation number" placeholder="EST-0001" value={f.est} onChange={e => set({ est: e.target.value })} />
-          <Field label="Insurance company"><select value={f.insurer_id} onChange={e => set({ insurer_id: e.target.value })}><option value="">Choose later</option>{db.ins.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
-        </div>
-        <p className="mu small">Type the EST number of a draft estimate (Estimates page): its labour, parts and notes are brought here, then you print the proforma for the insurance company. When they accept, issue it, add the customer and create the job card.</p>
-      </> : walk ? <>
-        <div className="row mt">
-          <Field label="Customer name" value={f.guest_name} onChange={e => set({ guest_name: e.target.value })} />
-          <Field label="Phone" value={f.guest_phone} onChange={e => set({ guest_phone: e.target.value })} />
-        </div>
-        <div className="row">
-          <Field label="Plate no" value={f.guest_plate} onChange={e => set({ guest_plate: e.target.value })} />
-          <Field label="Brand" value={f.guest_brand} onChange={e => set({ guest_brand: e.target.value })} />
-          <Field label="Model" value={f.guest_model} onChange={e => set({ guest_model: e.target.value })} />
-        </div>
-        <div className="row"><Field label="Insurance company"><select value={f.insurer_id} onChange={e => set({ insurer_id: e.target.value })}><option value="">Choose later</option>{db.ins.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field></div>
-        <p className="mu small">All customer fields are optional. No registration needed. Make the estimation, print it and give it to the customer (for example to take to his insurance). When he comes back and agrees, you register him and create the job card from this same estimation.</p>
-      </> : <>
-        <div className="row mt">
-          <Field label="Customer (profile and insurance are taken from it)"><select value={cid} onChange={e => set({ cid: e.target.value, vid: '' })}>{db.c.map(c => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}</select></Field>
-          <Field label="Vehicle"><select value={vid} onChange={e => set({ vid: e.target.value })}>
-            {vehicles.length ? vehicles.map(v => <option key={v.id} value={v.id}>{v.plate} · {vehicleName(v)}</option>) : <option value="">No vehicle – add one in Customers</option>}
-          </select></Field>
-        </div>
-      </>}
+      {picked && <EstimatePreview est={picked} />}
+      <p className="mu small">EST numbers are given by estimations only, so make the estimate first (Estimates page). Type a letter or number and the estimates appear (name, plate and damage note work too). Click one: its labour, parts and notes are brought into the proforma. A finalized estimate gives a finalized proforma; a draft estimate gives a draft proforma that is finalized together with it. {!open.length && 'No estimate is waiting for a proforma yet.'}</p>
     </Dialog>
   );
 }
@@ -237,7 +210,7 @@ export function NewEstimateDialog() {
         <Btn kind={f.none ? '' : 'ol'} onClick={() => set({ none: true })}>No customer yet</Btn>
         <Btn kind={f.none ? 'ol' : ''} onClick={() => set({ none: false })} disabled={!db.c.length}>Registered customer</Btn>
       </div>
-      {f.none ? <p className="mu small">Only the estimation number is made. Add the labour and parts, then call it by its EST number in Proformas to print it for the insurance. The customer is added when the job card is created.</p> : <div className="row mt">
+      {f.none ? <p className="mu small">Only the estimation number is made. Add the labour and parts, then make the proforma from this EST number (Proformas page, New proforma) to print it for the insurance. The customer is added when the job card is created.</p> : <div className="row mt">
         <Field label="Customer"><select value={f.cid} onChange={e => set({ cid: e.target.value, vid: '' })}>{db.c.map(c => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}</select></Field>
         <Field label="Vehicle"><select value={vid} onChange={e => set({ vid: e.target.value })}>
           {vehicles.length ? vehicles.map(v => <option key={v.id} value={v.id}>{v.plate} · {vehicleName(v)}</option>) : <option value="">No vehicle – add one in Customers</option>}

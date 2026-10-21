@@ -210,7 +210,10 @@ test('API: full job card life, stock, roles and concurrency', { skip }, async t 
   const co = (await call(sa, 'POST', '/api/insurers', { name: 'Awash Insurance', phone: '0111' })).body;
   assert.equal((await call(sa, 'POST', '/api/insurers', { name: 'Awash Insurance' })).status, 409);
   assert.equal((await call(sa, 'PUT', `/api/customers/${cus.id}`, { name: cus.name, phone: cus.phone, insurer_id: co.id, policy_no: 'P-1' })).status, 200);
-  const pro = (await call(sa, 'POST', '/api/proformas', { cid: cus.id, vid: veh2.id })).body;
+  assert.equal((await call(sa, 'POST', '/api/proformas', { cid: cus.id, vid: veh2.id })).status, 400);               // a proforma is never numbered on its own: it is made from an estimate
+  const estP = (await call(sa, 'POST', '/api/estimates', { cid: cus.id, vid: veh2.id })).body;                        // the EST number is given by the estimation
+  const pro = (await call(sa, 'POST', '/api/proformas', { est: estP.id })).body;
+  assert.equal(pro.id, estP.id);
   assert.match(pro.id, /^EST-\d{8}-\d{4}$/); assert.deepEqual([pro.status, pro.insurer_id, pro.policy_no], ['Draft', co.id, 'P-1']);   // starts from the customer's insurance
   const P = p => `/api/proformas/${pro.id}${p}`;
   assert.equal((await call(sa, 'POST', P('/issue'))).status, 400);                                                    // nothing on it yet

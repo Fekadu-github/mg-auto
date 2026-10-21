@@ -50,10 +50,10 @@ export default function EstimatePicker({ label, estimates, value, onChange, onPi
           {hits.map((e, i) => (
             <li key={e.id} role="option" aria-selected={i === hi} className={i === hi ? 'on' : ''} onMouseDown={x => { x.preventDefault(); pick(e); }} onMouseEnter={() => setHi(i)}>
               <b>{e.id}</b> <span>{[who(e), e.note].filter(Boolean).join(' · ') || 'no customer yet'}</span>
-              <span className="ps-meta">{e.labours.length} labour · {e.parts.length} parts · ETB {money(tot(e, db.cfg.vat).total)}</span>
+              <span className="ps-meta">{e.status === 'Draft' ? 'draft · ' : ''}{e.labours.length} labour · {e.parts.length} parts · ETB {money(tot(e, db.cfg.vat).total)}</span>
             </li>
           ))}
-          {!hits.length && <li className="ps-none" onMouseDown={x => x.preventDefault()}>{text.trim() ? <>No finalized estimate matches “{text.trim()}”. A draft must be finalized first.</> : 'No finalized estimate is waiting for a job card.'}</li>}
+          {!hits.length && <li className="ps-none" onMouseDown={x => x.preventDefault()}>{text.trim() ? <>No estimate matches “{text.trim()}”.</> : 'No estimate is waiting.'}</li>}
         </ul>,
         input.current?.closest('dialog') || document.body
       )}

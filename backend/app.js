@@ -538,9 +538,8 @@ export function createApp({ cfg, db, notifier }) {
 
   // ---- first-hand (insurance) proforma: draft, issued, then turned into a job card + estimate ----
   app.post('/api/proformas', auth('SA'), wrap(async (q, s) => {
-    // A proforma can be made for a walk-in who is not registered: name, phone and vehicle are just written on it.
-    // The customer and vehicle are registered only when he comes back, agrees, and the job card is created.
-    // "Call" a draft estimation by its EST number: the proforma takes its number, its labour, parts and notes; only the insurance company is added
+    // A proforma is made only from an estimation, draft or finalized, by its EST number: it takes that number, its labour, parts and notes; the insurance company is added.
+    // A walk-in's name, phone and vehicle are written on the proforma itself and are registered when the job card is created.
     if (q.body.est) {
       const estId = str(q.body.est, 40).toUpperCase();
       const [er] = await db.q('SELECT * FROM estimates WHERE id = ?', [estId]);
@@ -552,27 +551,12 @@ export function createApp({ cfg, db, notifier }) {
       const e = estRow(er);
       const [cu0 = {}] = e.cid ? await db.q('SELECT insurer_id, policy_no FROM customers WHERE id = ?', [e.cid]) : [];
       await db.q('INSERT INTO proformas (id, cid, vid, guest_name, guest_phone, guest_plate, guest_brand, guest_model, insurer_id, policy_no, estimator_id, estimator, estimator_role, pdate, note, status, labours, parts, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))',
-        [estId, e.cid || null, e.vid || null, '', '', '', '', '', insId || cu0.insurer_id || null, insId ? '' : cu0.policy_no || '', q.u.id, q.u.name, q.u.role, dayKey(Date.now()), e.note, 'Draft', sendJson(e.labours), sendJson(e.parts)]);
+        [estId, e.cid || null, e.vid || null, '', '', '', '', '', insId || cu0.insurer_id || null, insId ? '' : cu0.policy_no || '', q.u.id, q.u.name, q.u.role, dayKey(Date.now()), e.note, e.status === 'Finalized' ? 'Issued' : 'Draft', sendJson(e.labours), sendJson(e.parts)]);   // a finalized estimate gives a finalized proforma; a draft one is finalized together with its estimate
+      await db.q('UPDATE estimates SET pro = ? WHERE id = ?', [estId, estId]);
       return s.json(proRow((await db.q('SELECT * FROM proformas WHERE id = ?', [estId]))[0]));
     }
-    const { cid, vid } = q.body;
-    let cu = {}, guest = { name: '', phone: '', plate: '', brand: '', model: '' };
-    if (cid || vid) {
-      [cu = {}] = await db.q('SELECT insurer_id, policy_no FROM customers WHERE id = ?', [cid]);
-      if (!(await db.q('SELECT id FROM customers WHERE id = ?', [cid])).length || !(await db.q('SELECT id FROM vehicles WHERE id = ? AND cid = ?', [vid, cid])).length) fail(400, 'Vehicle does not belong to this customer');
-    } else {
-      guest = { name: str(q.body.guest_name, 120), phone: str(q.body.guest_phone, 30), plate: str(q.body.guest_plate, 30), brand: str(q.body.guest_brand, 40), model: str(q.body.guest_model, 60) };
-    }
-    // an estimation can start with nothing but the insurance company
-    const insId = !cid && q.body.insurer_id ? str(q.body.insurer_id, 36) : '';
-    if (insId && !(await db.q('SELECT id FROM insurers WHERE id = ?', [insId])).length) fail(400, 'Choose an insurance company from the list');
-    const id = await db.tx(async c => {
-      const id = await numberFor(c, 'estimate', 'EST-');   // one number: the proforma keeps it when it becomes the estimate
-      await c.q('INSERT INTO proformas (id, cid, vid, guest_name, guest_phone, guest_plate, guest_brand, guest_model, insurer_id, policy_no, estimator_id, estimator, estimator_role, pdate, note, status, labours, parts, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))',
-        [id, cid || null, vid || null, guest.name, guest.phone, guest.plate, guest.brand, guest.model, cu.insurer_id || insId || null, cu.policy_no || '', q.u.id, q.u.name, q.u.role, dayKey(Date.now()), str(q.body.note, 500), 'Draft', '[]', '[]']);   // starts with the customer's own insurance and the signed-in user as estimator
-      return id;
-    });
-    s.json(proRow((await db.q('SELECT * FROM proformas WHERE id = ?', [id]))[0]));
+    // A proforma never gets a number of its own: EST numbers belong to estimations, and a proforma is made from one (draft or finalized)
+    fail(400, 'Choose an estimate: a proforma is made from an estimate number (draft or finalized).');
   }));
   const proEdit = fn => [auth('SA'), wrap(async (q, s) => {
     const saved = await db.tx(async c => {

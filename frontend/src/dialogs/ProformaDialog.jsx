@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Pill, SaveState } from '../components/ui.jsx';
 import { LabourLines, PartLines } from '../components/Lines.jsx';
+import CustomerPicker from '../components/CustomerPicker.jsx';
 import { ROLES, isSA } from '../lib/constants.js';
 import { restoreDraft, useAutosave } from '../lib/autosave.js';
 import { dt, km, money, pct, rateOf, tot, vehicleName } from '../lib/format.js';
@@ -121,7 +122,7 @@ export default function ProformaDialog({ id }) {
       {open && p.status === 'Issued' && (
         <div className="row mt">
           <Field label="Mileage now (km), for the job card" type="number" min="0" value={km2 !== '' ? km2 : knownKm} onChange={e => setKm(e.target.value)} />
-          {walkIn && <><Field label="Customer"><select value={ecid} onChange={e => pickCustomer(e.target.value)}><option value="">New customer (use the details above)</option>{db.c.map(x => <option key={x.id} value={x.id}>{x.name} ({x.id})</option>)}</select></Field>
+          {walkIn && <><CustomerPicker label="Customer (empty = new customer from the details above)" value={ecid} onPick={pickCustomer} placeholder="New customer, or type a letter to find one" grow="2 1 260px" />
             {ecid && <Field label="Vehicle"><select value={evid} onChange={e => { setEvid(e.target.value); setKm(''); }}><option value="">New vehicle (plate above)</option>{db.v.filter(x => x.cid === ecid).map(x => <option key={x.id} value={x.id}>{x.plate} · {vehicleName(x)}</option>)}</select></Field>}</>}
           <Btn kind="gr" onClick={makeJob}>{walkIn ? (ecid ? 'Link customer and create job card' : 'Register customer and create job card') : 'Create job card from this proforma'}</Btn>
         </div>
