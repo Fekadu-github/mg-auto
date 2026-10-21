@@ -12,7 +12,7 @@ import { Customers, Dashboard, Estimates, Insurance, JobCards, LabourList, PAGE_
 import { LowStockReminder, Parts, Purchases } from './pages/Stock.jsx';
 import { Invoices, PointOfSale } from './pages/Pos.jsx';
 import StockReports from './pages/StockReports.jsx';
-import { ROLES, isSA, isTech } from './lib/constants.js';
+import { ROLES, isMgr, isSA, isTech } from './lib/constants.js';
 
 const PAGES = { dash: Dashboard, jobs: JobCards, pro: Proformas, est: Estimates, ins: Insurance, lab: LabourList, svc: Services, shop: Workshop, cust: Customers, inv: Parts, pur: Purchases, pos: PointOfSale, invc: Invoices, srep: StockReports, rep: Reports, staff: Staff };
 
@@ -46,7 +46,7 @@ function Shell() {
   useEffect(() => { registerNav(go); });   // lets a dialog send the person to a list when its decision is made
   const menu = [['dash', 'Dashboard'], ['jobs', 'Job cards'], ...(isTech(me) ? [] : [['pro', 'Proformas'], ['est', 'Estimates']]), ['shop', 'Workshop'], ['cust', 'Customers'],
     ...(isTech(me) ? [] : [['inv', 'Parts stock']]), ...(isSA(me) ? [['pos', 'Point of sale'], ['invc', 'Invoices & payments'], ['pur', 'Purchases (GRN)']] : []),
-    ...(isTech(me) ? [] : [['svc', 'Services'], ['lab', 'Labour list'], ['ins', 'Insurance']]), ['rep', isTech(me) ? 'My hours' : 'Reports'], ...(isSA(me) ? [['srep', 'Stock & sales reports']] : []), ...(me.role === 'ADMIN' ? [['staff', 'Staff']] : [])];
+    ...(isTech(me) ? [] : [['svc', 'Services'], ['lab', 'Labour list'], ['ins', 'Insurance']]), ['rep', isTech(me) ? 'My hours' : 'Reports'], ...(isSA(me) ? [['srep', 'Stock & sales reports']] : []), ...(isMgr(me) ? [['staff', 'Staff']] : [])];
   const Page = PAGES[tab] || Dashboard, [title, text] = PAGE_INFO[tab] || PAGE_INFO.dash;
   return (
     <div className="app">

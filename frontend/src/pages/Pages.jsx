@@ -342,17 +342,56 @@ export function Reports() {
   );
 }
 
+// A password box with a Show / Hide button
+function PasswordBox({ label, value, onChange, autoComplete = 'new-password' }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div>
+      <label>{label}
+        <span style={{ display: 'flex', gap: 6 }}>
+          <input type={shown ? 'text' : 'password'} autoComplete={autoComplete} value={value} onChange={onChange} style={{ flex: 1 }} />
+          <Btn kind="ol" onClick={() => setShown(v => !v)}>{shown ? 'Hide' : 'Show'}</Btn>
+        </span>
+      </label>
+    </div>
+  );
+}
+
 export function Staff() {
-  const { users, run } = useApp();
+  const { users, me, run } = useApp();
   const [f, bind, , reset] = usePersistedForm('form:new-staff', { name: '', username: '', password: '', role: 'SA' });
+  const [ed, setEd] = useState(null);   // { id, mode: 'edit' | 'pass', name, username, role, password }
+  // the Administrator gives any role; the Manager gives every role except Administrator
+  const roles = Object.entries(ROLES).filter(([k]) => isAdmin(me) || k !== 'ADMIN');
   const add = async () => { const r = await run(() => api('/users', 'POST', f)); if (r.ok) reset(); };
+  const save = async () => {
+    const body = ed.mode === 'pass' ? { password: ed.password } : { name: ed.name, username: ed.username, role: ed.role, ...(ed.password ? { password: ed.password } : {}) };
+    if (ed.mode === 'pass' && !ed.password) return alert('Write the new password.');
+    const r = await run(() => api('/users/' + ed.id, 'PUT', body));
+    if (r.ok) setEd(null);
+  };
+  const del = async u => { if (confirm(`Delete the account of ${u.name} (${u.username})?\nHe will not be able to sign in again. This cannot be undone.`)) await run(() => api('/users/' + u.id, 'DELETE')); };
+  const set = p => setEd(e => ({ ...e, ...p }));
   return (
     <>
       <div className="box mt"><h3>New staff account</h3><div className="row">
-        <Field label="Full name" {...bind('name')} /><Field label="Username" autoComplete="off" {...bind('username')} /><Field label="Password (8+ characters)" type="password" autoComplete="new-password" {...bind('password')} />
-        <Field label="Role"><select {...bind('role')}>{Object.entries(ROLES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></Field><Btn onClick={add}>Create account</Btn>
+        <Field label="Full name" {...bind('name')} /><Field label="Username" autoComplete="off" {...bind('username')} />
+        <PasswordBox label="Password (8+ characters)" {...bind('password')} />
+        <Field label="Role"><select {...bind('role')}>{roles.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></Field><Btn onClick={add}>Create account</Btn>
       </div></div>
-      <div className="mt"><Table head={['Name', 'Username', 'Role']}>{users.map(u => <tr key={u.id}><td>{u.name}</td><td>{u.username}</td><td>{ROLES[u.role]}</td></tr>)}</Table></div>
+      {ed && <div className="box mt"><h3>{ed.mode === 'pass' ? `New password for ${ed.name}` : `Edit ${ed.name}`}</h3><div className="row">
+        {ed.mode === 'edit' && <>
+          <Field label="Full name" value={ed.name} onChange={e => set({ name: e.target.value })} />
+          <Field label="Username" autoComplete="off" value={ed.username} onChange={e => set({ username: e.target.value })} />
+          <Field label="Role"><select value={ed.role} disabled={ed.id === me.id} onChange={e => set({ role: e.target.value })}>{roles.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></Field>
+        </>}
+        <PasswordBox label={ed.mode === 'pass' ? 'New password (8+ characters)' : 'New password (leave empty to keep)'} value={ed.password} onChange={e => set({ password: e.target.value })} />
+        <Btn onClick={save}>Save</Btn><Btn kind="ol" onClick={() => setEd(null)}>Cancel</Btn>
+      </div><p className="mu small">After a change, the person signs in again with the new details.</p></div>}
+      <div className="mt"><Table head={['Name', 'Username', 'Role', '']}>{users.map(u => <tr key={u.id}><td>{u.name}{u.id === me.id && <span className="mu small"> (you)</span>}</td><td>{u.username}</td><td>{ROLES[u.role]}</td>
+        <td className="acts"><Btn kind="ol" onClick={() => setEd({ id: u.id, mode: 'edit', name: u.name, username: u.username, role: u.role, password: '' })}>Edit</Btn>
+          <Btn kind="ol" onClick={() => setEd({ id: u.id, mode: 'pass', name: u.name, username: u.username, role: u.role, password: '' })}>Change password</Btn>
+          {u.id !== me.id && <Btn kind="ol" onClick={() => del(u)}>Delete</Btn>}</td></tr>)}</Table></div>
     </>
   );
 }

@@ -38,11 +38,14 @@ export function createApp({ cfg, db, notifier }) {
     console.error(q.method, q.path, e);
     s.status(500).json({ error: 'Server error. Please try again.' });
   });
+  const revoked = new Map();
   const auth = (...roles) => (q, s, n) => {
     try { q.u = jwt.verify((q.headers.authorization || '').slice(7), KEY); }
     catch { return s.status(401).json({ error: 'Sign in required' }); }
     // the Administrator has unlimited permission: every route is open to him, whatever roles are listed.
     // The Manager can do everything a listed role can; a route listed for 'ADMIN' alone (staff accounts) stays with the Administrator
+    // a deleted user, or one whose role or password was just changed, must sign in again: older tokens are refused
+    if ((revoked.get(q.u.id) || 0) > q.u.iat * 1000) return s.status(401).json({ error: 'Sign in required' });
     if (q.u.role === 'ADMIN') return n();
     const open = roles.length === 1 && roles[0] === 'ADMIN' ? ['ADMIN'] : ['MGR', ...roles];
     if (roles.length && !open.includes(q.u.role)) return s.status(403).json({ error: 'Your role cannot do this' });
@@ -64,23 +67,62 @@ export function createApp({ cfg, db, notifier }) {
 
   const tries = new Map();
   app.post('/api/auth/login', wrap(async (q, s) => {
-    const ip = q.ip, t = tries.get(ip) || { n: 0, at: Date.now() };
+    const ip = q.ip + '|' + str(q.body.username).toLowerCase(), t = tries.get(ip) || { n: 0, at: Date.now() };   // counted per person, so one wrong typist cannot lock the others out
     if (Date.now() - t.at > 15 * 60e3) { t.n = 0; t.at = Date.now(); }
     if (t.n >= 10) fail(429, 'Too many attempts. Try again in 15 minutes.');
     const [u] = await db.q('SELECT * FROM app_users WHERE username = ?', [str(q.body.username).toLowerCase()]);
     if (!u || !(await bcrypt.compare(str(q.body.password, 100), u.pass_hash))) { t.n++; tries.set(ip, t); fail(401, 'Wrong username or password'); }
+    tries.delete(ip);
     const user = { id: u.id, name: u.name, role: u.role };
     s.json({ user, token: jwt.sign(user, KEY, { expiresIn: '12h' }) });
   }));
-  app.get('/api/users', auth('ADMIN'), wrap(async (q, s) => s.json(await db.q('SELECT id, username, name, role FROM app_users ORDER BY created_at, username'))));
-  app.post('/api/users', auth('ADMIN'), wrap(async (q, s) => {
+  // ---- staff accounts ----
+  // The Administrator manages every account. The Manager manages his own and all the others, except Administrator accounts.
+  const ROLE_LIST = ['SA', 'WS', 'TECH', 'MGR', 'ADMIN'];
+  const userRow = r => ({ id: r.id, username: r.username, name: r.name, role: r.role });
+  const mayTouch = (me, target) => me.role === 'ADMIN' || target.role !== 'ADMIN';
+  const mayGive = (me, role) => ROLE_LIST.includes(role) && (me.role === 'ADMIN' || role !== 'ADMIN');
+  const dup = e => { if (e?.code === 'ER_DUP_ENTRY') fail(409, 'This username is already used'); throw e; };
+  app.get('/api/users', auth('MGR'), wrap(async (q, s) => s.json((await db.q('SELECT id, username, name, role FROM app_users ORDER BY created_at, username')).filter(r => mayTouch(q.u, r)))));
+  app.post('/api/users', auth('MGR'), wrap(async (q, s) => {
     const { name, username, password, role } = q.body;
     if (!str(name) || !str(username)) fail(400, 'Name and username are required');
-    if (!['SA', 'WS', 'TECH', 'MGR', 'ADMIN'].includes(role)) fail(400, 'Unknown role');
+    if (!ROLE_LIST.includes(role)) fail(400, 'Unknown role');
+    if (!mayGive(q.u, role)) fail(403, 'Only the Administrator can create an Administrator');
     if (str(password, 100).length < 8) fail(400, 'Password needs at least 8 characters');
     const u = { id: newId(), username: str(username, 60).toLowerCase(), name: str(name, 120), role };
-    await db.q('INSERT INTO app_users (id, username, name, role, pass_hash, created_at) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3))', [u.id, u.username, u.name, u.role, await bcrypt.hash(str(password, 100), 10)]);
+    await db.q('INSERT INTO app_users (id, username, name, role, pass_hash, created_at) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3))', [u.id, u.username, u.name, u.role, await bcrypt.hash(str(password, 100), 10)]).catch(dup);
     s.json(u);
+  }));
+  // change name, username, role and/or password (only the fields sent)
+  app.put('/api/users/:id', auth('MGR'), wrap(async (q, s) => {
+    const [t] = await db.q('SELECT * FROM app_users WHERE id = ?', [q.params.id]);
+    if (!t) fail(404, 'User not found');
+    if (!mayTouch(q.u, t)) fail(403, 'Only the Administrator can change an Administrator account');
+    const b = q.body, sets = [], vals = [];
+    if (b.name !== undefined) { if (!str(b.name)) fail(400, 'Name is required'); sets.push('name = ?'); vals.push(str(b.name, 120)); }
+    if (b.username !== undefined) { if (!str(b.username)) fail(400, 'Username is required'); sets.push('username = ?'); vals.push(str(b.username, 60).toLowerCase()); }
+    if (b.role !== undefined && b.role !== t.role) {
+      if (!mayGive(q.u, b.role)) fail(403, 'Only the Administrator can make an Administrator');
+      if (t.id === q.u.id) fail(400, 'You cannot change your own role');
+      if (t.role === 'ADMIN' && (await db.q("SELECT id FROM app_users WHERE role = 'ADMIN' AND id <> ?", [t.id])).length === 0) fail(400, 'There must be at least one Administrator');
+      sets.push('role = ?'); vals.push(b.role);
+    }
+    if (b.password) { if (str(b.password, 100).length < 8) fail(400, 'Password needs at least 8 characters'); sets.push('pass_hash = ?'); vals.push(await bcrypt.hash(str(b.password, 100), 10)); }
+    if (!sets.length) return s.json(userRow(t));
+    await db.q(`UPDATE app_users SET ${sets.join(', ')} WHERE id = ?`, [...vals, t.id]).catch(dup);
+    if (t.id !== q.u.id) revoked.set(t.id, Date.now());   // his old sign-in stops working: he signs in again with the new details
+    s.json(userRow((await db.q('SELECT * FROM app_users WHERE id = ?', [t.id]))[0]));
+  }));
+  app.delete('/api/users/:id', auth('MGR'), wrap(async (q, s) => {
+    const [t] = await db.q('SELECT * FROM app_users WHERE id = ?', [q.params.id]);
+    if (!t) fail(404, 'User not found');
+    if (t.id === q.u.id) fail(400, 'You cannot delete your own account');
+    if (!mayTouch(q.u, t)) fail(403, 'Only the Administrator can delete an Administrator account');
+    if (t.role === 'ADMIN' && (await db.q("SELECT id FROM app_users WHERE role = 'ADMIN' AND id <> ?", [t.id])).length === 0) fail(400, 'There must be at least one Administrator');
+    await db.q('DELETE FROM app_users WHERE id = ?', [t.id]);
+    revoked.set(t.id, Date.now());
+    s.json({ ok: true });
   }));
 
   // ---- everything the screens need, in one call ----

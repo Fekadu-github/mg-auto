@@ -30,7 +30,7 @@ export function AppProvider({ children }) {
   const refresh = useCallback(async () => {
     if (!meRef.current) return;
     const d = await api('/data' + (pvRef.current ? '?pv=' + encodeURIComponent(pvRef.current) : ''));
-    const u = meRef.current?.role === 'ADMIN' ? await api('/users') : [];
+    const u = ['ADMIN', 'MGR'].includes(meRef.current?.role) ? await api('/users') : [];
     if (meRef.current) {
       pvRef.current = d.pv || '';
       setDb(prev => (d.p === undefined ? { ...d, p: prev.p } : d));   // no stock list in the answer = unchanged: keep the one we have
