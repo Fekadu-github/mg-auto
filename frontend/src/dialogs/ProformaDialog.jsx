@@ -4,7 +4,7 @@ import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Pill, SaveState } from '../components/ui.jsx';
 import { LabourLines, PartLines } from '../components/Lines.jsx';
 import CustomerPicker from '../components/CustomerPicker.jsx';
-import { ROLES, isSA } from '../lib/constants.js';
+import { ROLES, isAdmin, isSA } from '../lib/constants.js';
 import { restoreDraft, useAutosave } from '../lib/autosave.js';
 import { dt, km, money, pct, rateOf, tot, vehicleName } from '../lib/format.js';
 import { usePrint } from '../print/PrintHost.jsx';
@@ -58,7 +58,7 @@ export default function ProformaDialog({ id }) {
   };
   // Save: store the draft, then go straight to the Proformas list, so there is no need to press Close
   const save = async () => { if (!(await saved())) return; say(`${id} saved.`); closeModal(); goPage('pro'); };
-  const remove = async () => { if (!confirm(`Delete proforma ${id}?`)) return; const r = await run(() => api('/proformas/' + id, 'DELETE')); if (r.ok) { closeModal(); goPage('pro'); } };
+  const remove = async () => { if (!confirm(`Delete ${p.status === 'Issued' ? 'finalized ' : ''}proforma ${id}?${p.status === 'Issued' ? '\nIts estimate stays and can be given a new proforma.' : ''}`)) return; const r = await run(() => api('/proformas/' + id, 'DELETE')); if (r.ok) { closeModal(); goPage('pro'); } };
   const makeJob = async () => {
     const mileage = km2 !== '' ? km2 : knownKm;
     if (mileage === '') return say('Enter the vehicle mileage (km).');
@@ -139,6 +139,7 @@ export default function ProformaDialog({ id }) {
         {open && <Btn onClick={save}>Save</Btn>}
         {open && p.status === 'Draft' && <Btn kind="gr" onClick={issue}>Finalize proforma</Btn>}
         {open && p.status === 'Draft' && <Btn kind="ol" onClick={remove}>Delete draft</Btn>}
+        {open && p.status === 'Issued' && isAdmin(me) && <Btn kind="ol" onClick={remove}>Delete finalized proforma</Btn>}
         {converted && p.job && <Btn kind="ol" onClick={() => openModal('job', { id: p.job })}>Open job card {p.job}</Btn>}
       </div>
       {open && p.status === 'Draft' && <p className="mu small">Finalize it when the estimator and the lines are final (or once the insurance company accepts the printed draft){linkedEst ? <>; estimate {id} is finalized with it</> : ''}. {linkedEst?.status === 'Draft' ? 'It also becomes finalized by itself when estimate ' + id + ' is finalized. ' : ''}Then pick the estimate when the job card is created, or add the customer and create the job card here. A finalized proforma can still be edited until the job card is created.</p>}

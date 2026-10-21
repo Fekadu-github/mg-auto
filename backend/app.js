@@ -652,7 +652,9 @@ export function createApp({ cfg, db, notifier }) {
       const [row] = await c.q('SELECT status FROM proformas WHERE id = ? FOR UPDATE', [q.params.id]);
       if (!row) fail(404, 'Proforma not found');
       if (row.status === 'Converted') fail(409, 'This proforma already became a job card');
+      if (row.status === 'Issued' && q.u.role !== 'ADMIN') fail(403, 'Only the Administrator can delete a finalized proforma');   // a draft can be deleted by the advisor; a finalized one only by the Administrator
       await c.q('DELETE FROM proformas WHERE id = ?', [q.params.id]);
+      await c.q('UPDATE estimates SET pro = NULL WHERE pro = ?', [q.params.id]);   // its estimate stays (finalized or draft) and can get a new proforma
     });
     s.json({ ok: true });
   }));
