@@ -22,7 +22,7 @@ const Total = ({ t }) => (
 // A body & paint estimate. Draft: labour and parts can be changed (prices fill themselves, and can be typed over). Finalized: locked.
 // A finalized estimate is loaded on a job card by its number. `jid` is the job card this dialog was opened from, if any.
 export default function EstimateDialog({ id, jid }) {
-  const { db, me, run, say, refresh, openModal, closeModal, cust, veh, job } = useApp();
+  const { db, me, run, say, refresh, openModal, closeModal, goPage, cust, veh, job } = useApp();
   const { print } = usePrint();
   const e = db.e.find(x => x.id === id);
   const [init] = useState(() => restoreDraft('est:' + id, e && e.status === 'Draft' ? { note: e.note || '', labours: e.labours, parts: e.parts } : null));
@@ -52,9 +52,15 @@ export default function EstimateDialog({ id, jid }) {
   const printIt = async () => { if (await ready()) print(<EstimateDoc est={doc()} customer={docC} vehicle={docV} pro={src} insurer={srcIns} walkIn={walkIn} garage={db.cfg.garage} vat={vat} />, 'a4'); };
   const download = async () => { if (await ready()) downloadXlsx(`${e.id}-${e.status.toLowerCase()}.xlsx`, estimateRows(doc(), { customer: c, vehicle: v, vat }), 'Estimate'); };
   const save = async () => { if (!(await flush())) say('The draft is not saved yet. Wait a moment and try again.'); };
-  const finalize = async () => { if (await flush()) await run(() => api(`/estimates/${e.id}/finalize`, 'POST')); else say('The draft is not saved yet. Wait a moment and try again.'); };
-  const reopen = async () => { const r = await run(() => api(`/estimates/${e.id}/draft`, 'POST')); if (r.ok) { setLabs(r.data.labours.map(l => ({ ...l }))); setParts(r.data.parts.map(p => ({ ...p }))); setNote(r.data.note); } };
-  const remove = async () => { if (!confirm(`Delete ${draft ? 'draft ' : ''}estimate ${e.id}?`)) return; const r = await run(() => api('/estimates/' + e.id, 'DELETE')); if (r.ok) (jid ? openModal('job', { id: jid }) : closeModal()); };
+  // A decision (finalize, back to draft) closes this window and shows the list, so there is nothing to close by hand; from a job card it returns to the card
+  const done = msg => { say(msg); if (jid) openModal('job', { id: jid }); else { closeModal(); goPage('est'); } };
+  const finalize = async () => {
+    if (!(await flush())) return say('The draft is not saved yet. Wait a moment and try again.');
+    const r = await run(() => api(`/estimates/${e.id}/finalize`, 'POST'));
+    if (r.ok) done(`${e.id} finalized${linked ? ` and its proforma ${e.id} finalized with it` : ''}.`);
+  };
+  const reopen = async () => { const r = await run(() => api(`/estimates/${e.id}/draft`, 'POST')); if (r.ok) done(`${e.id} is back to draft${linked ? ` (its proforma is back to draft too)` : ''}.`); };
+  const remove = async () => { if (!confirm(`Delete ${draft ? 'draft ' : ''}estimate ${e.id}?`)) return; const r = await run(() => api('/estimates/' + e.id, 'DELETE')); if (r.ok) { if (jid) openModal('job', { id: jid }); else { closeModal(); goPage('est'); } } };
   const loadOnJob = async () => { const r = await run(() => api(`/jobs/${jid}/estimate`, 'POST', { no: e.id })); if (r.ok) openModal('job', { id: jid }); };
 
   return (

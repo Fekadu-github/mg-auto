@@ -38,11 +38,12 @@ const ICONS = {
 };
 
 function Shell() {
-  const { me, signOut } = useApp();
+  const { me, signOut, registerNav } = useApp();
   const [tab, setTab] = useState('dash'), [opening, setOpening] = useState(false);
   // a short "opening" state when moving between screens (see lib/loading.js)
   const go = k => { if (k === tab) return; setTab(k); if (PAGE_MS > 0) setOpening(true); };
   useEffect(() => { if (!opening) return; const t = setTimeout(() => setOpening(false), PAGE_MS); return () => clearTimeout(t); }, [opening, tab]);
+  useEffect(() => { registerNav(go); });   // lets a dialog send the person to a list when its decision is made
   const menu = [['dash', 'Dashboard'], ['jobs', 'Job cards'], ...(isTech(me) ? [] : [['pro', 'Proformas'], ['est', 'Estimates']]), ['shop', 'Workshop'], ['cust', 'Customers'],
     ...(isTech(me) ? [] : [['inv', 'Parts stock']]), ...(isSA(me) ? [['pos', 'Point of sale'], ['invc', 'Invoices & payments'], ['pur', 'Purchases (GRN)']] : []),
     ...(isTech(me) ? [] : [['svc', 'Services'], ['lab', 'Labour list'], ['ins', 'Insurance']]), ['rep', isTech(me) ? 'My hours' : 'Reports'], ...(isSA(me) ? [['srep', 'Stock & sales reports']] : []), ...(me.role === 'ADMIN' ? [['staff', 'Staff']] : [])];

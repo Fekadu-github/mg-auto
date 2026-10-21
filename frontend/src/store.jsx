@@ -17,6 +17,7 @@ export function AppProvider({ children }) {
   const [modal, setModal] = useState(null);       // { type, ...props }
   const me = auth.me;
   const meRef = useRef(me); meRef.current = me;
+  const navRef = useRef(null);                      // the screen switcher, registered by the app shell: goPage('est') shows the Estimates list
   const pvRef = useRef('');                     // version of the stock list this screen has: the server sends the list again only when it changed
 
   const say = useCallback(text => setToast({ text, id: Date.now() }), []);
@@ -61,6 +62,7 @@ export function AppProvider({ children }) {
 
   const value = useMemo(() => ({
     me, db, users, ready, toast, modal, say, run, refresh, signIn, signOut,
+    goPage: k => navRef.current?.(k), registerNav: fn => { navRef.current = fn; },
     openModal: (type, props) => setModal({ type, ...props }), closeModal: () => setModal(null), dismissToast: () => setToast(null),
     cust: id => db.c.find(x => x.id === id) || {}, veh: id => db.v.find(x => x.id === id) || {}, job: id => db.j.find(x => x.id === id)
   }), [me, db, users, ready, toast, modal, say, run, refresh, signIn, signOut]);

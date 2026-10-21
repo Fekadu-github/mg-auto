@@ -17,7 +17,7 @@ const num = v => parseFloat(v) || 0;
 // The first-hand (insurance) proforma, made before any job card. Everything auto-saves as you type (and a copy stays on this device),
 // so a power cut loses nothing and it can be edited later. Issue -> print -> create the job card: the proforma then becomes the job card's estimate.
 export default function ProformaDialog({ id }) {
-  const { db, me, run, say, refresh, openModal, closeModal, cust, veh } = useApp();
+  const { db, me, run, say, refresh, openModal, closeModal, goPage, cust, veh } = useApp();
   const { print } = usePrint();
   const p = db.pr.find(x => x.id === id);
   const fromServer = p && { guest_name: p.guest_name || '', guest_phone: p.guest_phone || '', guest_plate: p.guest_plate || '', guest_brand: p.guest_brand || '', guest_model: p.guest_model || '', insurer_id: p.insurer_id || '', policy_no: p.policy_no || '', estimator_id: p.estimator_id || '', pdate: p.pdate, note: p.note || '', claim_no: p.claim_no || '', priority: p.priority || '', due_date: p.due_date || '', terms: p.terms || '', labours: p.labours, parts: p.parts };
@@ -50,8 +50,13 @@ export default function ProformaDialog({ id }) {
   });
   const printIt = async () => { if (open && !(await saved())) return; print(<ProformaDoc pro={doc()} customer={c} vehicle={v} insurer={insurer} walkIn={walkIn} garage={db.cfg.garage} vat={vat} roleName={r => ROLES[r] || r} />, 'a4'); };
   const linkedEst = db.e.find(x => x.id === id);   // the estimate with the same EST number
-  const issue = async () => { if (await saved()) await run(() => api(`/proformas/${id}/issue`, 'POST')); };
-  const remove = async () => { if (!confirm(`Delete proforma ${id}?`)) return; const r = await run(() => api('/proformas/' + id, 'DELETE')); if (r.ok) closeModal(); };
+  // The decision closes this window and shows the Proformas list, so there is nothing to close by hand
+  const issue = async () => {
+    if (!(await saved())) return;
+    const r = await run(() => api(`/proformas/${id}/issue`, 'POST'));
+    if (r.ok) { say(`${id} finalized${linkedEst ? ` (estimate ${id} finalized with it)` : ''}.`); closeModal(); goPage('pro'); }
+  };
+  const remove = async () => { if (!confirm(`Delete proforma ${id}?`)) return; const r = await run(() => api('/proformas/' + id, 'DELETE')); if (r.ok) { closeModal(); goPage('pro'); } };
   const makeJob = async () => {
     const mileage = km2 !== '' ? km2 : knownKm;
     if (mileage === '') return say('Enter the vehicle mileage (km).');
