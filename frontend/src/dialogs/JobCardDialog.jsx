@@ -9,7 +9,7 @@ import PartSearch from '../components/PartSearch.jsx';
 import EstimatePicker, { EstimatePreview } from '../components/EstimatePicker.jsx';
 import { usePersistedForm as useForm } from '../lib/autosave.js';
 import { CLOCK_REASONS, SECTIONS, SECTION_CODE, STATUSES, STATUS_NAME, isAdmin, isMgr, isSA, isTech, isWS, sectionOption } from '../lib/constants.js';
-import { activeClock, dt, jobTotals, km, labourHours, lastDoc, matchPart, money, pct, r2, rateOf, tot, vehicleName } from '../lib/format.js';
+import { activeClock, dt, jobTotals, km, labourHours, lastDoc, matchPart, money, pct, rateOf, tot, vehicleName } from '../lib/format.js';
 import { suggestService } from '../lib/services.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import InvoiceDoc, { invoiceSize } from '../print/InvoiceDoc.jsx';
