@@ -58,7 +58,14 @@ export default function EstimateDialog({ id, jid }) {
   const finalize = async () => {
     if (!(await flush())) return say('The draft is not saved yet. Wait a moment and try again.');
     const r = await run(() => api(`/estimates/${e.id}/finalize`, 'POST'));
-    if (r.ok) done(`${e.id} finalized${linked ? ` and its proforma ${e.id} finalized with it` : ''}.`);
+    if (!r.ok) return;
+    // Made from a job card: bring its labour and parts onto that card at once, so the card's total is the estimate plus anything added by hand
+    const jb = jid && job(jid);
+    if (jb && !jb.est && !jb.inv && !linked) {
+      const l = await run(() => api(`/jobs/${jid}/estimate`, 'POST', { no: e.id }));
+      if (l.ok) { say(`${e.id} finalized and loaded on ${jid}.`); return openModal('job', { id: jid }); }
+    }
+    done(`${e.id} finalized${linked ? ` and its proforma ${e.id} finalized with it` : ''}.`);
   };
   const reopen = async () => { const r = await run(() => api(`/estimates/${e.id}/draft`, 'POST')); if (r.ok) done(`${e.id} is back to draft${linked ? ` (its proforma is back to draft too)` : ''}.`); };
   const remove = async () => { if (!confirm(`Delete ${draft ? 'draft ' : ''}estimate ${e.id}?`)) return; const r = await run(() => api('/estimates/' + e.id, 'DELETE')); if (r.ok) { if (jid) openModal('job', { id: jid }); else { closeModal(); goPage('est'); } } };
