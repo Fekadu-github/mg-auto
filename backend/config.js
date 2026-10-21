@@ -7,6 +7,8 @@ export function loadConfig(env = process.env) {
     port: num(env.PORT, 3000),
     jwtSecret: env.JWT_SECRET || '',
     corsOrigin: env.CORS_ORIGIN || '*',
+    rateLimitPerMin: num(env.RATE_LIMIT_PER_MIN, 1200) > 0 ? num(env.RATE_LIMIT_PER_MIN, 1200) : 1200,   // requests per minute from one address (a whole garage shares one)
+    requestLog: env.REQUEST_LOG !== 'false',     // one JSON line per request in the logs
     frontendDir: env.FRONTEND_DIR || '',          // optional: serve the built React app from this API (single-host deploys)
     adminUser: env.ADMIN_USER || '', adminPass: env.ADMIN_PASS || '',
     vat: vat >= 0 && vat < 1 ? vat : 0.15,       // fraction: 0.15 = 15%

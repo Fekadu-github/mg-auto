@@ -12,9 +12,10 @@ import { Customers, Dashboard, Estimates, Insurance, JobCards, LabourList, PAGE_
 import { LowStockReminder, Parts, Purchases } from './pages/Stock.jsx';
 import { Invoices, PointOfSale } from './pages/Pos.jsx';
 import StockReports from './pages/StockReports.jsx';
+import Audit from './pages/Audit.jsx';
 import { ROLES, isMgr, isSA, isTech } from './lib/constants.js';
 
-const PAGES = { dash: Dashboard, jobs: JobCards, pro: Proformas, est: Estimates, ins: Insurance, lab: LabourList, svc: Services, shop: Workshop, cust: Customers, inv: Parts, pur: Purchases, pos: PointOfSale, invc: Invoices, srep: StockReports, rep: Reports, staff: Staff };
+const PAGES = { dash: Dashboard, jobs: JobCards, pro: Proformas, est: Estimates, ins: Insurance, lab: LabourList, svc: Services, shop: Workshop, cust: Customers, inv: Parts, pur: Purchases, pos: PointOfSale, invc: Invoices, srep: StockReports, rep: Reports, staff: Staff, audit: Audit };
 
 // Line icons (24 px grid) for the menu
 const Ico = ({ children }) => <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>;
@@ -34,6 +35,7 @@ const ICONS = {
   ins: <Ico><path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z" /><path d="M9 12l2 2 4-4" /></Ico>,
   rep: <Ico><path d="M4 20V11M10 20V5M16 20v-8" /><path d="M2 20h20" /></Ico>,
   srep: <Ico><path d="M12 3a9 9 0 109 9h-9z" /><path d="M15 3.5A9 9 0 0120.5 9H15z" /></Ico>,
+  audit: <Ico><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" /><path d="M9 12l2 2 4-4" /></Ico>,
   staff: <Ico><rect x="4" y="4" width="16" height="16" rx="2.2" /><circle cx="12" cy="10" r="2.6" /><path d="M7.5 17c.8-2 2.5-3 4.5-3s3.7 1 4.5 3" /></Ico>
 };
 
@@ -46,7 +48,7 @@ function Shell() {
   useEffect(() => { registerNav(go); });   // lets a dialog send the person to a list when its decision is made
   const menu = [['dash', 'Dashboard'], ['jobs', 'Job cards'], ...(isTech(me) ? [] : [['pro', 'Proformas'], ['est', 'Estimates']]), ['shop', 'Workshop'], ['cust', 'Customers'],
     ...(isTech(me) ? [] : [['inv', 'Parts stock']]), ...(isSA(me) ? [['pos', 'Point of sale'], ['invc', 'Invoices & payments'], ['pur', 'Purchases (GRN)']] : []),
-    ...(isTech(me) ? [] : [['svc', 'Services'], ['lab', 'Labour list'], ['ins', 'Insurance']]), ['rep', isTech(me) ? 'My hours' : 'Reports'], ...(isSA(me) ? [['srep', 'Stock & sales reports']] : []), ...(isMgr(me) ? [['staff', 'Staff']] : [])];
+    ...(isTech(me) ? [] : [['svc', 'Services'], ['lab', 'Labour list'], ['ins', 'Insurance']]), ['rep', isTech(me) ? 'My hours' : 'Reports'], ...(isSA(me) ? [['srep', 'Stock & sales reports']] : []), ...(isMgr(me) ? [['staff', 'Staff'], ['audit', 'Audit log']] : [])];
   const Page = PAGES[tab] || Dashboard, [title, text] = PAGE_INFO[tab] || PAGE_INFO.dash;
   return (
     <div className="app">

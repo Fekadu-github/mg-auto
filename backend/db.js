@@ -95,6 +95,7 @@ export function createDb(env = process.env) {
       await pool.query("UPDATE proformas SET status = 'Issued', job = NULL, est = NULL WHERE status = 'Converted' AND (job IS NULL OR NOT EXISTS (SELECT 1 FROM jobs x WHERE x.id = proformas.job))");
       await pool.query('UPDATE estimates SET used_in = NULL WHERE used_in IS NOT NULL AND NOT EXISTS (SELECT 1 FROM jobs x WHERE x.id = estimates.used_in)');
     } catch (e) { console.error('Repair of proformas/estimates skipped:', e.message); }
+    try { await pool.query('DELETE FROM audit_log WHERE at < UTC_TIMESTAMP() - INTERVAL 400 DAY'); } catch (e) { console.error('Audit clean-up skipped:', e.message); }   // the trail is kept for about 13 months
   }
 
   return { pool, q, tx, migrate, close: () => pool.end() };

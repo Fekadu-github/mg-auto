@@ -288,3 +288,20 @@ CREATE TABLE IF NOT EXISTS settings (
   k VARCHAR(60) NOT NULL PRIMARY KEY,
   v JSON NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Audit trail: who did what and when (written by the server after each change; no data values and no passwords are kept)
+CREATE TABLE IF NOT EXISTS audit_log (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  at DATETIME(3) NOT NULL,
+  user_id CHAR(36) NULL,
+  user_name VARCHAR(120) NOT NULL DEFAULT '',
+  role VARCHAR(10) NOT NULL DEFAULT '',
+  method VARCHAR(8) NOT NULL,
+  path VARCHAR(200) NOT NULL,
+  action VARCHAR(120) NOT NULL,
+  ref VARCHAR(60) NOT NULL DEFAULT '',
+  status SMALLINT NOT NULL,
+  ip VARCHAR(64) NOT NULL DEFAULT '',
+  KEY audit_at (at),
+  KEY audit_user (user_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

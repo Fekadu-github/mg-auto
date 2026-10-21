@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import { securityHeaders, rateLimit, requestLog } from './security.js';
+import { auditMiddleware } from './audit.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { existsSync } from 'node:fs';
@@ -27,6 +29,10 @@ const sendJson = v => JSON.stringify(v);
 export function createApp({ cfg, db, notifier }) {
   const KEY = cfg.jwtSecret, app = express();
   app.set('trust proxy', 1);
+  app.disable('x-powered-by');
+  app.use(securityHeaders());
+  if (cfg.requestLog !== false) app.use(requestLog());
+  app.use('/api', rateLimit({ max: cfg.rateLimitPerMin || 1200 }));
   app.use(express.json({ limit: '100kb' }));
   app.use(cors({ origin: cfg.corsOrigin === '*' ? true : cfg.corsOrigin.split(',').map(s => s.trim()) }));
 
@@ -62,6 +68,7 @@ export function createApp({ cfg, db, notifier }) {
     return [r.n, r.a, r.s, r.pr, r.co, r.re, r.h].join(':');
   };
 
+  app.use('/api', auditMiddleware(db));   // who did what and when: every change, refused attempt and sign-in
   // ---- health, auth & staff ----
   app.get('/health', async (q, s) => { try { await db.q('SELECT 1'); s.json({ ok: true }); } catch { s.status(503).json({ ok: false }); } });
 
@@ -123,6 +130,12 @@ export function createApp({ cfg, db, notifier }) {
     await db.q('DELETE FROM app_users WHERE id = ?', [t.id]);
     revoked.set(t.id, Date.now());
     s.json({ ok: true });
+  }));
+
+  // The audit trail for the manager: newest first; ?q= finds a person, an action or a record number
+  app.get('/api/audit', auth('MGR'), wrap(async (q, s) => {
+    const lim = Math.min(Math.max(parseInt(q.query.limit, 10) || 200, 1), 500), t = `%${str(q.query.q, 60).replace(/[%_]/g, '')}%`;
+    s.json(await db.q('SELECT id, at, user_name, role, action, ref, status, method, path, ip FROM audit_log WHERE (user_name LIKE ? OR action LIKE ? OR ref LIKE ?) ORDER BY id DESC LIMIT ?', [t, t, t, lim]));
   }));
 
   // ---- everything the screens need, in one call ----

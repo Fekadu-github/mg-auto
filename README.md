@@ -169,3 +169,13 @@ The insurance proforma and the Body & Paints estimate print on one A4 sheet mode
 - **Walk-in customers** (not registered yet) print as "Walk-in customer (private)"; the vehicle details that are not recorded on a walk-in proforma (chassis, engine, colour, mileage) are left as blank lines to write by hand. A proforma without an insurance company prints "Customer pays".
 - **Terms:** the default list is `DEFAULT_TERMS` in `frontend/src/lib/constants.js` (edit the wording and the 7-day validity there). Text typed in the proforma's *Terms and conditions* box is printed as the **REMARK**.
 - Code: `frontend/src/print/EstimationSheet.jsx` (layout), `ProformaDoc.jsx` and `EstimateDoc.jsx` (data), styles in `styles/print.css`.
+
+## Security, audit and operations
+
+- **Security headers and limits:** every answer carries safe browser headers (no sniffing, no framing, no caching of API data, HSTS on HTTPS). One address may send `RATE_LIMIT_PER_MIN` requests a minute (default 1200: a whole garage shares one address); login attempts are limited per person.
+- **Audit log (manager and administrator):** the *Audit log* screen shows who did what and when: sign-ins and failed sign-ins, finalized estimates and proformas, deleted records, staff changes, refused attempts. Only the action, record number and person are kept, never customer data or passwords, for about 13 months.
+- **Logs:** one JSON line per request (`id`, method, path, status, milliseconds, user). The same id comes back to the browser as `X-Request-Id`, so a problem a user reports can be found in the Render logs. Set `REQUEST_LOG=false` to turn it off.
+- **CI:** `.github/workflows/ci.yml` runs the backend tests (with a real MySQL) and the frontend tests and build on every push.
+- **Backups:** switch on the automatic daily backup of your MySQL provider (and keep at least 7 days). A manual copy: `mysqldump --single-transaction -h HOST -u USER -p DBNAME > mg_auto_$(date +%F).sql`. Try a restore on an empty database once.
+- **Uptime:** point a free monitor (UptimeRobot or similar) at `https://<your-service>.onrender.com/health`.
+- **What a competitive product is expected to have:** see `docs/INTERNATIONAL_READINESS.md`.

@@ -28,7 +28,8 @@ export const PAGE_INFO = {
   invc: ['Invoices & payments', 'Every cash and credit invoice from job cards and the point of sale, what was paid and what is still owed.'],
   srep: ['Stock & sales reports', 'Sales, lost sales, inventory control and your own reports.'],
   rep: ['Reports', 'Job card revenue and technician hours for the days you choose.'],
-  staff: ['Staff', 'Staff accounts and their roles.']
+  staff: ['Staff', 'Staff accounts and their roles.'],
+  audit: ['Audit log', 'Who did what and when: sign-ins, finalized estimates, deleted records, staff changes and refused attempts.']
 };
 
 function JobTable({ list }) {
