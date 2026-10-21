@@ -11,7 +11,7 @@ const AM = {
   'Dashboard': 'ዳሽቦርድ', 'Job cards': 'የሥራ ካርዶች', 'Proformas': 'ፕሮፎርማዎች', 'Estimates': 'ግምቶች', 'Workshop': 'አውደ ጥገና', 'Customers': 'ደንበኞች',
   'Parts stock': 'የመለዋወጫ ክምችት', 'Point of sale': 'መሸጫ', 'Invoices & payments': 'ደረሰኞችና ክፍያዎች', 'Purchases (GRN)': 'ግዢዎች (GRN)', 'Services': 'አገልግሎቶች',
   'Labour list': 'የሥራ ዋጋ ዝርዝር', 'Insurance': 'ኢንሹራንስ', 'Reports': 'ሪፖርቶች', 'My hours': 'የእኔ ሰዓታት', 'Stock & sales reports': 'የክምችትና የሽያጭ ሪፖርቶች', 'Staff': 'ሠራተኞች', 'Audit log': 'የእንቅስቃሴ መዝገብ',
-  'Insurance proformas': 'የኢንሹራንስ ፕሮፎርማዎች', 'Opening': 'በመክፈት ላይ',
+  'Work': 'ሥራ', 'Sales & stock': 'ሽያጭና ክምችት', 'Setup': 'ማዋቀር', 'Admin': 'አስተዳደር', 'More': 'ተጨማሪ', 'Menu': 'ምናሌ', 'Insurance proformas': 'የኢንሹራንስ ፕሮፎርማዎች', 'Opening': 'በመክፈት ላይ',
   // sign in
   'Sign in': 'ግባ', 'Sign out': 'ውጣ', 'Signing in…': 'በመግባት ላይ…', 'Username': 'የተጠቃሚ ስም', 'Password': 'የይለፍ ቃል', 'Wrong username or password': 'የተጠቃሚ ስም ወይም የይለፍ ቃል ስህተት ነው',
   'Two-step code': 'የሁለት ደረጃ ኮድ', 'Enter the 6-digit code from your authenticator app': 'ከአውቲንቲኬተር መተግበሪያዎ ባለ 6 አሃዝ ኮድ ያስገቡ', 'Confirm': 'አረጋግጥ', 'Back': 'ተመለስ',
