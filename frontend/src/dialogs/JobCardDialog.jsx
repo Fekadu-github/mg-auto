@@ -9,7 +9,7 @@ import PartSearch from '../components/PartSearch.jsx';
 import EstimatePicker, { EstimatePreview } from '../components/EstimatePicker.jsx';
 import { usePersistedForm as useForm } from '../lib/autosave.js';
 import { CLOCK_REASONS, SECTIONS, SECTION_CODE, STATUSES, STATUS_NAME, isAdmin, isMgr, isSA, isTech, isWS, sectionOption } from '../lib/constants.js';
-import { activeClock, dt, jobTotals, km, labourHours, lastDoc, matchPart, money, pct, rateOf, vehicleName } from '../lib/format.js';
+import { activeClock, dt, jobTotals, km, labourHours, lastDoc, matchPart, money, pct, r2, rateOf, tot, vehicleName } from '../lib/format.js';
 import { suggestService } from '../lib/services.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import InvoiceDoc, { invoiceSize } from '../print/InvoiceDoc.jsx';
@@ -30,6 +30,9 @@ export default function JobCardDialog({ id }) {
   const c = cust(j.cid), v = veh(j.vid), vat = db.cfg.vat, garage = db.cfg.garage;
   const sa = isSA(me), ws = isWS(me), work = j.status === 'At workshop', si = STATUSES.indexOf(j.status);
   const t = jobTotals(j, vat);
+  // The estimate this card was made from (or loaded), at its own prices, so the footer can show: estimate + what was added on the card = final
+  const est = j.est ? (db.e || []).find(x => x.id === j.est) : null;
+  const et = est ? tot({ labours: est.labours.map(l => ({ price: +l.price || 0 })), parts: est.parts.map(x => ({ qty: +x.qty || 0, price: +x.price || 0 })) }, t.rate) : null;
   const priceOpen = sa && !j.inv;                         // the selling price can be changed until the invoice is issued
   const labourOpen = sa && !j.inv && ['Created', 'Dispatched', 'Back with SA', 'Closed'].includes(j.status);   // not while the vehicle is in the workshop
   const partsOpen = sa && !j.inv && si <= STATUSES.indexOf('Closed');
@@ -148,7 +151,13 @@ export default function JobCardDialog({ id }) {
       {showNotes && <Notifications job={j} canResend={sa && ['Closed', 'Invoiced'].includes(j.status)} />}
 
       <div className="box mt r">
-        Labour {money(t.l)} · Parts {money(t.p)} · VAT {pct(t.rate)}% {money(t.vat)}
+        {et && <>
+          Estimate {est.id}: Labour {money(et.l)} · Parts {money(et.p)} · Total ETB {money(et.total)}
+          <br />Added on this card (tasks and parts): Labour {money(r2(t.l - et.l))} · Parts {money(r2(t.p - et.p))} · Total ETB {money(r2(t.total - et.total))}
+          <br /><span className="mu small">Prices are before VAT; the totals include VAT. Final = estimate + added.</span>
+          <hr />
+        </>}
+        Final labour {money(t.l)} · Final parts {money(t.p)} · VAT {pct(t.rate)}% {money(t.vat)}
         <br /><b className="cn total">Total ETB {money(t.total)}</b>
       </div>
       {priceOpen && <p className="mu small">Labour, parts and selling prices can be edited here until the invoice is issued{done ? ' (the card is closed, so added tasks are billing lines; use "Return to workshop" for work that must be done)' : ''}. Every price change is written in the job card history.</p>}
