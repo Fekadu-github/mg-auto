@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { STATUS_NAME } from '../lib/constants.js';
+import Icon from './Icon.jsx';
 
 export const Pill = ({ tone, children }) => <span className={'pill' + (tone ? ' ' + tone : '')}>{children}</span>;
-export const StatusPill = ({ status }) => <Pill tone={status === 'Delivered' ? 'g' : ''}>{STATUS_NAME[status] || status}</Pill>;
+// colour tells the stage at a glance: grey = waiting, blue = in the workshop, amber = needs the advisor, green = finished
+const STAGE_TONE = { Created: 'n', Dispatched: '', 'At workshop': '', 'Work done': 'a', 'Back with SA': 'a', Closed: 'g', Invoiced: 'g', Delivered: 'g' };
+export const StatusPill = ({ status }) => <Pill tone={STAGE_TONE[status] ?? ''}>{STATUS_NAME[status] || status}</Pill>;
 
 // A labelled form control. Pass the input as children, or use the shorthand <Field label="Name" {...bind('name')} />
 export function Field({ label, children, grow, hint, ...input }) {
@@ -34,10 +37,16 @@ export const Btn = ({ kind = '', ...p }) => <button type="button" className={'b 
 
 export const Table = ({ head, children, empty, cols }) => (
   <div className="tw"><table><thead><tr>{head.map((h, i) => <th key={i} className={h.r ? 'r' : ''}>{h.t ?? h}</th>)}</tr></thead>
-    <tbody>{children}{empty && <tr><td colSpan={cols || head.length} className="mu">{empty}</td></tr>}</tbody></table></div>
+    <tbody>{children}{empty && <tr><td colSpan={cols || head.length} className="mu empty"><Icon name="inbox" size={28} /><span>{empty}</span></td></tr>}</tbody></table></div>
 );
 
-export const Stat = ({ label, value, small }) => <div className="box"><div className="stat" style={small ? { fontSize: 30 } : undefined}>{value}</div>{label}</div>;
+// An icon is picked from the label (so every report card gets one); tone colours the chip
+const STAT_ICONS = [[/reorder|stock|units|items/i, 'box', 'a'], [/parts/i, 'alert', 'a'], [/price/i, 'tag', 'a'], [/dispatch/i, 'jobs', 'n'], [/workshop/i, 'shop', ''], [/close|advisor/i, 'check', 'a'],
+  [/invoice|cash|credit|collect|sales|value|total|paid|owed/i, 'receipt', 'g'], [/hour|time|clock/i, 'clock', ''], [/customer|vehicle/i, 'user', '']];
+export const Stat = ({ label, value, small, icon, tone }) => {
+  const hit = STAT_ICONS.find(([re]) => re.test(String(label))), ic = icon || hit?.[1] || 'gauge', tn = tone ?? hit?.[2] ?? '';
+  return <div className="box stat-card"><span className={'stat-ic ' + tn}><Icon name={ic} size={20} /></span><div className="stat" style={small ? { fontSize: 30 } : undefined}>{value}</div><div className="stat-l">{label}</div></div>;
+};
 
 // A native <dialog> opened as a modal. onClose runs when the person presses Esc or the Close button.
 export function Dialog({ title, onClose, children, actions }) {

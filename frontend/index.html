@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#070b14">
+<meta name="theme-color" content="#05070c">
 <meta name="color-scheme" content="dark light">
 <script>
 // Set the saved (or device) theme before the first paint, so there is no flash of the wrong one.
 (function () { var t = null; try { t = localStorage.getItem("mg_theme"); } catch (e) {}
   if (t !== "light" && t !== "dark") t = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", t);
-  var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute("content", t === "light" ? "#eef2fb" : "#070b14"); })();
+  var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute("content", t === "light" ? "#f1f4f9" : "#05070c"); })();
 </script>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icons/icon-192.png">
