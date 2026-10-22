@@ -43,21 +43,26 @@ export default function JobCardDialog({ id }) {
   const printInvoice = (jc, doc) => print(<InvoiceDoc job={jc} customer={c} vehicle={v} doc={doc} garage={garage} vat={vat} />, invoiceSize(doc));
   const printVoucher = jc => print(<VoucherDoc job={jc} customer={c} vehicle={v} garage={garage} />, 'a4');
 
-  const go = (to, extra) => run(() => post(j.id, '/status', { to, ...extra }));
+  // A step that hands the card to somebody else (dispatch, receive, send back, close, return) is a final decision: save it, say so, and go back to the list.
+  const go = async (to, extra, finished) => {
+    const r = await run(() => post(j.id, '/status', { to, ...extra }));
+    if (r.ok && finished) { say(finished); closeModal(); }
+    return r;
+  };
   const close = () => {
     if (notDone.length) return say(`${notDone.length} task${notDone.length === 1 ? ' is' : 's are'} not done yet (${notDone.slice(0, 3).map(l => l.desc).join(', ')}${notDone.length > 3 ? '…' : ''}). Return the card to the workshop so a technician can clock in and complete ${notDone.length === 1 ? 'it' : 'them'}, or remove ${notDone.length === 1 ? 'it' : 'them'}.`);
     if (!confirm(`Check before closing ${j.id}:\n\nLabour items: ${j.labours.length} (all completed)\nParts lines issued: ${j.parts.length}\n\nClose the job card? The customer will be told the vehicle is ready.`)) return;
     // the next service is counted from the reading when the vehicle leaves; leave the box as it is if the reading did not change
     const out = prompt(`Mileage (km) when the vehicle leaves the workshop.\nArrival reading: ${j.mileage != null ? j.mileage : 'not recorded'}. The next service is counted from this reading.`, j.mileage != null ? String(j.mileage) : '');
     if (out === null) return;
-    go('Closed', out.trim() === '' || Number(out) === j.mileage ? {} : { mileage_out: Number(out) });
+    go('Closed', out.trim() === '' || Number(out) === j.mileage ? {} : { mileage_out: Number(out) }, `${j.id} is closed.`);
   };
   const returnBack = () => {
     const ask = notDone.length
       ? `Send ${j.id} back to the workshop?\n\n${notDone.length} additional task${notDone.length === 1 ? '' : 's'} will wait for a technician to clock in and complete:\n${notDone.map(l => `• ${l.desc}`).join('\n')}\n\nThe workshop receives the card again and sends it back when they are done.`
       : `Send ${j.id} back to the workshop?\n\nNo additional labour has been added, so there is nothing for a technician to clock. Add the extra tasks first (they are done by the workshop and clocked like any other task), or continue if only parts need fitting.`;
     if (!confirm(ask)) return;
-    run(() => post(j.id, '/return'));
+    run(() => post(j.id, '/return')).then(r => { if (r.ok) { say(`${j.id} is back with the workshop.`); closeModal(); } });
   };
   const invoice = async type => {
     const r = await run(() => post(j.id, '/invoice', { type }));
@@ -75,8 +80,8 @@ export default function JobCardDialog({ id }) {
   };
   let actions = null;
   if (sa) {
-    if (j.status === 'Created') actions = <Btn onClick={() => go('Dispatched')}>Dispatch to workshop</Btn>;
-    if (j.status === 'Work done') actions = <Btn onClick={() => go('Back with SA')}>Receive job card</Btn>;
+    if (j.status === 'Created') actions = <Btn onClick={() => go('Dispatched', undefined, `${j.id} dispatched to the workshop.`)}>Dispatch to workshop</Btn>;
+    if (j.status === 'Work done') actions = <Btn onClick={() => go('Back with SA', undefined, `${j.id} received by the Service Advisor.`)}>Receive job card</Btn>;
     if (j.status === 'Back with SA') actions = <><Btn kind="gr" onClick={close}>Close job card</Btn><Btn kind="ol" onClick={returnBack}>Return to workshop (more tasks / parts)</Btn></>;
     if (j.status === 'Closed' || j.status === 'Invoiced') actions = <>
       {j.status === 'Closed' && <Btn kind="ol" onClick={returnBack}>Return to workshop (more tasks / parts)</Btn>}
@@ -89,8 +94,8 @@ export default function JobCardDialog({ id }) {
       <Btn kind="ol" onClick={() => printInvoice(j, j.inv)}>Reprint invoice</Btn><Btn kind="ol" onClick={() => printVoucher(j)}>Reprint delivery voucher</Btn>
     </>;
   }
-  if (ws && j.status === 'Dispatched') actions = <Btn kind="gr" onClick={() => go('At workshop')}>Receive job card</Btn>;
-  if (ws && work) actions = <Btn kind="gr" onClick={() => go('Work done')}>Dispatch back to Service Advisor</Btn>;
+  if (ws && j.status === 'Dispatched') actions = <Btn kind="gr" onClick={() => go('At workshop', undefined, `${j.id} received by the workshop.`)}>Receive job card</Btn>;
+  if (ws && work) actions = <Btn kind="gr" onClick={() => go('Work done', undefined, `${j.id} sent back to the Service Advisor.`)}>Dispatch back to Service Advisor</Btn>;
 
   const clocks = j.labours.flatMap(l => (l.logs || []).map(x => ({ ...x, work: l.desc })));
   const showNotes = ['Closed', 'Invoiced', 'Delivered'].includes(j.status) && !isTech(me);
