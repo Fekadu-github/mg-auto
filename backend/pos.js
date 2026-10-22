@@ -82,19 +82,47 @@ export function mountStock({ app, db, cfg, auth, wrap }) {
     const { items, errors } = S.parseImport(q.body.rows, S.DEFAULT_MARKUP, existing);
     const summary = { created: items.filter(i => i.action === 'new').length, updated: items.filter(i => i.action === 'update').length };
     if (!q.body.apply) return s.json({ ...summary, applied: false, errors: errors.slice(0, 200), errorCount: errors.length, preview: items.slice(0, 30) });
+    // Saved in batches: a few multi-row statements per 200 parts instead of 4-6 round trips per part (a 1,000-part file used to take minutes
+    // against a remote database, long enough for the host to cut the request off and leave the screen waiting).
     await db.tx(async c => {
-      for (const it of items) {
-        if (it.action === 'new') {
-          const id = newId();
-          await c.q('INSERT INTO inventory (id, code, name, category, cost, price, stock, reorder, active, created_at) VALUES (?,?,?,?,?,?,0,?,1, UTC_TIMESTAMP(3))', [id, it.code, it.name, it.category, it.cost, it.price, it.reorder]);
-          if (it.qty > 0) await stock(c, id, it.qty, 'Opening stock (Excel import)', null, q.u.name);
-          continue;
+      const by = q.u.name, ph = (n, tpl) => Array(n).fill(tpl).join(',');
+      const insertMoves = async moves => {
+        for (let i = 0; i < moves.length; i += 200) {
+          const part = moves.slice(i, i + 200);
+          await c.q(`INSERT INTO stock_moves (part_id, delta, balance, reason, job, by_name, note, \`at\`) VALUES ${ph(part.length, '(?,?,?,?,NULL,?,?,UTC_TIMESTAMP(3))')}`, part.flatMap(m => [m.id, m.delta, m.balance, m.reason, by, m.note ?? null]));
         }
-        const [old] = await c.q('SELECT * FROM inventory WHERE id = ? FOR UPDATE', [it.id]);
-        const cost = it.cost ?? +old.cost, price = it.price ?? +old.price;
-        await c.q('UPDATE inventory SET name = ?, category = ?, cost = ?, price = ?, reorder = ?, active = 1 WHERE id = ?', [it.name, it.category ?? old.category, cost, price, it.reorder ?? +old.reorder, old.id]);
-        if (cost !== +old.cost || price !== +old.price) await priceNote(c, old.id, +old.stock, `Excel import: cost ${+old.cost} → ${cost}; price ${+old.price} → ${price}`, q.u.name);
-        if (it.qty !== undefined) { const d = qn(it.qty - +old.stock); if (d) await stock(c, old.id, d, 'Adjusted (Excel import)', null, q.u.name, 'Quantity set from the Excel file'); }
+      };
+      const fresh = items.filter(i => i.action === 'new'), changed = items.filter(i => i.action === 'update');
+      for (let i = 0; i < fresh.length; i += 200) {
+        const part = fresh.slice(i, i + 200).map(it => ({ it, id: newId() }));
+        await c.q(`INSERT INTO inventory (id, code, name, category, cost, price, stock, reorder, active, created_at) VALUES ${ph(part.length, '(?,?,?,?,?,?,?,?,1,UTC_TIMESTAMP(3))')}`,
+          part.flatMap(({ it, id }) => [id, it.code, it.name, it.category, it.cost, it.price, it.qty > 0 ? it.qty : 0, it.reorder]));
+        await insertMoves(part.filter(({ it }) => it.qty > 0).map(({ it, id }) => ({ id, delta: it.qty, balance: it.qty, reason: 'Opening stock (Excel import)' })));
+      }
+      for (let i = 0; i < changed.length; i += 200) {
+        const part = changed.slice(i, i + 200), ids = part.map(it => it.id);
+        const rows = new Map((await c.q('SELECT * FROM inventory WHERE id IN (?) ORDER BY id FOR UPDATE', [ids])).map(r => [r.id, r]));   // one lock for the batch, in a fixed order
+        const moves = [], vals = [];
+        for (const it of part) {
+          const old = rows.get(it.id);
+          if (!old) fail(409, `Part ${it.code} was removed while the file was being imported. Try again.`);
+          const cost = it.cost ?? +old.cost, price = it.price ?? +old.price;
+          let stockNow = +old.stock;
+          vals.push(it, old, cost, price);
+          if (cost !== +old.cost || price !== +old.price) moves.push({ id: old.id, delta: 0, balance: stockNow, reason: 'Price changed', note: str(`Excel import: cost ${+old.cost} → ${cost}; price ${+old.price} → ${price}`, 200) });
+          if (it.qty !== undefined) {
+            const d = qn(it.qty - +old.stock);
+            if (d) { stockNow = +it.qty; moves.push({ id: old.id, delta: d, balance: stockNow, reason: 'Adjusted (Excel import)', note: 'Quantity set from the Excel file' }); }
+          }
+          vals.push(stockNow);
+        }
+        const params = [];
+        for (let k = 0; k < vals.length; k += 5) {
+          const [it, old, cost, price, stockNow] = vals.slice(k, k + 5);
+          params.push(old.id, old.code, it.name, it.category ?? old.category, cost, price, stockNow, it.reorder ?? +old.reorder);
+        }
+        await c.q(`INSERT INTO inventory (id, code, name, category, cost, price, stock, reorder, active) VALUES ${ph(part.length, '(?,?,?,?,?,?,?,?,1)')} ON DUPLICATE KEY UPDATE name = VALUES(name), category = VALUES(category), cost = VALUES(cost), price = VALUES(price), stock = VALUES(stock), reorder = VALUES(reorder), active = 1`, params);
+        await insertMoves(moves);
       }
     });
     s.json({ ...summary, applied: true, errors: errors.slice(0, 200), errorCount: errors.length });

@@ -72,6 +72,7 @@ export function ImportDialog() {
         <Btn kind="ol" onClick={() => downloadXlsx('inventory-template.xlsx', templateRows(), 'Inventory')}>Download an empty template</Btn>
       </div>
       {busy && !check && <p className="mu">Reading {name}…</p>}
+      {busy && check && <p className="mu"><b>Importing {total} item{total === 1 ? '' : 's'}…</b> Please wait and keep this window open. A big file can take up to a minute.</p>}
       {check && <>
         <div className="box mt"><b>{name}</b>: {check.created} new, {check.updated} to update{check.errorCount ? <>, <span style={{ color: 'var(--rd)' }}>{check.errorCount} row(s) with problems (they will be skipped)</span></> : ''}.</div>
         {check.preview.length > 0 && <div className="mt"><Table head={['Row', 'Part number', 'Description', 'What', { t: 'Qty', r: 1 }, { t: 'Cost', r: 1 }, { t: 'Price', r: 1 }]}>
