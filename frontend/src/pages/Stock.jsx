@@ -6,7 +6,7 @@ import { Btn, Dialog, Field, Pill, Table } from '../components/ui.jsx';
 import { usePersistedForm } from '../lib/autosave.js';
 import { isMgr, isSA } from '../lib/constants.js';
 import { dt, money, cur } from '../lib/format.js';
-import { MAKES, PREFIX_HINT, downloadInventory, lowKey, lowParts, makeOf, priceFromCost } from '../lib/stock.js';
+import { MAKES, NO_MODEL, downloadInventory, inMake, lowKey, lowParts, makeOf, priceFromCost } from '../lib/stock.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import GrnDoc from '../print/GrnDoc.jsx';
 
@@ -17,13 +17,11 @@ export function Parts() {
   const sa = isSA(me), mgr = isMgr(me), [q, setQ] = useState(''), [make, setMake] = useState('');
   const [f, , set, reset] = usePersistedForm('form:new-part', NEW);
   const low = lowParts(db.p);
-  const list = db.p.filter(p => (!make || makeOf(p.code) === MAKES[make]) && (p.code + ' ' + p.name + ' ' + (p.category || '')).toLowerCase().includes(q.toLowerCase()));
+  const list = db.p.filter(p => inMake(p.code, make) && (p.code + ' ' + p.name + ' ' + (p.category || '')).toLowerCase().includes(q.toLowerCase()));
   // the price fills itself from the cost until the manager types one
   const shownPrice = f.priceTyped ? f.price : f.cost !== '' ? String(priceFromCost(f.cost, db.cfg.markup)) : '';
-  const badCode = f.code.trim() !== '' && !makeOf(f.code);
   const add = async () => {
     if (!f.code.trim() || !f.name.trim()) return alert('Part number and description are required.');
-    if (badCode) return alert(`Part number "${f.code}": ${PREFIX_HINT}.`);
     const r = await run(() => api('/inventory', 'POST', { code: f.code, name: f.name, category: f.category, cost: f.cost, ...(f.priceTyped && f.price !== '' && { price: f.price }), stock: f.stock, reorder: f.reorder }));
     if (r.ok) reset();
   };
@@ -33,7 +31,7 @@ export function Parts() {
       {low.length > 0 && <div className="box mt"><b>{low.length} part(s) at or below the minimum stock:</b> {low.slice(0, 20).map(p => p.code).join(', ')}{low.length > 20 ? '…' : ''}</div>}
       {mgr && <div className="box mt"><h3>New item</h3>
         <div className="row">
-          <Field label="Part number (S, T or B first)" {...bind('code')} aria-invalid={badCode} />
+          <Field label="Part number" {...bind('code')} />
           <Field label="Description" grow="3 1 200px" {...bind('name')} />
           <Field label="Category" {...bind('category')} />
           <Field label={`Cost (${cur()})`} type="number" min="0" step="any" {...bind('cost')} />
@@ -42,11 +40,11 @@ export function Parts() {
           <Field label="Minimum stock" type="number" min="0" step="any" {...bind('reorder')} />
           <Btn onClick={add}>Save item</Btn>
         </div>
-        <div className="mu small">{badCode ? <span style={{ color: 'var(--rd)' }}>{PREFIX_HINT}.</span> : f.code && `${makeOf(f.code)} part. `}The price is filled as cost x {db.cfg.markup}; type another price to override it.</div>
+        <div className="mu small">{f.code && (makeOf(f.code) ? `${makeOf(f.code)} part. ` : 'No model (oil or a general part), kept as typed. ')}The price is filled as cost x {db.cfg.markup}; type another price to override it.</div>
       </div>}
       <div className="row mt">
         <input aria-label="Search parts" placeholder="Search by part number or description" value={q} onChange={e => setQ(e.target.value)} style={{ flex: '3 1 240px' }} />
-        <select aria-label="Make" value={make} onChange={e => setMake(e.target.value)} style={{ flex: '0 1 180px' }}><option value="">All makes</option>{Object.entries(MAKES).map(([k, n]) => <option key={k} value={k}>{n} ({k})</option>)}</select>
+        <select aria-label="Make" value={make} onChange={e => setMake(e.target.value)} style={{ flex: '0 1 180px' }}><option value="">All makes</option>{Object.entries(MAKES).map(([k, n]) => <option key={k} value={k}>{n} ({k})</option>)}<option value={NO_MODEL}>Other (no model)</option></select>
         {sa && <Btn onClick={() => openModal('grn')}>New GRN (purchase)</Btn>}
         {mgr && <><Btn kind="ol" onClick={() => openModal('importItems')}>Import Excel</Btn><Btn kind="ol" onClick={() => downloadInventory(db.p)}>Export to Excel</Btn><Btn kind="ol" onClick={() => openModal('bulkPrice')}>Change all prices</Btn></>}
       </div>

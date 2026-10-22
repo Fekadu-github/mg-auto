@@ -100,13 +100,15 @@ export function mountStock({ app, db, cfg, auth, wrap }) {
     s.json({ ...summary, applied: true, errors: errors.slice(0, 200), errorCount: errors.length });
   }));
 
-  // All prices up or down by the same percentage (optionally only one make: S, T or B)
+  // All prices up or down by the same percentage (optionally only one make: S, T or B, or '-' for parts with no model)
   app.post('/api/inventory/bulk-price', auth('MGR'), wrap(async (q, s) => {
-    const pct = S.bulkPercent(q.body.percent), letter = S.MAKES[String(q.body.make || '').toUpperCase()] ? String(q.body.make).toUpperCase() : '';
-    const like = letter ? `${letter}%` : '%', factor = 1 + pct / 100, note = `All ${letter ? S.MAKES[letter] + ' ' : ''}prices ${pct > 0 ? '+' : ''}${pct}%`;
+    const pct = S.bulkPercent(q.body.percent), want = String(q.body.make || '').toUpperCase();
+    const letter = S.MAKES[want] ? want : '', other = want === '-';                // '-' = parts with no model (oil and the like)
+    const where = letter ? 'UPPER(LEFT(code, 1)) = ?' : other ? "UPPER(LEFT(code, 1)) NOT IN ('S', 'T', 'B')" : '1 = 1', wp = letter ? [letter] : [];
+    const factor = 1 + pct / 100, note = `All ${letter ? S.MAKES[letter] + ' ' : other ? 'other (no model) ' : ''}prices ${pct > 0 ? '+' : ''}${pct}%`;
     const count = await db.tx(async c => {
-      await c.q("INSERT INTO stock_moves (part_id, delta, balance, reason, job, by_name, note, `at`) SELECT id, 0, stock, 'Price changed', NULL, ?, CONCAT(?, ': ', price, ' → ', ROUND(price * ?, 2)), UTC_TIMESTAMP(3) FROM inventory WHERE active = 1 AND code LIKE ?", [q.u.name, note, factor, like]);
-      const r = await c.q('UPDATE inventory SET price = ROUND(price * ?, 2) WHERE active = 1 AND code LIKE ?', [factor, like]);
+      await c.q(`INSERT INTO stock_moves (part_id, delta, balance, reason, job, by_name, note, \`at\`) SELECT id, 0, stock, 'Price changed', NULL, ?, CONCAT(?, ': ', price, ' → ', ROUND(price * ?, 2)), UTC_TIMESTAMP(3) FROM inventory WHERE active = 1 AND ${where}`, [q.u.name, note, factor, ...wp]);
+      const r = await c.q(`UPDATE inventory SET price = ROUND(price * ?, 2) WHERE active = 1 AND ${where}`, [factor, ...wp]);
       return r.affectedRows;
     });
     s.json({ ok: true, count, percent: pct });

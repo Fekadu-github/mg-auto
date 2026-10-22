@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../stock.js';
 
-test('part numbers: S, T, B decide the make', () => {
+test('part numbers: S, T, B decide the make; any other number is a general part with no model', () => {
   assert.equal(S.makeOf('s-100'), 'Suzuki'); assert.equal(S.makeOf('T123'), 'Toyota'); assert.equal(S.makeOf(' B9'), 'BYD'); assert.equal(S.makeOf('X1'), '');
-  assert.throws(() => S.assertPartNo('X-1'), /starts with S/);
+  assert.doesNotThrow(() => S.assertPartNo('X-1')); assert.doesNotThrow(() => S.assertPartNo('OIL-5W30'));
+  assert.throws(() => S.assertPartNo('  '), /missing/);
   assert.doesNotThrow(() => S.assertPartNo('t-9'));
 });
 
@@ -14,7 +15,8 @@ test('price is cost x 1.3 unless a price is typed', () => {
   assert.equal(a.code, 'T-1'); assert.equal(a.cost, 200); assert.equal(a.price, 260); assert.equal(a.priceGiven, false);
   const b = S.itemForm({ code: 'S-2', name: 'Pad', cost: 200, price: 300, stock: 5, reorder: 2 }, 1.3);
   assert.equal(b.price, 300); assert.equal(b.priceGiven, true); assert.equal(b.qty, 5); assert.equal(b.reorder, 2);
-  assert.throws(() => S.itemForm({ code: 'Q-1', name: 'x' }), /starts with S/);
+  const oil = S.itemForm({ code: 'oil-5w30', name: 'Engine oil', category: 'Oil' });
+  assert.deepEqual([oil.code, oil.cost, oil.price, oil.qty, oil.category], ['OIL-5W30', 0, 0, 0, 'Oil']);   // no model, starts at 0
   assert.throws(() => S.itemForm({ code: 'S-1', name: '' }), /required/);
   assert.throws(() => S.itemForm({ code: 'S-1', name: 'x', cost: -1 }), /zero or more/);
   assert.equal(S.itemForm({ name: 'New name', cost: 10 }, 1.3, { isNew: false }).price, 13);
@@ -26,18 +28,19 @@ test('import: loose headers, new and existing parts, errors by row', () => {
     { 'Part Number': 't-1', Description: 'Oil filter', Qty: 10, Cost: 120 },            // existing: cost changed -> price follows, stock set to 10
     { 'Part No.': 'S-77', 'Part Description': 'Brake pad', Quantity: '3', 'Unit Cost': '1,000', 'Selling Price': '1500', 'Min Stock': 2 },
     { code: 'B-5', name: 'BYD lamp', cost: 50 },                                         // price filled: 65
-    { code: 'Z-1', name: 'Wrong letter' },
+    { code: 'OIL-5W30', name: 'Engine oil 5W-30', category: 'Oil' },                 // no model: accepted as it is, cost price and quantity start at 0
     { code: '', name: 'No code', cost: 5 },
     { code: 'S-77', name: 'Repeated' },
     { code: 'S-80' },                                                                     // no description
     {}, { foo: 'bar' }                                                                   // empty rows and unknown columns are skipped
   ], 1.3, have);
-  assert.equal(items.length, 3);
-  const [a, b, c] = items;
+  assert.equal(items.length, 4);
+  const [a, b, c, d] = items;
   assert.deepEqual([a.action, a.id, a.cost, a.price, a.qty, a.name], ['update', 'p1', 120, 156, 10, 'Oil filter']);
   assert.deepEqual([b.action, b.cost, b.price, b.qty, b.reorder], ['new', 1000, 1500, 3, 2]);
   assert.deepEqual([c.action, c.cost, c.price, c.qty], ['new', 50, 65, 0]);
-  assert.deepEqual(errors.map(e => [e.line, /starts with S|missing|repeated/.test(e.error)]), [[5, true], [6, true], [7, true], [8, true]]);
+  assert.deepEqual([d.action, d.code, d.category, d.cost, d.price, d.qty], ['new', 'OIL-5W30', 'Oil', 0, 0, 0]);
+  assert.deepEqual(errors.map(e => [e.line, /missing|repeated/.test(e.error)]), [[6, true], [7, true], [8, true]]);
   // an existing part with only a new quantity keeps its cost and price
   const keep = S.parseImport([{ code: 'T-1', qty: 7 }], 1.3, have).items[0];
   assert.equal(keep.cost, undefined); assert.equal(keep.price, undefined); assert.equal(keep.name, 'Old name'); assert.equal(keep.qty, 7);

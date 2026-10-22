@@ -1,10 +1,12 @@
 // Parts stock helpers for the screens: model letters, price from cost, the Excel / CSV files, low-stock list. Plain functions, no React.
 import { readXlsx, rowsToObjects, downloadXlsx } from './xlsx.js';
 
-// A part number starts with the model letter: S = Suzuki, T = Toyota, B = BYD
+// A part number that starts with S = Suzuki, T = Toyota or B = BYD belongs to that make; any other number is a general part (oil and the like) with no model
 export const MAKES = { S: 'Suzuki', T: 'Toyota', B: 'BYD' };
 export const makeOf = code => MAKES[String(code || '').trim().toUpperCase().charAt(0)] || '';
-export const PREFIX_HINT = 'Starts with S (Suzuki), T (Toyota) or B (BYD)';
+// '-' in the make filters means "parts with no model"
+export const NO_MODEL = '-';
+export const inMake = (code, make) => !make || (make === NO_MODEL ? !makeOf(code) : makeOf(code) === MAKES[make]);
 
 // The price fills itself from the cost: cost x 1.3 (the server sends the markup in the settings)
 export const MARKUP = 1.3;

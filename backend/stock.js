@@ -3,12 +3,12 @@ import { fail } from './errors.js';
 import { r2 } from './lib.js';
 
 // ---- part numbers ----
-// A part number starts with the model letter: S = Suzuki, T = Toyota, B = BYD.
+// A part number that starts with S = Suzuki, T = Toyota or B = BYD belongs to that make. Any other number is a general part (no model).
 export const MAKES = { S: 'Suzuki', T: 'Toyota', B: 'BYD' };
 export const makeOf = code => MAKES[String(code || '').trim().toUpperCase().charAt(0)] || '';
-export const PREFIX_MSG = 'A part number starts with S (Suzuki), T (Toyota) or B (BYD)';
+// Parts that are not made for one model (oil, grease, coolant...) keep their own number as it is: make is then '' ("no model").
 export function assertPartNo(code) {
-  if (!makeOf(code)) fail(400, `${PREFIX_MSG}: "${code}" does not.`);
+  if (!String(code ?? '').trim()) fail(400, 'Part number is missing');
 }
 
 // What the screens receive for a part. The cost is only for the manager; everyone else sees the selling price.

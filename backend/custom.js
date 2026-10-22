@@ -16,7 +16,7 @@ export const SOURCES = {
       col('cost', 'Cost', 'num'), col('price', 'Price', 'num'), col('status', 'Status'), col('value_cost', 'Value at cost', 'num'), col('value_price', 'Value at price', 'num')],
     load: async q => (await q('SELECT * FROM inventory WHERE active = 1 ORDER BY code ' + LIMIT)).map(p => {
       const st = +p.stock, rl = +p.reorder;
-      return { code: p.code, name: p.name, make: makeOf(p.code), category: p.category || '', qty: st, reorder: rl, cost: +p.cost, price: +p.price, status: st <= 0 ? 'Out of stock' : st <= rl ? 'Low' : 'OK', value_cost: r2(st * +p.cost), value_price: r2(st * +p.price) };
+      return { code: p.code, name: p.name, make: makeOf(p.code) || 'Other', category: p.category || '', qty: st, reorder: rl, cost: +p.cost, price: +p.price, status: st <= 0 ? 'Out of stock' : st <= rl ? 'Low' : 'OK', value_cost: r2(st * +p.cost), value_price: r2(st * +p.price) };
     })
   },
   moves: {
@@ -35,7 +35,7 @@ export const SOURCES = {
     label: 'Parts sold (one row per part on a sale)', dated: true,
     columns: [col('date', 'Date'), col('no', 'Sale'), col('kind', 'Type'), col('status', 'Status'), col('code', 'Part number'), col('make', 'Make'), col('name', 'Description'), col('qty', 'Quantity', 'num'), col('price', 'Price', 'num'), col('amount', 'Amount', 'num'), col('customer', 'Customer')],
     load: async (q, a, b) => (await q("SELECT * FROM sales WHERE kind IN ('Cash','Credit') AND created >= ? AND created < ? ORDER BY created DESC " + LIMIT, [a, b]))
-      .flatMap(s => J(s.lines, []).map(l => ({ date: when(s.created), no: s.id, kind: s.kind, status: s.status, code: l.code, make: makeOf(l.code), name: l.name, qty: l.qty, price: l.price, amount: r2(l.qty * l.price), customer: s.cust_name })))
+      .flatMap(s => J(s.lines, []).map(l => ({ date: when(s.created), no: s.id, kind: s.kind, status: s.status, code: l.code, make: makeOf(l.code) || 'Other', name: l.name, qty: l.qty, price: l.price, amount: r2(l.qty * l.price), customer: s.cust_name })))
   },
   lost: {
     label: 'Lost sales', dated: true,

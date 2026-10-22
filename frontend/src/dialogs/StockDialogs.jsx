@@ -6,7 +6,7 @@ import { Btn, Dialog, Field, Table, useForm } from '../components/ui.jsx';
 import PartSearch from '../components/PartSearch.jsx';
 import { isMgr } from '../lib/constants.js';
 import { money, r2, cur } from '../lib/format.js';
-import { MAKES, makeOf, priceFromCost, readItemsFile, templateRows } from '../lib/stock.js';
+import { MAKES, NO_MODEL, inMake, makeOf, priceFromCost, readItemsFile, templateRows } from '../lib/stock.js';
 import { downloadXlsx } from '../lib/xlsx.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import { clearDraft, usePersistedForm, usePersistedState } from '../lib/autosave.js';
@@ -62,7 +62,8 @@ export function ImportDialog() {
     <Dialog title="Import items from Excel" onClose={closeModal} actions={<><Btn onClick={apply} disabled={busy || !total}>Import {total || ''} item{total === 1 ? '' : 's'}</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
       <p className="mu">Choose an Excel (.xlsx) or .csv file. The first row must be the headers: <b>Part number, Description, Quantity, Cost, Price</b> and optionally Category and Reorder level. Other header spellings (Qty, Part No, Unit cost…) are understood too.</p>
       <ul className="mu small">
-        <li>A new part number must start with S (Suzuki), T (Toyota) or B (BYD).</li>
+        <li>Part numbers starting with S (Suzuki), T (Toyota) or B (BYD) belong to that make. Any other number (oil and the like) is kept as it is, with no model.</li>
+        <li>Cost, Price and Quantity can be left out: a new part starts at 0 and the first GRN (purchase) fills them in.</li>
         <li>If the price column is empty or missing, the price is filled as cost x 1.3.</li>
         <li>A part number that already exists is updated; its quantity becomes the quantity in the file (like a stock count).</li>
       </ul>
@@ -89,7 +90,7 @@ export function BulkPriceDialog() {
   const { db, run, say, closeModal } = useApp();
   const [f, bind] = useForm({ percent: '', make: '' });
   const pct = parseFloat(f.percent), ok = Number.isFinite(pct) && pct !== 0 && pct > -90 && pct <= 1000;
-  const count = db.p.filter(p => !f.make || p.code.toUpperCase().startsWith(f.make)).length;
+  const count = db.p.filter(p => !f.make || inMake(p.code, f.make)).length;
   const apply = async () => {
     if (!confirm(`Change ${count} price(s) by ${pct > 0 ? '+' : ''}${pct}%?\n\nEvery change is written in the part's history. To undo it, change by the opposite percentage.`)) return;
     const r = await run(() => api('/inventory/bulk-price', 'POST', { percent: pct, make: f.make }));
@@ -99,7 +100,7 @@ export function BulkPriceDialog() {
     <Dialog title="Change all prices by a percentage" onClose={closeModal} actions={<><Btn onClick={apply} disabled={!ok || !count}>Change {count} price{count === 1 ? '' : 's'}</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
       <div className="row mt">
         <Field label="Percentage (+ up, - down)" type="number" step="any" placeholder="e.g. 10 or -5" {...bind('percent')} />
-        <Field label="Which parts"><select {...bind('make')}><option value="">All parts</option>{Object.entries(MAKES).map(([k, n]) => <option key={k} value={k}>{n} only ({k})</option>)}</select></Field>
+        <Field label="Which parts"><select {...bind('make')}><option value="">All parts</option>{Object.entries(MAKES).map(([k, n]) => <option key={k} value={k}>{n} only ({k})</option>)}<option value={NO_MODEL}>Other parts (no model)</option></select></Field>
       </div>
       {ok && <p className="mu">Example: a price of 1,000.00 becomes <b>{money(r2(1000 * (1 + pct / 100)))}</b>. {count} part(s) will change.</p>}
       <p className="mu small">Prices are rounded to cents. Prices already on job cards and issued invoices do not change.</p>
