@@ -153,7 +153,7 @@ export function createApp({ cfg, db, notifier }) {
   app.get('/api/data', auth(), wrap(async (q, s) => {
     const staff = q.u.role !== 'TECH', mgr = ['ADMIN', 'MGR'].includes(q.u.role);
     const pv = staff ? await partsVersion() : '', sendParts = staff && String(q.query.pv || '') !== pv;
-    const [c, v, j, p, e, st, pr, ins, lt, people] = await Promise.all([
+    const [c, v, j, p, e, st, pr, ins, lt, people, techs] = await Promise.all([
       db.q(`SELECT ${CUS} FROM customers ORDER BY created_at, id`),
       db.q(`SELECT ${VEH} FROM vehicles ORDER BY created_at, id`),
       db.q('SELECT * FROM jobs ORDER BY created DESC, id DESC'),
@@ -163,9 +163,10 @@ export function createApp({ cfg, db, notifier }) {
       staff ? db.q('SELECT * FROM proformas ORDER BY created DESC, id DESC') : [],
       staff ? db.q('SELECT id, name, phone, address FROM insurers WHERE active = 1 ORDER BY name') : [],
       staff ? db.q('SELECT id, code, model_grp, task, name, section, hours, price FROM labour_tasks WHERE active = 1 ORDER BY section, task, code, name, model_grp') : [],
-      staff ? db.q("SELECT id, name, role FROM app_users WHERE role IN ('SA','WS','MGR','ADMIN') ORDER BY name") : []]);   // estimators: advisors and above, not technicians
+      staff ? db.q("SELECT id, name, role FROM app_users WHERE role IN ('SA','WS','MGR','ADMIN') ORDER BY name") : [],
+      staff ? db.q("SELECT id, name FROM app_users WHERE role = 'TECH' ORDER BY name") : []]);   // the workshop supervisor picks from these   // estimators: advisors and above, not technicians
     const rates = await labourRates(db);
-    s.json({ c: c.map(r => ({ ...r, tg: !!r.tg })), v, j: j.map(jobRow), ...(sendParts ? { p: p.map(r => S.partView(r, mgr)) } : {}), pv, e: e.map(estRow), st: st.map(svcRow), pr: pr.map(proRow), ins, lt: lt.map(t => ({ ...t, hours: +t.hours, price: +t.price })), staff: people,
+    s.json({ c: c.map(r => ({ ...r, tg: !!r.tg })), v, j: j.map(jobRow), ...(sendParts ? { p: p.map(r => S.partView(r, mgr)) } : {}), pv, e: e.map(estRow), st: st.map(svcRow), pr: pr.map(proRow), ins, lt: lt.map(t => ({ ...t, hours: +t.hours, price: +t.price })), staff: people, techs,
       cfg: { vat: cfg.vat, markup: S.DEFAULT_MARKUP, labourRate: cfg.labourRate, currency: await getSetting(db, 'currency', 'ETB'), labourRates: rateMap(rates), priceLimitPct: cfg.priceLimitPct, workEnd: cfg.workEnd, tgBot: notifier.botName, sms: notifier.smsReady, garage: cfg.garage } });
   }));
 
@@ -480,6 +481,14 @@ export function createApp({ cfg, db, notifier }) {
       // SA has checked labour and parts: the customer is told the vehicle is ready. Only the first time: a card sent back and closed again does not message the customer twice (Send again is still there).
       if (j.log.filter(x => x.s === 'Closed').length === 1) after.push(notifier.notifyReady);
     }
+  }));
+  // The workshop supervisor chooses the technicians for tasks: body { lids: [labour ids] (none = every open task), tech_ids: [user ids] (none = take the assignment away) }
+  app.post('/api/jobs/:id/assign', ...edit(['WS'], async (j, { body, c, u }) => {
+    const ids = [...new Set((Array.isArray(body.tech_ids) ? body.tech_ids : []).map(x => str(x, 36)).filter(Boolean))].slice(0, 12);
+    const techs = ids.length ? await c.q(`SELECT id, name FROM app_users WHERE role = 'TECH' AND id IN (${ids.map(() => '?').join(',')})`, ids) : [];
+    if (techs.length !== ids.length) fail(400, 'Choose technicians from the list');
+    const lids = Array.isArray(body.lids) && body.lids.length ? body.lids.map(x => str(x, 40)) : j.labours.filter(l => !l.done).map(l => l.id);
+    rules.assignLabour(j, lids, techs, u);
   }));
   app.post('/api/jobs/:id/labour/:lid/clockin', ...edit(['TECH', 'WS'], async (j, { params, u, c }) => {
     // one running clock per person, so technician hours are never counted twice; lock the person's row so two phones cannot both pass the check

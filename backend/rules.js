@@ -120,11 +120,32 @@ export function returnToWorkshop(j, u, now = Date.now()) {
   j.status = 'Dispatched'; j.log.push({ s: 'Returned to workshop', t: now, by: u.name, ...(todo && { note: `${todo} additional task${todo === 1 ? '' : 's'} to clock` }) });
 }
 
+// ---- the workshop supervisor assigns tasks to technicians ----
+// A task (or a whole Type A/B/C package, which is one task) can be given to one or more technicians while the card is with the workshop. Only they can clock in on it
+// (the supervisor can still clock anyone); a task nobody is assigned to stays open to every technician. An empty `techs` list takes the assignment away.
+export const ASSIGN_STATUSES = ['Dispatched', 'At workshop'];
+export function assignLabour(j, lids, techs, u, now = Date.now()) {
+  if (!isAdminOr(u, 'WS')) fail(403, 'Only the workshop supervisor can assign tasks');
+  if (j.inv || !ASSIGN_STATUSES.includes(j.status)) fail(409, 'Tasks can be assigned while the card is with the workshop');
+  const leads = [...new Set((lids || []).map(id => clockLead(j, findLabour(j, id))))];
+  if (!leads.length) fail(400, 'Choose at least one task to assign');
+  const team = [...new Map((techs || []).map(t => [t.id, { id: t.id, name: t.name }])).values()];
+  for (const l of leads) {
+    if (l.done) fail(409, `${l.desc} is completed and cannot be assigned`);
+    const a = activeClock(l);
+    if (a && !team.some(t => t.name === a.tech)) fail(409, `${a.tech} is clocked in on ${l.desc}. Clock out first, or keep ${a.tech} on the task.`);
+  }
+  for (const l of leads) { if (team.length) l.assigned = team; else delete l.assigned; }
+  const what = leads.map(l => l.desc).join(', ');
+  j.log.push({ s: team.length ? 'Tasks assigned' : 'Tasks unassigned', t: now, by: u.name, note: str(`${what}${team.length ? ` to ${team.map(t => t.name).join(', ')}` : ''}`, 300) });
+}
+
 // `others` = the other job cards that are in the workshop (id + labours), so one person never has two clocks running
 export function clockIn(j, lid, u, others = [], now = Date.now()) {
   if (j.status !== 'At workshop') fail(409, 'Job card is not in the workshop');
   const l = clockLead(j, findLabour(j, lid));
   if (l.done) fail(409, 'This labour is completed and cannot be clocked in again');
+  if (u.role === 'TECH' && (l.assigned || []).length && !l.assigned.some(a => a.id === u.id || a.name === u.name)) fail(403, `This task is assigned to ${l.assigned.map(a => a.name).join(', ')}`);
   if (activeClock(l)) fail(409, 'Someone is already clocked in on this labour');
   for (const o of [j, ...others.filter(o => o.id !== j.id)])
     for (const x of o.labours) { const a = activeClock(x); if (a && a.tech === u.name) fail(409, `You are still clocked in on ${o.id} (${x.desc}). Clock out there first.`); }

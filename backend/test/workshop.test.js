@@ -204,6 +204,47 @@ test('a task added before the first workshop visit is a normal task, and a clock
   assert.throws(() => R.removeLabour(k, k.labours[0].id), err(409, /clocked/));
 });
 
+// ---- the workshop supervisor assigns tasks to technicians ----
+test('assign: the supervisor picks technicians for tasks; only they (and the supervisor) can clock in; an unassigned task stays open', () => {
+  const T2 = { id: 'u4', name: 'Abel', role: 'TECH' }, T3 = { id: 'u5', name: 'Hana', role: 'TECH' };
+  const j = job({ status: 'At workshop', labours: [
+    { id: 'L1', desc: 'Brake pads', section: 'Mechanical Repairs', price: 100, done: false, logs: [] },
+    { id: 'L2', desc: 'Panel beating', section: 'Body & Paints', price: 200, done: false, logs: [] },
+    { id: 'L3', desc: 'Type A: oil', section: 'Regular Service', price: 50, done: false, logs: [], svc: 'A' },
+    { id: 'L4', desc: 'Type A: filter', section: 'Regular Service', price: 50, done: false, logs: [], svc: 'A' }] });
+  assert.throws(() => R.assignLabour(j, ['L1'], [T1], SA), err(403, /supervisor/));                      // the advisor does not assign
+  assert.throws(() => R.assignLabour(j, [], [T1], WS), err(400, /at least one task/));
+  assert.throws(() => R.assignLabour(j, ['nope'], [T1], WS), err(404, /not found/));
+  R.assignLabour(j, ['L1'], [T1, T2, T1], WS, 5);                                                          // two technicians, the duplicate is ignored
+  assert.deepEqual(j.labours[0].assigned, [{ id: 'u3', name: 'Dawit' }, { id: 'u4', name: 'Abel' }]);
+  assert.deepEqual(j.log.at(-1), { s: 'Tasks assigned', t: 5, by: 'Biruk', note: 'Brake pads to Dawit, Abel' });
+  R.assignLabour(j, ['L4'], [T3], WS);                                                                     // a package is one task: assigned on its first line
+  assert.deepEqual([j.labours[2].assigned, j.labours[3].assigned], [[{ id: 'u5', name: 'Hana' }], undefined]);
+
+  assert.throws(() => R.clockIn(j, 'L1', T3, []), err(403, /assigned to Dawit, Abel/));                    // not his task
+  assert.throws(() => R.clockIn(j, 'L4', T1, []), err(403, /assigned to Hana/));                          // the package follows its first line
+  R.clockIn(j, 'L2', T3, [], 10);                                                                          // nobody assigned: open to every technician
+  R.clockOut(j, 'L2', 'Lunch', T3, 11);
+  R.clockIn(j, 'L1', T2, [], 12);                                                                          // the second assigned technician can start it
+  assert.throws(() => R.assignLabour(j, ['L1'], [T1], WS), err(409, /Abel is clocked in/));                // cannot take it from the one who is working
+  R.assignLabour(j, ['L1'], [T1, T2], WS);                                                                 // keeping him on it is fine
+  R.clockOut(j, 'L1', 'Completed', T2, 20);
+  assert.throws(() => R.assignLabour(j, ['L1'], [T1], WS), err(409, /completed/));
+  R.clockIn(j, 'L3', WS, [], 30);                                                                          // the supervisor can clock any task
+  R.clockOut(j, 'L3', 'Lunch', WS, 31);
+  R.assignLabour(j, ['L3'], [], WS, 40);                                                                   // empty list = take the assignment away
+  assert.equal(j.labours[2].assigned, undefined); assert.equal(j.log.at(-1).s, 'Tasks unassigned');
+  R.clockIn(j, 'L3', T1, [], 50);                                                                          // open again
+});
+
+test('assign: only while the card is with the workshop and before the invoice', () => {
+  const lab = [{ id: 'L1', desc: 'x', price: 1, done: false, logs: [] }];
+  R.assignLabour(job({ status: 'Dispatched', labours: lab }), ['L1'], [T1], WS);
+  for (const status of ['Created', 'Work done', 'Back with SA', 'Closed']) assert.throws(() => R.assignLabour(job({ status, labours: lab.map(l => ({ ...l })) }), ['L1'], [T1], WS), err(409, /with the workshop/));
+  assert.throws(() => R.assignLabour(job({ status: 'At workshop', labours: lab, inv: { no: 'INV-1' } }), ['L1'], [T1], WS), err(409, /with the workshop/));
+  R.assignLabour(job({ status: 'At workshop', labours: lab.map(l => ({ ...l })) }), ['L1'], [T1], { id: 'm', name: 'Boss', role: 'MGR' });   // the manager can do the supervisor's step
+});
+
 test('estimate and proforma lines keep their section (BP / ME)', () => {
   const e = R.normalizeEstimate({ labours: [{ desc: 'Brake pads', hours: 1, section: 'Mechanical Repairs' }, { desc: 'Dent', hours: 1, section: 'nonsense' }] }, 100);
   assert.deepEqual(e.labours, [{ desc: 'Brake pads', section: 'Mechanical Repairs', hours: 1, price: 100 }, { desc: 'Dent', hours: 1, price: 100 }]);

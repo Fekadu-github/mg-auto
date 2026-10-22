@@ -29,7 +29,7 @@ test('API: full job card life, stock, roles and concurrency', { skip }, async t 
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
   const login = async u => (await call(null, 'POST', '/api/auth/login', { username: u, password: 'password123' })).body.token;
-  const [sa, ws, t1, mg] = await Promise.all([login(await mk('SA', 'Almaz')), login(await mk('WS', 'Biruk')), login(await mk('TECH', 'Dawit')), login(await mk('MGR', 'Mulu'))]);
+  const [sa, ws, t1, mg, t2] = await Promise.all([login(await mk('SA', 'Almaz')), login(await mk('WS', 'Biruk')), login(await mk('TECH', 'Dawit')), login(await mk('MGR', 'Mulu')), login(await mk('TECH', 'Abel'))]);
 
   assert.equal((await call(null, 'GET', '/health')).body.ok, true);
   assert.equal((await call(null, 'GET', '/api/data')).status, 401);
@@ -187,6 +187,14 @@ test('API: full job card life, stock, roles and concurrency', { skip }, async t 
   const back2 = (await call(sa, 'POST', K('/return'))).body;
   assert.deepEqual([back2.status, back2.log.at(-1).note], ['Dispatched', '1 additional task to clock']);
   assert.equal((await call(ws, 'POST', K('/status'), { to: 'At workshop' })).status, 200);
+  // the workshop supervisor assigns the additional task to Dawit: the advisor cannot, Abel cannot start it, only Dawit (or the supervisor) can
+  const dawit = (await data()).techs.find(x => x.name === 'Dawit');
+  assert.deepEqual((await data()).techs.map(x => x.name).sort(), ['Abel', 'Dawit']);
+  assert.equal((await call(sa, 'POST', K('/assign'), { lids: [addl.id], tech_ids: [dawit.id] })).status, 403);
+  assert.equal((await call(ws, 'POST', K('/assign'), { lids: [addl.id], tech_ids: ['nobody'] })).status, 400);
+  const asg = (await call(ws, 'POST', K('/assign'), { lids: [addl.id], tech_ids: [dawit.id] })).body;
+  assert.deepEqual(asg.labours.find(l => l.id === addl.id).assigned, [{ id: dawit.id, name: 'Dawit' }]);
+  assert.equal((await call(t2, 'POST', K(`/labour/${addl.id}/clockin`))).status, 403);
   assert.equal((await call(ws, 'POST', K('/status'), { to: 'Work done' })).status, 400);                            // still to be clocked by a technician
   await call(t1, 'POST', K(`/labour/${addl.id}/clockin`)); await call(t1, 'POST', K(`/labour/${addl.id}/clockout`), { reason: 'Completed' });
   assert.equal((await call(ws, 'POST', K('/status'), { to: 'Work done' })).status, 200);

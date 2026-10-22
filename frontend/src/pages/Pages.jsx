@@ -90,6 +90,11 @@ export function Workshop() {
   };
   const live = db.j.flatMap(j => j.labours.map(l => ({ j, l, a: activeClock(l) })).filter(x => x.a));
   const list = db.j.filter(j => ['Dispatched', 'At workshop'].includes(j.status) && (!sec || j.labours.some(l => l.section === sec)));
+  // open tasks on the cards that are with the workshop (a Type A/B/C package counts once) and who they are assigned to
+  const openTasks = db.j.filter(j => ['Dispatched', 'At workshop'].includes(j.status)).flatMap(j => j.labours.filter(l => !l.done && (!l.svc || j.labours.find(x => x.svc === l.svc) === l)).map(l => ({ j, l })));
+  const isMine = (l, id) => (l.assigned || []).some(a => a.id === id), free = openTasks.filter(({ l }) => !(l.assigned || []).length);
+  const taskLinks = tasks => tasks.map(({ j, l }) => <div key={l.id}><button type="button" className="lnk" onClick={e => { e.stopPropagation(); openModal('job', { id: j.id }); }}>{j.id}</button> {l.desc}{activeClock(l) && <> <Pill tone="a">working</Pill></>}</div>);
+  const mine = openTasks.filter(({ l }) => isMine(l, me.id));
   return (
     <>
       <div className="row mt"><Field label="Section"><select value={sec} onChange={e => setSec(e.target.value)}><option value="">All sections</option>{SECTIONS.map(s => <option key={s}>{s}</option>)}</select></Field></div>
@@ -97,6 +102,21 @@ export function Workshop() {
       <Table head={['Technician', 'Work', 'Job card', 'Since']} empty={!live.length && 'Nobody is clocked in.'}>
         {live.map(({ j, l, a }) => <tr key={l.id} className="k" onClick={() => openModal('job', { id: j.id })}><td>{a.tech}</td><td>{l.desc}</td><td>{j.id}</td><td>{dt(a.in)}</td></tr>)}
       </Table>
+      {isTech(me)
+        ? <>
+          <h2 className="mt">My tasks</h2>
+          <Table head={['Work', 'Job card', 'Status']} empty={!mine.length && 'No task is assigned to you now.'}>
+            {mine.map(({ j, l }) => <tr key={l.id} className="k" onClick={() => openModal('job', { id: j.id })}><td>{l.desc}{activeClock(l)?.tech === me.name && <> <Pill tone="a">you are clocked in</Pill></>}</td><td>{j.id}</td><td>{j.status === 'At workshop' ? 'Ready to start' : 'Waiting to be received'}</td></tr>)}
+          </Table>
+          {free.length > 0 && <p className="mu small">{free.length} more open task{free.length === 1 ? '' : 's'} {free.length === 1 ? 'has' : 'have'} no technician yet: open the job card to take {free.length === 1 ? 'it' : 'them'} if the supervisor says so.</p>}
+        </>
+        : <>
+          <h2 className="mt">Tasks by technician</h2>
+          <Table head={['Technician', 'Open tasks', 'Count']} empty={!(db.techs || []).length && 'No technician accounts yet. The administrator adds them under Staff.'}>
+            {[...(db.techs || []).map(t => ({ key: t.id, name: t.name, tasks: openTasks.filter(({ l }) => isMine(l, t.id)) })), ...(free.length ? [{ key: '_free', name: 'Nobody yet', tasks: free }] : [])].map(r => <tr key={r.key}><td><b>{r.name}</b></td><td>{r.tasks.length ? taskLinks(r.tasks) : <span className="mu">Free</span>}</td><td>{r.tasks.length}</td></tr>)}
+          </Table>
+          {canStop && free.length > 0 && <p className="mu small">Open a job card and use <b>Assign</b> on a task (or the box above its labour list) to choose its technicians.</p>}
+        </>}
       <h2 className="mt">Job cards for the workshop</h2>
       <div className="mt"><JobTable list={list} /></div>
     </>

@@ -198,3 +198,10 @@ When the workshop sends the card back (Work done -> Received by SA), the Service
 - The workshop cannot press *Work done* until every additional task is completed, and the Service Advisor cannot **close** the card or issue a **cash / credit invoice** while a task is not done (a proforma quote can still be printed).
 - For a charge that needs no work (a fee, a delivery), tick **Billing only** when adding it: that line is created as completed and is never clocked.
 - Parts added by the advisor need no clock: they leave stock when issued, as before.
+
+## Assigning tasks to technicians (workshop supervisor)
+- While a card is with the workshop (*Dispatched* or *Received by workshop*), the **workshop supervisor** (and the Manager / Administrator) opens the job card and uses **Assign** on a task to tick one or several technicians. The box above the labour list gives all unassigned tasks to one technician in one step. A Type A/B/C package is one task and is assigned on its first line.
+- Only the chosen technicians can **clock in** on an assigned task; other technicians see "Assigned to ..." instead of the button. The supervisor can still clock any task. A task nobody is assigned to stays open to every technician, so nothing is blocked if the supervisor has not assigned it yet.
+- A technician cannot be taken off a task while he is clocked in on it. Completed tasks keep their record ("done by ...").
+- **Workshop** screen: technicians get **My tasks** (what is assigned to them); the supervisor gets **Tasks by technician** (open tasks per technician, who is working, and tasks nobody has yet). Every assignment is written in the job card history.
+- Technicians are the users with the *Technician* role. The server sends the list to staff in `/api/data` (`techs`); assignment is `POST /api/jobs/:id/assign` with `{ lids, tech_ids }`.

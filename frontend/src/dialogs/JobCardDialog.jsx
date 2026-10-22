@@ -133,8 +133,9 @@ export default function JobCardDialog({ id }) {
 
       <h3 className="mt">Labour</h3>
       {labourOpen && <EstimateLoader job={j} estimates={db.e || []} />}
+      {ws && ['Dispatched', 'At workshop'].includes(j.status) && !j.inv && <BulkAssign job={j} />}
       <Table head={['Work', 'Price', 'Time', '']} empty={!j.labours.length && 'No labour yet. Add the work to be done.'}>
-        {j.labours.map(l => <LabourRow key={l.id} job={j} l={l} canClock={work && !l.done && me.role !== 'SA'} canStop={ws} canRemove={labourOpen && !(l.logs || []).length} priceOpen={priceOpen} mgr={mgr} />)}
+        {j.labours.map(l => <LabourRow key={l.id} job={j} l={l} canClock={work && !l.done && me.role !== 'SA'} canAssign={ws && ['Dispatched', 'At workshop'].includes(j.status) && !j.inv && !l.done} canStop={ws} canRemove={labourOpen && !(l.logs || []).length} priceOpen={priceOpen} mgr={mgr} />)}
       </Table>
       {labourOpen && <LabourForm id={j.id} rate={db.cfg.labourRates || db.cfg.labourRate} known={knownLabour} brand={v.brand} services={types} late={['Back with SA', 'Closed'].includes(j.status)} />}
 
@@ -307,12 +308,14 @@ function EstimateLoader({ job: j, estimates }) {
   );
 }
 
-function LabourRow({ job: j, l, canClock, canStop, canRemove, priceOpen, mgr }) {
-  const { run, db } = useApp();
-  const [reason, setReason] = useState('Completed');
+function LabourRow({ job: j, l, canClock, canAssign, canStop, canRemove, priceOpen, mgr }) {
+  const { run, db, me } = useApp();
+  const [reason, setReason] = useState('Completed'), [assigning, setAssigning] = useState(false);
   // A Type A/B/C package is clocked as one job, on its first line; every other task is clocked on its own line
   const lead = !l.svc || j.labours.find(x => x.svc === l.svc) === l, packName = l.svc ? (db.st || []).find(t => t.code === l.svc)?.name || `Type ${l.svc}` : '';
   const a = activeClock(l), base = `/jobs/${j.id}/labour/${l.id}`;
+  // the supervisor can give a task to technicians; only they can start it (a task nobody is assigned to is open to every technician)
+  const team = l.assigned || [], names = team.map(x => x.name).join(', '), blocked = isTech(me) && team.length > 0 && !team.some(x => x.id === me.id);
   return (
     <tr>
       <td><b title={l.section}>{SECTION_CODE[l.section]}</b> {l.desc}
@@ -321,20 +324,62 @@ function LabourRow({ job: j, l, canClock, canStop, canRemove, priceOpen, mgr }) 
         {l.late && <span className="mu small"> · billing only (no clock)</span>}
         {l.extra && !l.done && !a && <> <Pill tone="a">additional task: to do</Pill></>}
         {l.extra && l.done && <span className="mu small"> · additional task</span>}
-        {l.done ? <> <Pill tone="g">completed</Pill></> : a ? <> <Pill tone="a">{a.tech} working</Pill></> : null}</td>
+        {l.done ? <> <Pill tone="g">completed</Pill></> : a ? <> <Pill tone="a">{a.tech} working</Pill></> : null}
+        {lead && team.length > 0 && !l.done && <div className="small"><span className="mu">Assigned to</span> <b>{names}</b>{team.some(x => x.id === me.id) && <> <Pill tone="g">yours</Pill></>}</div>}
+        {lead && team.length > 0 && l.done && <span className="mu small"> · done by {names}</span>}
+        {assigning && <AssignBox job={j} l={l} onClose={() => setAssigning(false)} />}</td>
       <td><PriceCell value={l.price} canEdit={priceOpen} onSave={async price => { const r = await run(() => put(j.id, `/labour/${l.id}/price`, { price })); return r.ok ? r.data : false; }}
         note={l.list !== undefined && l.list !== l.price ? <span className="mu small"> (was {money(l.list)})</span> : null}
         pending={(j.price_reqs || []).find(r => r.status === 'Requested' && r.kind === 'labour' && r.key === l.id)} mgr={mgr} onDecide={(rid, ok) => run(() => post(j.id, `/price-requests/${rid}/${ok ? 'approve' : 'reject'}`))} /></td>
       <td>{lead ? `${labourHours(l).toFixed(2)} h` : ''}</td>
       <td className="acts">
-        {canClock && lead && (a ? <>
+        {canClock && lead && (blocked ? <span className="mu small">Assigned to {names}</span> : a ? <>
           <select aria-label="Clock-out reason" value={reason} onChange={e => setReason(e.target.value)} style={{ width: 'auto' }}>{CLOCK_REASONS.map(r => <option key={r}>{r}</option>)}</select>
           <Btn kind="gr" onClick={() => run(() => api(base + '/clockout', 'POST', { reason }))}>Clock out</Btn>
           {canStop && <Btn kind="ol" onClick={() => run(() => api(base + '/clockout', 'POST', { reason: 'Supervisor command' }))}>Supervisor stop</Btn>}
         </> : <Btn onClick={() => run(() => api(base + '/clockin', 'POST'))}>Clock in</Btn>)}
+        {canAssign && lead && <Btn kind="ol" onClick={() => setAssigning(x => !x)}>{team.length ? 'Reassign' : 'Assign'}</Btn>}
         {canRemove && <Btn kind="ol" onClick={() => run(() => api(base, 'DELETE'))}>Remove</Btn>}
       </td>
     </tr>
+  );
+}
+
+// The workshop supervisor ticks the technicians of one task (one or several). Nobody ticked = open to every technician again.
+function AssignBox({ job: j, l, onClose }) {
+  const { db, run } = useApp();
+  const techs = db.techs || [], working = activeClock(l)?.tech;
+  const [sel, setSel] = useState((l.assigned || []).map(x => x.id));
+  const toggle = id => setSel(s => (s.includes(id) ? s.filter(x => x !== id) : [...s, id]));
+  const save = async () => { const r = await run(() => post(j.id, '/assign', { lids: [l.id], tech_ids: sel })); if (r.ok) onClose(); };
+  return (
+    <div className="box mt">
+      <b>Who does “{l.desc}”?</b>
+      {!techs.length
+        ? <p className="mu small">There is no technician account yet. The administrator adds technicians under Staff.</p>
+        : <div className="row mt">{techs.map(t => <label key={t.id} style={{ display: 'flex', gap: 6, alignItems: 'center', flex: '0 0 auto' }}><input type="checkbox" checked={sel.includes(t.id)} onChange={() => toggle(t.id)} style={{ width: 'auto' }} /> {t.name}{working === t.name ? ' (clocked in)' : ''}</label>)}</div>}
+      <div className="row mt"><Btn onClick={save}>{sel.length ? 'Save' : 'Remove assignment'}</Btn><Btn kind="ol" onClick={onClose}>Cancel</Btn></div>
+      <div className="mu small mt">Only the chosen technicians can clock in on this task. With nobody chosen, any technician can take it.</div>
+    </div>
+  );
+}
+
+// Give every task that nobody has yet to one technician, in one go
+function BulkAssign({ job: j }) {
+  const { db, run } = useApp();
+  const [tech, setTech] = useState('');
+  const techs = db.techs || [];
+  const open = j.labours.filter(l => !l.done && (!l.svc || j.labours.find(x => x.svc === l.svc) === l));   // a package counts once
+  const free = open.filter(l => !(l.assigned || []).length);
+  if (!open.length || !techs.length) return null;
+  const go = async () => { const r = await run(() => post(j.id, '/assign', { lids: free.map(l => l.id), tech_ids: [tech] })); if (r.ok) setTech(''); };
+  return (
+    <div className="box mt row" style={{ alignItems: 'end' }}>
+      <div className="mu small" style={{ flex: '1 1 200px' }}><b>Assign tasks to technicians</b><br />{open.length} open task{open.length === 1 ? '' : 's'}, {free.length} without a technician. Use <b>Assign</b> on a task to choose its technicians.</div>
+      {free.length > 0 && <>
+        <Field label={`Give the ${free.length} unassigned to`}><select aria-label="Technician" value={tech} onChange={e => setTech(e.target.value)}><option value="">Choose a technician</option>{techs.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
+        <Btn disabled={!tech} onClick={go}>Assign</Btn></>}
+    </div>
   );
 }
 
