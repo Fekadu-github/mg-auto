@@ -42,7 +42,7 @@ function JobTable({ list }) {
     <Table head={['Job card', 'Customer', 'Vehicle', 'Status', { t: 'Total', r: 1 }, ...(isAdmin(me) ? [''] : [])]} empty={!list.length && 'Nothing here yet.'}>
       {list.map(j => (
         <tr key={j.id} className="k" tabIndex={0} onClick={() => openModal('job', { id: j.id })} onKeyDown={e => e.key === 'Enter' && openModal('job', { id: j.id })}>
-          <td><b>{j.id}</b></td><td>{cust(j.cid).name}</td><td>{veh(j.vid).plate} {vehicleName(veh(j.vid))}</td><td><StatusPill status={j.status} /></td><td className="r">{money(jobTotals(j, db.cfg.vat).total)}</td>{isAdmin(me) && <td className="acts" onClick={e => e.stopPropagation()}><Btn kind="ol" onClick={() => del(j)}>Delete</Btn></td>}
+          <td><b>{j.id}</b></td><td>{cust(j.cid).name}</td><td>{veh(j.vid).plate} {vehicleName(veh(j.vid))}</td><td><StatusPill status={j.status} />{(() => { const n = j.labours.filter(l => l.extra && !l.done).length; return n > 0 && <> <Pill tone="a">{n} additional</Pill></>; })()}</td><td className="r">{money(jobTotals(j, db.cfg.vat).total)}</td>{isAdmin(me) && <td className="acts" onClick={e => e.stopPropagation()}><Btn kind="ol" onClick={() => del(j)}>Delete</Btn></td>}
         </tr>
       ))}
     </Table>

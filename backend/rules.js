@@ -40,8 +40,12 @@ export function addLabour(j, b, rate, now = Date.now(), rnd = Math.random) {
   if (!str(b.desc)) fail(400, 'Describe the work');
   const section = SECTIONS.includes(b.section) ? b.section : SECTIONS[0];
   const price = Math.max(0, +b.price || qn((+b.hours || 0) * rateOf(rate, section)));   // a typed price wins, otherwise hours x the section's labour rate
-  const late = ['Back with SA', 'Closed'].includes(j.status);           // added after the workshop finished: a billing line, not work to clock
-  j.labours.push({ id: 'L' + now.toString(36) + rnd().toString(36).slice(2, 5), desc: str(b.desc), section, price, done: late, ...(late && { late: true }), logs: [] });
+  // A task added after the workshop has already finished once (card with the advisor, closed, or sent back) is an ADDITIONAL task: it is not done,
+  // so the card goes back to the workshop, a technician clocks in and out on it and completes it. Only a line the advisor marks "billing only"
+  // (a fee that needs no work) is created already done, and is never clocked.
+  const after = ['Back with SA', 'Closed'].includes(j.status), billing = after && (b.billing === true || b.billing === 'true');
+  const extra = !billing && (j.log || []).some(x => x.s === 'Work done');
+  j.labours.push({ id: 'L' + now.toString(36) + rnd().toString(36).slice(2, 5), desc: str(b.desc), section, price, done: billing, ...(billing && { late: true }), ...(extra && { extra: true }), logs: [] });
 }
 
 export function removeLabour(j, lid) {
@@ -99,6 +103,7 @@ export function transition(j, to, u, now = Date.now()) {
   if (!isAdminOr(u, ...f[1])) fail(403, 'Your role cannot do this step');
   if (to === 'Dispatched' && !j.labours.length) fail(400, 'Add at least one labour first');
   if (to === 'Work done' && j.labours.some(l => !l.done)) fail(400, 'Every labour must be completed first');
+  if (to === 'Closed' && j.labours.some(l => !l.done)) fail(409, 'Some tasks are not done yet. Send the card back to the workshop so a technician can clock in and complete them, or remove them.');
   if (to === 'Closed' && pendingRequests(j).length) fail(409, 'Issue or reject the pending part requests first');
   if (to === 'Closed' && waitingParts(j).length) fail(409, 'Some parts are still waiting for stock. Receive them when they arrive, or remove them.');
   if (to === 'Closed' && pendingPrices(j).length) fail(409, "A price change is waiting for the manager's approval");
@@ -111,7 +116,8 @@ export function returnToWorkshop(j, u, now = Date.now()) {
   if (j.inv) fail(409, `Already invoiced (${j.inv.no}): it cannot go back to the workshop`);
   if (!['Back with SA', 'Closed'].includes(j.status)) fail(409, `Job card is "${j.status}": only a card with the Service Advisor can go back to the workshop`);
   if (!isAdminOr(u, 'SA')) fail(403, 'Your role cannot do this step');
-  j.status = 'Dispatched'; j.log.push({ s: 'Returned to workshop', t: now, by: u.name });
+  const todo = j.labours.filter(l => !l.done).length;
+  j.status = 'Dispatched'; j.log.push({ s: 'Returned to workshop', t: now, by: u.name, ...(todo && { note: `${todo} additional task${todo === 1 ? '' : 's'} to clock` }) });
 }
 
 // `others` = the other job cards that are in the workshop (id + labours), so one person never has two clocks running
@@ -142,6 +148,7 @@ export function checkInvoice(j, type) {
   if (!INVOICE_PREFIX[type]) fail(400, 'Choose Proforma, Cash or Credit');
   if (!['Closed', 'Invoiced'].includes(j.status)) fail(409, 'Close the job card before invoicing');
   if (type !== 'Proforma' && j.inv) fail(409, `Already invoiced (${j.inv.no})`);
+  if (type !== 'Proforma' && j.labours.some(l => !l.done)) fail(409, 'Some tasks are not done yet. Send the card back to the workshop so a technician can complete them first.');
   if (type !== 'Proforma' && waitingParts(j).length) fail(409, 'Some parts are still waiting for stock. Receive them when they arrive, or remove them.');
   if (type !== 'Proforma' && pendingPrices(j).length) fail(409, "A price change is waiting for the manager's approval");
 }

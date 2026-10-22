@@ -191,3 +191,10 @@ The insurance proforma and the Body & Paints estimate print on one A4 sheet mode
 
 ## Print look (A4 documents)
 The A4 documents (estimate / proforma "Service Price Estimation", the A4 proforma invoice, delivery voucher, GRN, sale) share the MG Auto brand skin in `frontend/src/styles/print.css` (block "MG Auto brand skin"): logo letterhead with a blue-to-lime rule, tinted table headings, accent cards for customer / vehicle, tinted grand total, and a faint DRAFT watermark on draft estimates. Only light tints and thin rules are used, so it prints well on a black-and-white laser printer. The accent colours are the `--pb`, `--pd`, `--pg`, `--pt`, `--pl`, `--ps` variables on `.doc.a4`. The 80 mm cash/credit receipt stays plain black for thermal printers.
+
+## Additional tasks after the workshop has finished
+When the workshop sends the card back (Work done -> Received by SA), the Service Advisor can still add labour and parts, then press **Return to workshop**.
+- A labour line added at that point is an **additional task**: it is *not* done. After the workshop receives the card again, a technician must **clock in and out** on it and complete it, like any other task. The card shows an "additional task: to do" badge, a banner lists them, and the workshop queue shows "n additional".
+- The workshop cannot press *Work done* until every additional task is completed, and the Service Advisor cannot **close** the card or issue a **cash / credit invoice** while a task is not done (a proforma quote can still be printed).
+- For a charge that needs no work (a fee, a delivery), tick **Billing only** when adding it: that line is created as completed and is never clocked.
+- Parts added by the advisor need no clock: they leave stock when issued, as before.

@@ -176,9 +176,22 @@ test('API: full job card life, stock, roles and concurrency', { skip }, async t 
   assert.equal((await call(sa, 'POST', K('/status'), { to: 'Back with SA' })).status, 200);
   assert.equal((await call(sa, 'POST', K('/status'), { to: 'Closed' })).status, 200);
 
-  // a closed card can still be corrected (a late billing line, a part) until the invoice
-  const lateLine = (await call(sa, 'POST', K('/labour'), { desc: 'Wash', hours: 0.5 })).body.labours.at(-1);
+  // a closed card can still be corrected (a billing-only line, a part) until the invoice
+  const lateLine = (await call(sa, 'POST', K('/labour'), { desc: 'Wash', hours: 0.5, billing: true })).body.labours.at(-1);
   assert.deepEqual([lateLine.done, lateLine.late], [true, true]);
+
+  // a task added after the workshop finished is an ADDITIONAL task: not done, so no invoice until the workshop has clocked and completed it
+  const addl = (await call(sa, 'POST', K('/labour'), { desc: 'Door lock', section: 'Mechanical Repairs', hours: 1 })).body.labours.at(-1);
+  assert.deepEqual([addl.done, addl.extra, addl.late], [false, true, undefined]);
+  assert.equal((await call(sa, 'POST', K('/invoice'), { type: 'Cash' })).status, 409);
+  const back2 = (await call(sa, 'POST', K('/return'))).body;
+  assert.deepEqual([back2.status, back2.log.at(-1).note], ['Dispatched', '1 additional task to clock']);
+  assert.equal((await call(ws, 'POST', K('/status'), { to: 'At workshop' })).status, 200);
+  assert.equal((await call(ws, 'POST', K('/status'), { to: 'Work done' })).status, 400);                            // still to be clocked by a technician
+  await call(t1, 'POST', K(`/labour/${addl.id}/clockin`)); await call(t1, 'POST', K(`/labour/${addl.id}/clockout`), { reason: 'Completed' });
+  assert.equal((await call(ws, 'POST', K('/status'), { to: 'Work done' })).status, 200);
+  assert.equal((await call(sa, 'POST', K('/status'), { to: 'Back with SA' })).status, 200);
+  assert.equal((await call(sa, 'POST', K('/status'), { to: 'Closed' })).status, 200);
   assert.equal((await call(sa, 'POST', K('/parts'), { name: 'Sticker', qty: 1, price: 20 })).status, 200);
 
   // prices are still open after closing, but not after the invoice

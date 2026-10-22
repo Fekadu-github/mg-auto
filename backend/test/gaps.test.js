@@ -61,7 +61,7 @@ test('a part that is short waits for stock; the card cannot close or be invoiced
 test('price approval: within the limit the advisor decides, beyond it the manager approves; the manager is never limited', () => {
   const j = job({ status: 'Closed' });
   j.parts.push({ pid: 'p1', code: 'TOIL-001', name: 'Oil', qty: 1, price: 1000 });
-  j.labours.push({ id: 'L1', desc: 'Respray', price: 2000 });
+  j.labours.push({ id: 'L1', desc: 'Respray', price: 2000, done: true });
   assert.equal(R.submitPartPrice(j, 0, 1090, SA, 10, 1), 'applied');                 // +9%
   assert.equal(j.parts[0].price, 1090);
   assert.equal(R.submitPartPrice(j, 0, 1400, SA, 10, 2, () => 0.5), 'pending');      // +40% of the list price (1000)

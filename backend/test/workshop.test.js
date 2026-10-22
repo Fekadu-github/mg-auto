@@ -160,26 +160,48 @@ test('clock: a Type A/B/C package is clocked once for all its lines; BP and ME t
   assert.throws(() => R.transition(j, 'Work done', WS), err(400, /Every labour/));
 });
 
-// ---- 10, 11. the advisor can add tasks and parts after the work, and send the card back ----
-test('after the work: tasks are billing lines, parts and prices stay open until the invoice, and the card can go back to the workshop', () => {
-  const j = job({ status: 'Back with SA' });
+// ---- 10, 11. the advisor adds tasks and parts after the work and sends the card back: the new tasks must be clocked and completed ----
+test('after the work: an added task is an additional task for the workshop (not done, needs a clock); only "billing only" lines are born done', () => {
+  const j = job({ status: 'Back with SA', log: [{ s: 'Work done', t: 1, by: 'Biruk' }] });
   R.addLabour(j, { desc: 'Extra paint', section: 'Body & Paints', hours: 1 }, 350);
-  assert.deepEqual([j.labours[0].done, j.labours[0].late, j.labours[0].price], [true, true, 350]);   // does not block anything
-  j.labours[0].logs.push({ tech: 'x', in: 1, out: 2 });
-  assert.throws(() => R.removeLabour(j, j.labours[0].id), err(409, /clocked/));
+  assert.deepEqual([j.labours[0].done, j.labours[0].late, j.labours[0].extra, j.labours[0].price], [false, undefined, true, 350]);
+  R.addLabour(j, { desc: 'Wash fee', section: 'Regular Service', price: 50, billing: true }, 350);          // a fee that needs no work
+  assert.deepEqual([j.labours[1].done, j.labours[1].late, j.labours[1].extra], [true, true, undefined]);
+
+  // it cannot be closed, and no cash / credit invoice can be issued, while the additional task is not done
+  assert.throws(() => R.transition(j, 'Closed', SA), err(409, /not done yet/));
+  j.status = 'Closed'; assert.throws(() => R.checkInvoice(j, 'Cash'), err(409, /not done yet/)); R.checkInvoice(j, 'Proforma'); j.status = 'Back with SA';
 
   R.returnToWorkshop(j, SA, 50);
-  assert.equal(j.status, 'Dispatched'); assert.deepEqual(j.log.at(-1), { s: 'Returned to workshop', t: 50, by: 'Almaz' });
-  R.addLabour(j, { desc: 'Rear bumper', section: 'Body & Paints', hours: 2 }, 350);                    // sent back: a real task for the workshop
-  assert.deepEqual([j.labours[1].done, j.labours[1].late], [false, undefined]);
-  R.transition(j, 'At workshop', WS); R.clockIn(j, j.labours[1].id, T1, [], 10); R.clockOut(j, j.labours[1].id, 'Completed', T1, 20);
-  R.transition(j, 'Work done', WS); R.transition(j, 'Back with SA', SA); R.transition(j, 'Closed', SA);
+  assert.equal(j.status, 'Dispatched'); assert.deepEqual(j.log.at(-1), { s: 'Returned to workshop', t: 50, by: 'Almaz', note: '1 additional task to clock' });
+  R.addLabour(j, { desc: 'Rear bumper', section: 'Body & Paints', hours: 2 }, 350);                        // added after the return: also an additional task
+  assert.deepEqual([j.labours[2].done, j.labours[2].late, j.labours[2].extra], [false, undefined, true]);
+  R.transition(j, 'At workshop', WS);
+  assert.throws(() => R.clockIn(j, j.labours[1].id, T1, [], 5), err(409, /completed/));                      // the billing line is never clocked
+  assert.throws(() => R.transition(j, 'Work done', WS), err(400, /Every labour/));                           // the technicians have not done the new tasks
+  R.clockIn(j, j.labours[0].id, T1, [], 10); R.clockOut(j, j.labours[0].id, 'Completed', T1, 20);
+  assert.throws(() => R.removeLabour(j, j.labours[0].id), err(409, /Labour cannot be removed|not in the workshop|in the workshop/));
+  assert.throws(() => R.transition(j, 'Work done', WS), err(400, /Every labour/));                           // one more is still open
+  R.clockIn(j, j.labours[2].id, T1, [], 30); R.clockOut(j, j.labours[2].id, 'Completed', T1, 40);
+  R.transition(j, 'Work done', WS); R.transition(j, 'Back with SA', SA); R.transition(j, 'Closed', SA);      // now every task is done
+  assert.ok(j.labours[0].logs.length === 1 && j.labours[2].logs.length === 1);                              // each additional task has its own clock record
   R.returnToWorkshop(j, SA);                                                                              // a closed card can go back too
+  assert.equal(j.log.at(-1).note, undefined);                                                             // nothing new waiting: no note
   j.status = 'Closed'; j.inv = { no: 'INV-1' };
   assert.throws(() => R.returnToWorkshop(j, SA), err(409, /Already invoiced/));
   assert.throws(() => R.addLabour(j, { desc: 'x' }, 350), err(409, /Already invoiced/));
   assert.throws(() => R.returnToWorkshop(job({ status: 'At workshop' }), SA), err(409, /with the Service Advisor/));
   assert.throws(() => R.returnToWorkshop(job({ status: 'Back with SA' }), T1), err(403, /role/));
+});
+
+test('a task added before the first workshop visit is a normal task, and a clocked additional task cannot be removed', () => {
+  const j = job({ status: 'Created' });
+  R.addLabour(j, { desc: 'Oil change', section: 'Regular Service', hours: 1 }, 300);
+  assert.deepEqual([j.labours[0].done, j.labours[0].extra], [false, undefined]);
+  const k = job({ status: 'Back with SA', log: [{ s: 'Work done', t: 1, by: 'Biruk' }] });
+  R.addLabour(k, { desc: 'Extra', section: 'Body & Paints', hours: 1 }, 350);
+  k.labours[0].logs.push({ tech: 'x', in: 1, out: 2 });
+  assert.throws(() => R.removeLabour(k, k.labours[0].id), err(409, /clocked/));
 });
 
 test('estimate and proforma lines keep their section (BP / ME)', () => {

@@ -23,7 +23,7 @@ const r2 = n => Math.round(n * 100) / 100;
 // The job card: status steps, customer and vehicle, mileage and service, labour with clocks, parts, part requests, notifications, totals and the actions
 // the signed-in role may take. Everything is read from the shared data, so it updates by itself when someone else changes the card.
 export default function JobCardDialog({ id }) {
-  const { db, me, run, job, cust, veh, closeModal } = useApp();
+  const { db, me, run, say, job, cust, veh, closeModal } = useApp();
   const { print } = usePrint();
   const j = job(id);
   if (!j) return <Dialog title="Job card" onClose={closeModal}><p className="mu">This job card no longer exists.</p></Dialog>;
@@ -31,6 +31,7 @@ export default function JobCardDialog({ id }) {
   const c = cust(j.cid), v = veh(j.vid), vat = db.cfg.vat, garage = db.cfg.garage;
   const sa = isSA(me), ws = isWS(me), work = j.status === 'At workshop', si = STATUSES.indexOf(j.status);
   const t = jobTotals(j, vat);
+  const notDone = j.labours.filter(l => !l.done), extraTodo = notDone.filter(l => l.extra);   // tasks still to be clocked and completed; extra = added after the workshop had finished
   // The estimate this card was made from (or loaded), at its own prices, so the footer can show: estimate + what was added on the card = final
   const est = j.est ? (db.e || []).find(x => x.id === j.est) : null;
   const et = est ? tot({ labours: est.labours.map(l => ({ price: +l.price || 0 })), parts: est.parts.map(x => ({ qty: +x.qty || 0, price: +x.price || 0 })) }, t.rate) : null;
@@ -44,6 +45,7 @@ export default function JobCardDialog({ id }) {
 
   const go = (to, extra) => run(() => post(j.id, '/status', { to, ...extra }));
   const close = () => {
+    if (notDone.length) return say(`${notDone.length} task${notDone.length === 1 ? ' is' : 's are'} not done yet (${notDone.slice(0, 3).map(l => l.desc).join(', ')}${notDone.length > 3 ? '…' : ''}). Return the card to the workshop so a technician can clock in and complete ${notDone.length === 1 ? 'it' : 'them'}, or remove ${notDone.length === 1 ? 'it' : 'them'}.`);
     if (!confirm(`Check before closing ${j.id}:\n\nLabour items: ${j.labours.length} (all completed)\nParts lines issued: ${j.parts.length}\n\nClose the job card? The customer will be told the vehicle is ready.`)) return;
     // the next service is counted from the reading when the vehicle leaves; leave the box as it is if the reading did not change
     const out = prompt(`Mileage (km) when the vehicle leaves the workshop.\nArrival reading: ${j.mileage != null ? j.mileage : 'not recorded'}. The next service is counted from this reading.`, j.mileage != null ? String(j.mileage) : '');
@@ -51,7 +53,10 @@ export default function JobCardDialog({ id }) {
     go('Closed', out.trim() === '' || Number(out) === j.mileage ? {} : { mileage_out: Number(out) });
   };
   const returnBack = () => {
-    if (!confirm(`Send ${j.id} back to the workshop?\n\nAdd the extra tasks and parts first (the labour list fills the price by itself). The workshop receives it again, clocks the new tasks and sends it back.`)) return;
+    const ask = notDone.length
+      ? `Send ${j.id} back to the workshop?\n\n${notDone.length} additional task${notDone.length === 1 ? '' : 's'} will wait for a technician to clock in and complete:\n${notDone.map(l => `• ${l.desc}`).join('\n')}\n\nThe workshop receives the card again and sends it back when they are done.`
+      : `Send ${j.id} back to the workshop?\n\nNo additional labour has been added, so there is nothing for a technician to clock. Add the extra tasks first (they are done by the workshop and clocked like any other task), or continue if only parts need fitting.`;
+    if (!confirm(ask)) return;
     run(() => post(j.id, '/return'));
   };
   const invoice = async type => {
@@ -110,6 +115,13 @@ export default function JobCardDialog({ id }) {
         </div>
       </div>
       {j.note && <p className="mu">Notes: {j.note}</p>}
+      {extraTodo.length > 0 && !j.inv && (
+        <div className="box mt"><Pill tone="a">{extraTodo.length} additional task{extraTodo.length === 1 ? '' : 's'} to do</Pill>{' '}
+          {['Dispatched', 'At workshop'].includes(j.status)
+            ? <span>The Service Advisor added {extraTodo.length === 1 ? 'a task' : 'tasks'} after the first visit: {extraTodo.map(l => l.desc).join(', ')}. {work ? 'Clock in and out on each one and complete it, then send the card back.' : 'Receive the card, then clock in and out on each one.'}</span>
+            : <span>Added after the workshop finished: {extraTodo.map(l => l.desc).join(', ')}. They are not done: press <b>Return to workshop</b> so a technician clocks and completes them. The card cannot be closed or invoiced before.</span>}
+        </div>
+      )}
       {sa && !j.inv ? <DetailsBox job={j} /> : (j.claim_no || j.due_date || j.priority) && <p className="mu">{[j.claim_no && <>Claim no <b>{j.claim_no}</b></>, j.due_date && <>Expected finish <b>{j.due_date}</b></>, j.priority && <b>{j.priority}</b>].filter(Boolean).map((x, i) => <span key={i}>{i ? ' · ' : ''}{x}</span>)}</p>}
       {sa && !j.inv ? <PayerBox job={j} /> : j.payer && <p className="mu">Invoice made out to: <b>{j.payer}</b>{j.policy_no ? ` (policy ${j.policy_no})` : ''}</p>}
       {services.length > 0 && <p className="mu">Service on this card: {services.map(x => types.find(t2 => t2.code === x)?.name || `Type ${x}`).join(', ')}</p>}
@@ -306,7 +318,9 @@ function LabourRow({ job: j, l, canClock, canStop, canRemove, priceOpen, mgr }) 
       <td><b title={l.section}>{SECTION_CODE[l.section]}</b> {l.desc}
         {l.svc && lead && <span className="mu small"> · {packName}: clocked once for the whole package</span>}
         {l.svc && !lead && <span className="mu small"> · part of the {packName} clock</span>}
-        {l.late && <span className="mu small"> · added after the work</span>}
+        {l.late && <span className="mu small"> · billing only (no clock)</span>}
+        {l.extra && !l.done && !a && <> <Pill tone="a">additional task: to do</Pill></>}
+        {l.extra && l.done && <span className="mu small"> · additional task</span>}
         {l.done ? <> <Pill tone="g">completed</Pill></> : a ? <> <Pill tone="a">{a.tech} working</Pill></> : null}</td>
       <td><PriceCell value={l.price} canEdit={priceOpen} onSave={async price => { const r = await run(() => put(j.id, `/labour/${l.id}/price`, { price })); return r.ok ? r.data : false; }}
         note={l.list !== undefined && l.list !== l.price ? <span className="mu small"> (was {money(l.list)})</span> : null}
@@ -329,7 +343,7 @@ function LabourRow({ job: j, l, canClock, canStop, canRemove, priceOpen, mgr }) 
 const groupLabelText = g => `▤ ${g.name}`;
 function LabourForm({ id, rate, known, late, services, brand }) {
   const { run, say } = useApp();
-  const [allModels, setAllModels] = useState(false);
+  const [allModels, setAllModels] = useState(false), [billing, setBilling] = useState(false);
   const offered = allModels ? known : tasksForVehicle(known, brand);   // only the lines of the vehicle's make (and general lines)
   const groups = [...groupTasks(offered), ...serviceGroups(services)];
   const allGroups = [...groupTasks(known), ...serviceGroups(services)];
@@ -354,8 +368,8 @@ function LabourForm({ id, rate, known, late, services, brand }) {
     if (!f.section) return say?.('Choose the section first.');
     if (!f.desc.trim()) return;
     if (!chosen) return say?.('Choose the labour task from the list: type a letter of its code or name and pick one.');
-    const r = await run(() => post(id, '/labour', { desc: f.desc, section: f.section, price: parseFloat(f.price) || 0, hours: parseFloat(f.hours) || 0 }));
-    if (r.ok) reset();
+    const r = await run(() => post(id, '/labour', { desc: f.desc, section: f.section, price: parseFloat(f.price) || 0, hours: parseFloat(f.hours) || 0, ...(late && billing && { billing: true }) }));
+    if (r.ok) { reset(); setBilling(false); }
   };
   return (
     <>
@@ -369,8 +383,9 @@ function LabourForm({ id, rate, known, late, services, brand }) {
       </div>
       <div className="mu small">
         {f.price ? `Labour cost: ${cur()} ${money(f.price)}${f.hours ? ` (${f.hours} h x ${rateOf(rate, f.section)})` : ''}. Type another amount to change it.` : 'Choose the section, then type a letter and pick a task from the list (▤ adds all its lines); its section, hours and cost fill themselves.'}
-        {late && ' The card is not in the workshop: this is added as a billing line. To have it done, return the card to the workshop first.'}
+        {late && ' The workshop has already finished: this is an additional task. Add all of them, then press Return to workshop: a technician clocks in and out on each task and completes it.'}
       </div>
+      {late && <label className="mu small" style={{ display: 'block' }}><input type="checkbox" checked={billing} onChange={e => setBilling(e.target.checked)} style={{ width: 'auto' }} /> Billing only: a charge that needs no workshop work (no clock, added as completed)</label>}
     </>
   );
 }

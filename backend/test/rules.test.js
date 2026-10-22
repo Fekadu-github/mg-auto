@@ -92,7 +92,7 @@ test('parts: free text is not tracked, closed cards refuse changes, removing ret
 });
 
 test('invoice: only after closing, one cash/credit invoice, many proformas, amounts frozen', () => {
-  const j = job({ status: 'Back with SA', labours: [{ price: 1000 }], parts: [{ qty: 2, price: 100 }] });
+  const j = job({ status: 'Back with SA', labours: [{ price: 1000, done: true }], parts: [{ qty: 2, price: 100 }] });
   assert.throws(() => R.issueInvoice(j, 'Cash', 0.15, 'INV-1', SA), err(409, /Close the job card/));
   j.status = 'Closed';
   assert.throws(() => R.issueInvoice(j, 'Gift', 0.15, 'INV-1', SA), err(400, /Choose/));
@@ -116,7 +116,7 @@ test('config: defaults and bad values', () => {
 
 test('schema.sql splits into whole statements with no comments left', () => {
   const st = splitSql(readFileSync(new URL('../sql/schema.sql', import.meta.url), 'utf8'));
-  assert.equal(st.length, 19);
+  assert.equal(st.length, 22);
   assert.ok(st.every(s => /^CREATE TABLE IF NOT EXISTS/.test(s) && !s.includes('--') && s.endsWith('utf8mb4')));
   assert.deepEqual(splitSql("a; -- x\nb;\n\n-- only a comment\n"), ['a', 'b']);
 });
