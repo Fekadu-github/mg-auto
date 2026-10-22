@@ -10,6 +10,7 @@ import { usePersistedForm } from '../lib/autosave.js';
 import { suggestService } from '../lib/services.js';
 import EstimatePicker, { EstimatePreview } from '../components/EstimatePicker.jsx';
 import CustomerPicker from '../components/CustomerPicker.jsx';
+import { PartLines } from '../components/Lines.jsx';
 import JobCardDialog from './JobCardDialog.jsx';
 import EstimateDialog from './EstimateDialog.jsx';
 import ProformaDialog from './ProformaDialog.jsx';
@@ -230,24 +231,25 @@ export function ServiceTypeDialog({ code }) {
   const t = db.st.find(x => x.code === code);
   const [f, bind] = useForm({
     name: t?.name || '', interval_km: t?.interval_km || '',
-    labours: lines((t?.labours || []).map(l => [l.desc, l.hours || '', l.price || ''])),
-    parts: lines((t?.parts || []).map(p => [p.code || p.name, p.qty, p.price || '']))
+    labours: lines((t?.labours || []).map(l => [l.desc, l.hours || '', l.price || '']))
   });
+  // parts: type a letter and pick from stock, or type any text to add a part that is not in stock
+  const [parts, setParts] = useState(() => (t?.parts || []).map(p => { const sp = p.code && db.p.find(x => x.code.toLowerCase() === p.code.toLowerCase()); return { name: sp ? sp.name : p.name, code: sp ? sp.code : '', pid: sp ? sp.id : undefined, qty: p.qty, price: p.price || (sp ? sp.price : '') }; }));
   if (!t) return <Dialog title="Service" onClose={closeModal}><p className="mu">This service no longer exists.</p></Dialog>;
   const save = async () => {
     const labours = cells(f.labours).map(([desc, hours, price]) => ({ desc, hours: parseFloat(hours) || 0, price: parseFloat(price) || 0 }));
-    const parts = cells(f.parts).map(([a, qty, price]) => {
-      const sp = db.p.find(x => x.code.toLowerCase() === a.toLowerCase());
-      return { code: sp ? sp.code : '', name: sp ? sp.name : a, qty: parseFloat(qty) || 1, price: parseFloat(price) || 0 };
+    const partRows = parts.filter(x => (x.name || '').trim()).map(x => {
+      const sp = x.pid && db.p.find(y => y.id === x.pid), price = parseFloat(x.price) || 0;
+      return { code: sp ? sp.code : '', name: sp ? sp.name : x.name.trim(), qty: parseFloat(x.qty) || 1, price: sp && price === sp.price ? 0 : price };   // unchanged stock price stays 0: the live stock price is used
     });
-    const r = await run(() => api('/service-types/' + code, 'PUT', { name: f.name, interval_km: parseFloat(f.interval_km), labours, parts }));
+    const r = await run(() => api('/service-types/' + code, 'PUT', { name: f.name, interval_km: parseFloat(f.interval_km), labours, parts: partRows }));
     if (r.ok) closeModal();
   };
   return (
     <Dialog title={`Edit ${t.name}`} onClose={closeModal} actions={<><Btn onClick={save}>Save</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
       <div className="row mt"><Field label="Name" grow="3 1 200px" {...bind('name')} /><Field label="Due every (km)" type="number" min="1" {...bind('interval_km')} /></div>
       <Field label="Labour (one per line: description | hours | price, price optional)"><textarea rows={6} {...bind('labours')} /></Field>
-      <Field label="Parts (one per line: stock code or name | qty | price, price optional)"><textarea rows={5} {...bind('parts')} /></Field>
+      <div className="mt"><b>Parts</b><PartLines parts={parts} setParts={setParts} stock={db.p} /></div>
       <p className="mu small">When this service is added to a job card, its labour is priced from the hours and each part whose code is in the stock list is issued from stock. The Service Advisor can change any price on the card.</p>
     </Dialog>
   );
