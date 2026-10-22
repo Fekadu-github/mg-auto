@@ -87,11 +87,11 @@ describe('Service Price Estimation sheet (ProformaDoc / EstimateDoc)', () => {
     expect(html).toContain('15,860.00'); expect(html).toContain('2,379.00'); expect(html).toContain('18,239.00');
     expect(html).toContain('EIGHTEEN THOUSAND TWO HUNDRED THIRTY NINE AND 00/100 Only');
     expect(html).toContain('Terms and Condition'); expect(html).toContain('Prepared by'); expect(html).toContain('Checked by'); expect(html).toContain('Approved by');
-    expect(html).toContain('Tizazu'); expect(html).toContain('Service Advisor'); expect(html).not.toContain('(DRAFT)');
+    expect(html).toContain('Tizazu'); expect(html).toContain('Service Advisor'); expect(html).not.toContain('est-chip'); expect(html).not.toContain('is-draft');
   });
   it('a walk-in customer without insurance is marked as such and keeps blank lines for the missing vehicle details', () => {
     const html = render(<ProformaDoc pro={{ ...pro, status: 'Draft', claim_no: '' }} walkIn customer={{ name: 'Walk In', phone: '0922' }} vehicle={{ plate: 'AA-1' }} />);
-    expect(html).toContain('Walk-in customer (private)'); expect(html).toContain('Customer pays (no insurance)'); expect(html).toContain('(DRAFT)');
+    expect(html).toContain('Walk-in customer (private)'); expect(html).toContain('Customer pays (no insurance)'); expect(html).toContain('>DRAFT</span>'); expect(html).toContain('is-draft');
     expect(html).toContain('Walk In'); expect(html).toContain('AA-1'); expect(html).not.toContain('Policy no'); expect(html).toContain('Chassis no');
   });
   it('prints the garage bank account and the custom remark when set, and escapes customer text', () => {
@@ -103,6 +103,6 @@ describe('Service Price Estimation sheet (ProformaDoc / EstimateDoc)', () => {
   it('an estimate uses the same sheet and takes the insurance details of the proforma it was made from', () => {
     const est = { id: 'EST-20261021-0002', status: 'Draft', created: Date.UTC(2026, 9, 21, 9), by_name: 'Almaz', note: 'x', labours: pro.labours, parts: pro.parts };
     const html = render(<EstimateDoc est={est} customer={customer} vehicle={vehicle} pro={pro} insurer={insurer} />);
-    expect(html).toContain('Service Price Estimation'); expect(html).toContain('(DRAFT)'); expect(html).toContain('EST-20261021-0002'); expect(html).toContain('Awash Insurance'); expect(html).toContain('Almaz');
+    expect(html).toContain('Service Price Estimation'); expect(html).toContain('>DRAFT</span>'); expect(html).toContain('is-draft'); expect(html).toContain('EST-20261021-0002'); expect(html).toContain('Awash Insurance'); expect(html).toContain('Almaz');
   });
 });

@@ -16,14 +16,14 @@ export default function EstimationSheet({ no, date, draft, walkIn, customer: c =
   const t = tot({ labours: L, parts: P }, vat);
   const type = insurer ? 'Insurance' : walkIn ? 'Walk-in customer (private)' : 'Private';
   return (
-    <article className="doc a4 est">
+    <article className={`doc a4 est${draft ? ' is-draft' : ''}`}>
       <Letterhead g={g}>
         <div className="est-meta"><span>Date</span><b>{dmy(date)}</b></div>
         <div className="est-meta"><span>Est. No</span><b>{no}</b></div>
         <div className="est-meta"><span>{label} type</span><b>{type}</b></div>
         {dueDate && <div className="est-meta"><span>Delivery time</span><b>{dmy(dueDate)}</b></div>}
       </Letterhead>
-      <h2 className="est-title">Service Price Estimation{draft ? ' (DRAFT)' : ''}</h2>
+      <h2 className="est-title">Service Price Estimation{draft && <span className="est-chip">DRAFT</span>}</h2>
 
       <section className="est-grid">
         <div>

@@ -71,6 +71,65 @@
 .est-sigs span { display: block; font-size: 10.5px; color: #444; }
 .est-foot { display: flex; justify-content: space-between; border-top: 1px solid #000; margin-top: 2.5mm; padding-top: 1mm; font-size: 10px; color: #444; break-inside: avoid; }
 
+/* ---- MG Auto brand skin for the A4 documents (estimate, proforma, proforma invoice, voucher, GRN, sale): the logo's blue and lime on white paper.
+   Light tints and thin rules only, so it still prints well on a black-and-white laser; the 80 mm receipt below stays plain black for thermal printers. ---- */
+.doc.a4 { --pb: #1c5fc2; --pd: #123f85; --pg: #4a9a24; --pt: #eef4fd; --pl: #c6d3e8; --ps: #55637d; --rule: linear-gradient(90deg, #1f78ee 0%, #6bbf2f 100%); -webkit-print-color-adjust: exact; print-color-adjust: exact; position: relative; }
+#print .doc.a4 { color: #14203a !important; }
+/* letterhead: garage on the left, document on the right, a blue-to-lime rule under it */
+.doc.a4 .lh { border-bottom: 0; position: relative; padding-bottom: 4mm; }
+.doc.est .lh { padding-bottom: 3.2mm; margin-bottom: 2mm; }
+.doc.a4 .lh::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1.1mm; border-radius: 1mm; background: var(--rule); }
+.doc.a4 .lh-co b { font-size: 19px; letter-spacing: .01em; }
+.doc.a4 .lh-co div { font-size: 11.5px; line-height: 1.45; }
+.doc.a4 .lh-doc h1 { font-size: 14px; letter-spacing: .16em; }
+#print .doc.a4 .lh-co b, #print .doc.a4 .lh-doc h1 { color: var(--pd) !important; }
+#print .doc.a4 .lh-co div, #print .doc.a4 .lh-doc div { color: var(--ps) !important; }
+#print .doc.a4 .lh-doc div b { color: var(--pd) !important; }
+/* tables: tinted heading, hairline rows */
+.doc.a4 th { background: var(--pt); border-bottom: 1.5px solid var(--pb); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; padding-top: 4px; padding-bottom: 4px; }
+.doc.a4 td { border-bottom: .3mm solid var(--pl); }
+#print .doc.a4 th { color: var(--pd) !important; }
+#print .doc.a4 .code { color: var(--ps) !important; }
+.doc.a4 .items tfoot td { border-bottom: 0; }
+.doc.a4 .items tfoot .grand td { background: var(--pt); border-top: .6mm solid var(--pb); font-size: 15px; }
+#print .doc.a4 .items tfoot .grand td { color: var(--pd) !important; }
+/* the two blocks above the table (customer / bill to, vehicle) */
+.doc.a4 .two > div { border: .3mm solid var(--pl); border-left: 1.2mm solid var(--pb); border-radius: 1.5mm; padding: 2.5mm 3.5mm; line-height: 1.5; }
+.doc.a4 .two > div + div { border-left-color: var(--pg); }
+#print .doc.a4 h4 { color: var(--ps) !important; }
+#print .doc.a4 .fine, #print .doc.a4 .motto { color: var(--ps) !important; }
+.doc.a4 .motto { letter-spacing: .08em; }
+.doc.a4 .sigs .line, .doc.a4 .est-sigs .line { border-bottom: .3mm solid var(--ps); }
+
+/* Service Price Estimation: title, chips, fields, totals, terms */
+.doc.est .est-title { text-decoration: none; text-transform: uppercase; letter-spacing: .18em; font-size: 14px; margin: 1.5mm 0 3mm; display: flex; align-items: center; justify-content: center; gap: 3mm; }
+.est-chip { display: inline-block; border: .4mm solid var(--pg); border-radius: 5mm; padding: .2mm 2.6mm; font-size: 9.5px; letter-spacing: .16em; }
+#print .est-title { color: var(--pd) !important; }
+#print .est-chip { color: #8a5a06 !important; border-color: #d9a032 !important; background: #fdf3dc; }
+.doc.est .est-meta { border-bottom: .3mm solid var(--pl); font-size: 11.5px; }
+#print .est-meta span { color: var(--ps) !important; }
+.doc.est .est-grid > div { padding-left: 3mm; border-left: 1mm solid var(--pb); }
+.doc.est .est-grid > div + div { border-left-color: var(--pg); }
+.doc.est .f { border-bottom: .25mm solid var(--pl); }
+.doc.est .f span { font-size: 9px; text-transform: uppercase; letter-spacing: .07em; }
+#print .doc.est .f span { color: var(--ps) !important; }
+.doc.est .est-items .grp td { background: var(--pt); border-bottom: 0; border-left: 1mm solid var(--pg); font-size: 10.5px; letter-spacing: .08em; padding-top: .9mm; padding-bottom: .9mm; }
+#print .doc.est .est-items .grp td { color: var(--pd) !important; }
+.doc.est .est-items .sub td { border-top: .3mm solid var(--pb); }
+.doc.est .est-tot { border: .3mm solid var(--pl); border-radius: 1.5mm; overflow: hidden; }
+.doc.est .est-tot .grand td { background: var(--pt); border-top: .6mm solid var(--pb); border-bottom: 0; font-size: 14.5px; }
+#print .doc.est .est-tot .grand td { color: var(--pd) !important; }
+.doc.est .est-words { text-align: left; background: var(--pt); border-left: 1.2mm solid var(--pg); border-radius: 0 1.5mm 1.5mm 0; padding: .9mm 3.5mm; font-style: italic; }
+.doc.est .est-terms { border: .3mm solid var(--pl); border-top: .9mm solid var(--pb); border-radius: 1.5mm; }
+.doc.est .est-terms .u { text-decoration: none; text-transform: uppercase; letter-spacing: .1em; font-size: 10px; }
+#print .est-terms .u, #print .est-slogan, #print .est-sigs b { color: var(--pd) !important; }
+.doc.est .est-slogan { letter-spacing: .1em; }
+#print .est-sigs span, #print .est-foot { color: var(--ps) !important; }
+.doc.est .est-foot { border-top: 0; position: relative; padding-top: 2mm; }
+.doc.est .est-foot::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: .6mm; background: var(--rule); }
+/* a draft carries a faint watermark on every page, so a draft is never mistaken for the final document */
+.doc.est.is-draft::before { content: 'DRAFT'; position: fixed; left: 50%; top: 48%; transform: translate(-50%, -50%) rotate(-28deg); font: 700 118px/1 Arial, Helvetica, sans-serif; letter-spacing: .14em; color: rgba(28, 95, 194, .07); pointer-events: none; }
+
 /* 80 mm receipt */
 .doc.pos { width: 72mm; font: 12px/1.35 'Courier New', monospace; }
 .doc.pos .c { text-align: center; }
