@@ -1,4 +1,10 @@
 // All settings come from environment variables (see .env.example).
+// The company's full legal name, printed on every estimate, proforma, job card, invoice, voucher, GRN and sale.
+export const COMPANY_NAME = 'MADEG General Trading PLC';
+// An old GARAGE_NAME left in the host's settings ("MADEG — MG Auto", "MADEG - MG Auto Plc", "MG Auto PLC"...) must not
+// override the full name, so those old forms are replaced by it. Any other value is kept as the owner typed it.
+const LEGACY_NAME = /^\s*(madeg\s*[-\u2013\u2014]+\s*)?mg[\s-]*auto(\s*(plc|p\.l\.c\.?))?\s*$/i;
+export const garageName = v => (!v || !String(v).trim() || LEGACY_NAME.test(String(v)) ? COMPANY_NAME : String(v).trim());
 const num = (v, d) => (v === undefined || v === '' || !Number.isFinite(+v) ? d : +v);
 
 export function loadConfig(env = process.env) {
@@ -16,7 +22,7 @@ export function loadConfig(env = process.env) {
     workEnd: /^([01]?\d|2[0-3]):[0-5]\d$/.test(String(env.WORK_END || '').trim()) ? String(env.WORK_END).trim() : '',   // e.g. 17:30: running clocks are closed then (empty = only by hand)
     labourRate: rate >= 0 ? rate : 350,           // ETB per labour hour
     garage: {
-      name: env.GARAGE_NAME || 'MADEG General Trading PLC',
+      name: garageName(env.GARAGE_NAME),
       brand: env.GARAGE_BRAND || 'MG Auto',          // the trade name, printed under the company name on invoices and proformas
       address: env.GARAGE_ADDRESS || 'Gurdshola, around Top Ten Hotel, Addis Ababa',
       phone: env.GARAGE_PHONE || '0980766566',
