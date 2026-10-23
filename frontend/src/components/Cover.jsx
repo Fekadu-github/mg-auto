@@ -4,6 +4,7 @@ import ThemeToggle from './ThemeToggle.jsx';
 import LangToggle from './LangToggle.jsx';
 import { t } from '../lib/i18n.js';
 import Icon from './Icon.jsx';
+import Credit from './Credit.jsx';
 
 const B = { garage: 'MADEG', rest: 'General Trading PLC', system: 'MG Auto', motto: 'Your car, our care', company: 'MADEG General Trading PLC', place: 'Gurdshola, around Top Ten Hotel', phone: '0980766566' };
 
@@ -67,6 +68,7 @@ export default function Cover() {
           </div>
           <div className="cv-note"><Icon name="shield" size={16} />Secure sign-in · {B.place} · {B.phone}</div>
         </form>
+        <Credit />
       </section>
     </div>
   );

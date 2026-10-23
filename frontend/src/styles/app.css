@@ -225,3 +225,10 @@ dialog[open] { animation: dlg-in .22s cubic-bezier(.2, .8, .2, 1); } @keyframes 
   .mtb-t { font: 700 17px 'Space Grotesk', sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .page { padding-top: calc(72px + env(safe-area-inset-top, 0px)); }
 }
+
+/* owner credit (login + sidebar) */
+.credit { display: grid; gap: 2px; margin: 0 12px 14px; padding-top: 10px; border-top: 1px solid var(--ln); font-size: 10.5px; line-height: 1.4; color: var(--mu); text-align: center; }
+.credit b { color: var(--tx); font-weight: 700; }
+.credit a { display: inline-flex; align-items: center; justify-content: center; gap: 4px; color: var(--mu); text-decoration: none; font-weight: 600; }
+.credit a:hover { color: var(--bl); }
+.cv-r .credit { margin: 22px 0 0; }

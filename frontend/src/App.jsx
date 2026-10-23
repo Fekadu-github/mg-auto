@@ -22,6 +22,7 @@ import Approve from './pages/Approve.jsx';
 import { TwoFactorNag } from './components/TwoFactorNag.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
 import DisplayDialog from './components/DisplayDialog.jsx';
+import Credit from './components/Credit.jsx';
 import { navBadges } from './lib/navBadges.js';
 import { setNavParams } from './lib/navParams.js';
 
@@ -104,6 +105,7 @@ function Shell() {
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>
           </button></div>
         </div>
+        <Credit />
       </aside>
       <main className="page">
         <div className="pg" key={tab + ':' + nonce}>
