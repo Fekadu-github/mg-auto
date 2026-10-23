@@ -16,7 +16,8 @@ export default function EstimationSheet({ no, date, draft, walkIn, customer: c =
   const t = tot({ labours: L, parts: P }, vat);
   const type = insurer ? 'Insurance' : walkIn ? 'Walk-in customer (private)' : 'Private';
   return (
-    <article className={`doc a4 est${draft ? ' is-draft' : ''}`}>
+    <article className={`doc a4 est${draft ? ' is-draft' : ''}`} data-density="normal">
+      <div className="est-main">
       <Letterhead g={g}>
         <div className="est-meta"><span>Date</span><b>{dmy(date)}</b></div>
         <div className="est-meta"><span>Est. No</span><b>{no}</b></div>
@@ -79,6 +80,10 @@ export default function EstimationSheet({ no, date, draft, walkIn, customer: c =
       <p className="est-words">** {birrInWords(t.total)} ***</p>
 
       {terms && <div className="est-remark"><b>REMARK:</b> {terms}</div>}
+      </div>
+
+      {/* The terms, slogan, signatures and footer stay together as one block at the bottom of the LAST page (see print.css and PrintHost.jsx) */}
+      <div className="est-tail">
       <div className="est-terms">
         <b className="u">Terms and Condition:</b>
         <ol>
@@ -95,6 +100,7 @@ export default function EstimationSheet({ no, date, draft, walkIn, customer: c =
         <div><div className="line" /><b>Approved by</b></div>
       </div>
       <div className="est-foot"><span>{g.name}{g.phone ? ` · ${g.phone}` : ''}</span><span>Printed {dt(Date.now())}</span></div>
+      </div>
     </article>
   );
 }

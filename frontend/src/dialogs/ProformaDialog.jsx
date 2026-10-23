@@ -9,7 +9,8 @@ import { ROLES, isAdmin, isSA } from '../lib/constants.js';
 import { restoreDraft, useAutosave } from '../lib/autosave.js';
 import { dt, km, money, pct, rateOf, tot, vehicleName, cur } from '../lib/format.js';
 import { usePrint } from '../print/PrintHost.jsx';
-import ProformaDoc from '../print/ProformaDoc.jsx';
+import ProformaDoc, { proformaProps } from '../print/ProformaDoc.jsx';
+import { downloadEstimatePdf } from '../lib/estimatePdf.js';
 
 const r2 = n => Math.round(n * 100) / 100;
 const STATUS_LABEL = { Draft: 'Draft', Issued: 'Finalized' };   // the stored status is Issued; the screens say Finalized
@@ -49,7 +50,9 @@ export default function ProformaDialog({ id }) {
     ...p, ...f, estimator: estimator?.name || p.estimator, estimator_role: estimator?.role || p.estimator_role,
     labours: f.labours.filter(l => l.desc?.trim()).map(l => ({ ...l, price: num(l.price) || r2(num(l.hours) * rateOf(rate, l.section)) })), parts: f.parts.filter(x => x.name?.trim())
   });
-  const printIt = async () => { if (open && !(await saved())) return; print(<ProformaDoc pro={doc()} customer={c} vehicle={v} insurer={insurer} walkIn={walkIn} garage={db.cfg.garage} vat={vat} roleName={r => ROLES[r] || r} />, 'a4'); };
+  const docProps = () => ({ pro: doc(), customer: c, vehicle: v, insurer, walkIn, garage: db.cfg.garage, vat, roleName: r => ROLES[r] || r });
+  const printIt = async () => { if (open && !(await saved())) return; print(<ProformaDoc {...docProps()} />, 'a4', p.id); };   // the number is the file name if it is saved as PDF from the print window
+  const pdfIt = async () => { if (open && !(await saved())) return; try { await downloadEstimatePdf(proformaProps(docProps())); } catch (e) { say('The PDF could not be made: ' + (e?.message || e)); } };
   const linkedEst = db.e.find(x => x.id === id);   // the estimate with the same EST number
   // The decision closes this window and shows the Proformas list, so there is nothing to close by hand
   const issue = async () => {
@@ -140,6 +143,7 @@ export default function ProformaDialog({ id }) {
       )}
       <div className="row mt">
         <Btn kind={p.status === 'Draft' ? 'ol' : ''} onClick={printIt}>Print proforma (A4)</Btn>
+        <Btn kind="ol" onClick={pdfIt}>Download PDF</Btn>
         {open && <Btn onClick={save}>Save</Btn>}
         {open && p.status === 'Draft' && <Btn kind="gr" onClick={issue}>Finalize proforma</Btn>}
         {open && p.status === 'Draft' && <Btn kind="ol" onClick={remove}>Delete draft</Btn>}

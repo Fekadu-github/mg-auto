@@ -8,7 +8,8 @@ import { LabourLines, PartLines } from '../components/Lines.jsx';
 import { restoreDraft, useAutosave } from '../lib/autosave.js';
 import { dt, money, pct, r2, rateOf, tot, vehicleName, cur } from '../lib/format.js';
 import { usePrint } from '../print/PrintHost.jsx';
-import EstimateDoc from '../print/EstimateDoc.jsx';
+import EstimateDoc, { estimateProps } from '../print/EstimateDoc.jsx';
+import { downloadEstimatePdf } from '../lib/estimatePdf.js';
 import { downloadXlsx } from '../lib/xlsx.js';
 import { estimateRows } from '../lib/estimateExport.js';
 
@@ -50,7 +51,9 @@ export default function EstimateDialog({ id, jid }) {
   const src = e.pro ? db.pr.find(x => x.id === e.pro) : null, srcIns = src?.insurer_id ? db.ins.find(x => x.id === src.insurer_id) : undefined, walkIn = !e.cid;
   const docC = walkIn && src ? { name: src.guest_name, phone: src.guest_phone } : c, docV = walkIn && src ? { plate: src.guest_plate, brand: src.guest_brand, model: src.guest_model, vin: src.guest_vin, eng: src.guest_eng } : v;
   const linked = db.pr.find(x => x.id === e.id && x.status !== 'Converted');   // the proforma made from this estimate (same EST number)
-  const printIt = async () => { if (await ready()) print(<EstimateDoc est={doc()} customer={docC} vehicle={docV} pro={src} insurer={srcIns} walkIn={walkIn} garage={db.cfg.garage} vat={vat} />, 'a4'); };
+  const docProps = () => ({ est: doc(), customer: docC, vehicle: docV, pro: src, insurer: srcIns, walkIn, garage: db.cfg.garage, vat });
+  const printIt = async () => { if (await ready()) print(<EstimateDoc {...docProps()} />, 'a4', e.id); };   // the number is the file name if it is saved as PDF from the print window
+  const pdfIt = async () => { if (await ready()) { try { await downloadEstimatePdf(estimateProps(docProps())); } catch (err) { say('The PDF could not be made: ' + (err?.message || err)); } } };
   const download = async () => { if (await ready()) downloadXlsx(`${e.id}-${e.status.toLowerCase()}.xlsx`, estimateRows(doc(), { customer: c, vehicle: v, vat }), 'Estimate'); };
   // A decision (finalize, back to draft) closes this window and shows the list, so there is nothing to close by hand; from a job card it returns to the card
   const done = msg => { say(msg); if (jid) openModal('job', { id: jid }); else { closeModal(); goPage('est'); } };
@@ -99,6 +102,7 @@ export default function EstimateDialog({ id, jid }) {
       {!draft && isSA(me) && <ApprovalBox kind="estimate" id={e.id} />}
       <div className="row mt">
         <Btn kind="ol" onClick={printIt}>Print estimate (A4)</Btn>
+        <Btn kind="ol" onClick={pdfIt}>Download PDF</Btn>
         <Btn kind="ol" onClick={download}>Download (Excel)</Btn>
         {edit && <><Btn onClick={save}>Save</Btn><Btn kind="gr" onClick={finalize}>Finalize estimate</Btn><Btn kind="ol" onClick={remove}>Delete draft</Btn></>}
         {isAdmin(me) && !draft && !e.used_in && <Btn kind="ol" onClick={remove}>Delete estimate</Btn>}

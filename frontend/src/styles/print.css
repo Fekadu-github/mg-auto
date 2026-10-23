@@ -145,3 +145,83 @@
 @media screen { .doc.a4 { padding: 10mm; } }
 
 .lh-co .lh-brand { font-weight: 700; letter-spacing: .02em; }
+
+/* ---- Service Price Estimation: use the page wisely --------------------------------------------------------------------------
+   1. The sheet is one tall column the height of a page. The terms, slogan, signatures and footer (.est-tail) are one block that is never split,
+      and it sits at the BOTTOM of the last page, so a short estimate has its signatures at the foot of the page, not halfway down.
+   2. If the work lines are many, PrintHost.jsx first tries the "compact" and then the "tight" size so the whole estimate still fits ONE page.
+   3. Only when even that does not fit does it run on to a second page: then the totals, terms and signatures move to the last page together
+      (the table heading repeats on every page), and the draft watermark is on every page. */
+/* (the gap above the tail is outside @media print so the on-screen measurement in PrintHost sees it too) */
+.doc.est .est-tail { margin-top: 3mm; }
+@media print {
+  .doc.est { display: flex; flex-direction: column; min-height: 268mm; }
+  .doc.est .est-main { flex: 1 0 auto; }
+  .doc.est .est-tail { flex: none; break-inside: avoid; page-break-inside: avoid; }
+  .doc.est .est-tail > * { break-inside: avoid; }
+  .doc.est .est-tot, .doc.est .est-words { break-before: avoid; }
+}
+
+/* compact: for estimates with many lines */
+.doc.est[data-density="compact"] .lh { grid-template-columns: 14mm 1fr auto; gap: 3mm; padding-bottom: 2.4mm; margin-bottom: 1.2mm; }
+.doc.est[data-density="compact"] .lh-logo { width: 14mm; height: 14mm; }
+.doc.est[data-density="compact"] .lh-co b { font-size: 16px; }
+.doc.est[data-density="compact"] .lh-co div { font-size: 10px; line-height: 1.35; }
+.doc.est[data-density="compact"] .est-meta { font-size: 10px; padding: .1mm 0; }
+.doc.est[data-density="compact"] .est-title { font-size: 12.5px; margin: 1mm 0 1.8mm; }
+.doc.est[data-density="compact"] .est-grid { margin-bottom: 1.5mm; }
+.doc.est[data-density="compact"] .f { min-height: 4.1mm; padding: .1mm 0; }
+.doc.est[data-density="compact"] .f span { font-size: 8px; }
+.doc.est[data-density="compact"] .f b { font-size: 11px; }
+.doc.est[data-density="compact"] .est-wd { font-size: 11px; margin: .8mm 0 1.2mm; }
+.doc.est[data-density="compact"] .est-items th, .doc.est[data-density="compact"] .est-items td { padding: .5px 5px; font-size: 10.8px; line-height: 1.25; }
+.doc.est[data-density="compact"] .est-items th { font-size: 9.5px; padding-top: 2px; padding-bottom: 2px; }
+.doc.est[data-density="compact"] .est-items td.code { font-size: 10px; }
+.doc.est[data-density="compact"] .est-items .grp td { font-size: 9.5px; padding-top: .5mm; padding-bottom: .5mm; }
+.doc.est[data-density="compact"] .est-items { margin-bottom: 1mm; }
+.doc.est[data-density="compact"] .est-tot { margin-top: 1mm; }
+.doc.est[data-density="compact"] .est-tot td { padding: .5px 6px; font-size: 11px; }
+.doc.est[data-density="compact"] .est-tot .grand td { font-size: 12.5px; }
+.doc.est[data-density="compact"] .est-words { font-size: 10.5px; margin: 1.2mm 0; padding-top: .4mm; padding-bottom: .4mm; }
+.doc.est[data-density="compact"] .est-remark { font-size: 10.5px; margin-bottom: 1mm; }
+.doc.est[data-density="compact"] .est-terms { font-size: 8.8px; line-height: 1.22; padding: 1.2mm 3mm; }
+.doc.est[data-density="compact"] .est-terms .u { font-size: 9px; }
+.doc.est[data-density="compact"] .est-terms ol { margin-top: .6mm; }
+.doc.est[data-density="compact"] .est-terms li { margin-bottom: .2mm; }
+.doc.est[data-density="compact"] .est-slogan { font-size: 10.5px; margin-top: 1.2mm; }
+.doc.est[data-density="compact"] .est-sigs { margin-top: 2.5mm; gap: 8mm; font-size: 10.5px; }
+.doc.est[data-density="compact"] .est-sigs .line { height: 5mm; }
+.doc.est[data-density="compact"] .est-sigs span { font-size: 9px; }
+.doc.est[data-density="compact"] .est-foot { margin-top: 1.5mm; font-size: 9px; padding-top: 1.4mm; }
+
+/* tight: for very long estimates */
+.doc.est[data-density="tight"] .lh { grid-template-columns: 11mm 1fr auto; gap: 2.5mm; padding-bottom: 1.8mm; margin-bottom: .8mm; }
+.doc.est[data-density="tight"] .lh-logo { width: 11mm; height: 11mm; }
+.doc.est[data-density="tight"] .lh-co b { font-size: 14px; }
+.doc.est[data-density="tight"] .lh-co div { font-size: 9px; line-height: 1.25; }
+.doc.est[data-density="tight"] .est-meta { font-size: 9px; padding: 0; }
+.doc.est[data-density="tight"] .est-title { font-size: 11.5px; margin: .6mm 0 1.2mm; }
+.doc.est[data-density="tight"] .est-grid { margin-bottom: 1mm; }
+.doc.est[data-density="tight"] .f { min-height: 3.5mm; padding: 0; }
+.doc.est[data-density="tight"] .f span { font-size: 7.4px; }
+.doc.est[data-density="tight"] .f b { font-size: 10px; }
+.doc.est[data-density="tight"] .est-wd { font-size: 10px; margin: .4mm 0 .8mm; }
+.doc.est[data-density="tight"] .est-items th, .doc.est[data-density="tight"] .est-items td { padding: 0 4px; font-size: 9.6px; line-height: 1.2; }
+.doc.est[data-density="tight"] .est-items th { font-size: 8.5px; padding-top: 1px; padding-bottom: 1px; }
+.doc.est[data-density="tight"] .est-items td.code { font-size: 9px; }
+.doc.est[data-density="tight"] .est-items .grp td { font-size: 8.5px; padding-top: .3mm; padding-bottom: .3mm; }
+.doc.est[data-density="tight"] .est-items { margin-bottom: .6mm; }
+.doc.est[data-density="tight"] .est-tot { margin-top: .6mm; }
+.doc.est[data-density="tight"] .est-tot td { padding: 0 6px; font-size: 10px; }
+.doc.est[data-density="tight"] .est-tot .grand td { font-size: 11.5px; }
+.doc.est[data-density="tight"] .est-words { font-size: 9.5px; margin: .8mm 0; padding-top: .2mm; padding-bottom: .2mm; }
+.doc.est[data-density="tight"] .est-remark { font-size: 9.5px; margin-bottom: .6mm; }
+.doc.est[data-density="tight"] .est-terms { font-size: 8px; line-height: 1.18; padding: .8mm 2.5mm; }
+.doc.est[data-density="tight"] .est-terms .u { font-size: 8.2px; }
+.doc.est[data-density="tight"] .est-terms ol { margin-top: .3mm; }
+.doc.est[data-density="tight"] .est-terms li { margin-bottom: 0; }
+.doc.est[data-density="tight"] .est-slogan { font-size: 9.5px; margin-top: .8mm; }
+.doc.est[data-density="tight"] .est-sigs { margin-top: 1.8mm; gap: 7mm; font-size: 9.5px; }
+.doc.est[data-density="tight"] .est-sigs .line { height: 4.2mm; }
+.doc.est[data-density="tight"] .est-sigs span { font-size: 8px; }
+.doc.est[data-density="tight"] .est-foot { margin-top: 1mm; font-size: 8px; padding-top: 1mm; }
