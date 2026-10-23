@@ -23,7 +23,7 @@ export function poolOptions(env = process.env) {
 // Columns added after the first release: [table, column, definition]. The same columns are in schema.sql for new databases.
 export const NEW_COLUMNS = [
   ['vehicles', 'mileage', 'INT NULL'], ['vehicles', 'next_km', 'INT NULL'], ['vehicles', 'next_type', 'VARCHAR(10) NULL'],
-  ['customers', 'insurer_id', 'CHAR(36) NULL'], ['customers', 'policy_no', 'VARCHAR(60) NULL'], ['estimates', 'pro', 'VARCHAR(40) NULL'],
+  ['customers', 'insurer_id', 'CHAR(36) NULL'], ['customers', 'policy_no', 'VARCHAR(60) NULL'], ['estimates', 'pro', 'VARCHAR(40) NULL'], ['estimates', 'guest_name', "VARCHAR(120) NOT NULL DEFAULT ''"], ['estimates', 'guest_phone', "VARCHAR(30) NOT NULL DEFAULT ''"], ['estimates', 'guest_plate', "VARCHAR(30) NOT NULL DEFAULT ''"], ['estimates', 'guest_brand', "VARCHAR(40) NOT NULL DEFAULT ''"], ['estimates', 'guest_model', "VARCHAR(60) NOT NULL DEFAULT ''"], ['estimates', 'guest_vin', "VARCHAR(40) NOT NULL DEFAULT ''"], ['estimates', 'guest_eng', "VARCHAR(40) NOT NULL DEFAULT ''"],
   ['jobs', 'mileage', 'INT NULL'], ['jobs', 'services', 'JSON NULL'], ['jobs', 'est', 'VARCHAR(40) NULL'], ['jobs', 'requests', 'JSON NULL'], ['jobs', 'payer', 'VARCHAR(160) NULL'], ['jobs', 'policy_no', 'VARCHAR(60) NULL'],
   ['customers', 'tin', "VARCHAR(40) NOT NULL DEFAULT ''"], ['inventory', 'category', "VARCHAR(60) NOT NULL DEFAULT ''"], ['inventory', 'cost', 'DECIMAL(12,2) NOT NULL DEFAULT 0'],
   ['jobs', 'mileage_out', 'INT NULL'], ['jobs', 'claim_no', 'VARCHAR(60) NULL'], ['jobs', 'due_date', 'DATE NULL'], ['jobs', 'priority', 'VARCHAR(20) NULL'], ['jobs', 'price_reqs', 'JSON NULL'],

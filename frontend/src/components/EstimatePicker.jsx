@@ -11,7 +11,7 @@ export function useEstimateWho() {
   const { db, cust, veh } = useApp();
   return e => {
     const src = db.pr.find(x => x.id === e.id);
-    const name = e.cid ? cust(e.cid).name : src?.guest_name, plate = e.vid ? veh(e.vid).plate : src?.guest_plate;
+    const name = e.cid ? cust(e.cid).name : e.guest_name || src?.guest_name, plate = e.vid ? veh(e.vid).plate : e.guest_plate || src?.guest_plate;
     return [name, plate].filter(Boolean).join(' · ');
   };
 }

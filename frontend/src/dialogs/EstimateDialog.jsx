@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Pill, SaveState, Table } from '../components/ui.jsx';
-import { isAdmin, isSA, SECTION_CODE } from '../lib/constants.js';
+import { isAdmin, isMgr, isSA, SECTION_CODE } from '../lib/constants.js';
 import { LabourLines, PartLines } from '../components/Lines.jsx';
 import { restoreDraft, useAutosave } from '../lib/autosave.js';
 import { dt, money, pct, r2, rateOf, tot, vehicleName, cur } from '../lib/format.js';
@@ -49,7 +49,8 @@ export default function EstimateDialog({ id, jid }) {
   const ready = async () => { if (edit && !(await flush())) { say('The draft is not saved yet. Wait a moment and try again.'); return false; } return true; };
   // An estimate made from a proforma prints that proforma's insurance company, claim and policy; a walk-in's name and vehicle come from the proforma too
   const src = e.pro ? db.pr.find(x => x.id === e.pro) : null, srcIns = src?.insurer_id ? db.ins.find(x => x.id === src.insurer_id) : undefined, walkIn = !e.cid;
-  const docC = walkIn && src ? { name: src.guest_name, phone: src.guest_phone } : c, docV = walkIn && src ? { plate: src.guest_plate, brand: src.guest_brand, model: src.guest_model, vin: src.guest_vin, eng: src.guest_eng } : v;
+  const gs = walkIn ? (e.guest_name || e.guest_plate ? e : src) : null;   // the walk-in's own details, else the proforma's
+  const docC = gs ? { name: gs.guest_name, phone: gs.guest_phone } : c, docV = gs ? { plate: gs.guest_plate, brand: gs.guest_brand, model: gs.guest_model, vin: gs.guest_vin, eng: gs.guest_eng } : v;
   const linked = db.pr.find(x => x.id === e.id && x.status !== 'Converted');   // the proforma made from this estimate (same EST number)
   const docProps = () => ({ est: doc(), customer: docC, vehicle: docV, pro: src, insurer: srcIns, walkIn, garage: db.cfg.garage, vat });
   const printIt = async () => { if (await ready()) print(<EstimateDoc {...docProps()} />, 'a4', e.id); };   // the number is the file name if it is saved as PDF from the print window
@@ -78,8 +79,8 @@ export default function EstimateDialog({ id, jid }) {
   return (
     <Dialog title={<>{e.id} <Pill tone={draft ? 'a' : 'g'}>{e.status}</Pill></>} onClose={closeModal}>
       <div className="g g2">
-        {e.cid ? <div className="box"><b>{c.name}</b> <span className="mu">{c.id}</span><br />{c.phone}</div> : <div className="box"><Pill tone="a">No customer yet</Pill><br /><span className="mu small">Finalize it, then pick it by its number ({e.id}) when the job card is created: the customer and vehicle are added then.</span></div>}
-        <div className="box">{e.vid ? <><b>{v.plate}</b> · {vehicleName(v)}</> : <span className="mu">No vehicle yet</span>}<br /><span className="mu">Body &amp; Paints estimate · made {dt(e.created)}</span></div>
+        {e.cid ? <div className="box"><b>{c.name}</b> <span className="mu">{c.id}</span><br />{c.phone}</div> : <div className="box"><Pill tone="a">No customer yet</Pill>{gs?.guest_name && <> <b>{gs.guest_name}</b> <span className="mu">{gs.guest_phone}</span></>}<br /><span className="mu small">Finalize it, then pick it by its number ({e.id}) when the job card is created: the customer and vehicle are added then.</span></div>}
+        <div className="box">{e.vid ? <><b>{v.plate}</b> · {vehicleName(v)}</> : gs?.guest_plate ? <><b>{gs.guest_plate}</b> · {[gs.guest_brand, gs.guest_model].filter(Boolean).join(' ')}{gs.guest_vin && <><br /><span className="mu">Chassis {gs.guest_vin}{gs.guest_eng ? ` · Motor ${gs.guest_eng}` : ''}</span></>}</> : <span className="mu">No vehicle yet</span>}<br /><span className="mu">Body &amp; Paints estimate · made {dt(e.created)}</span></div>
       </div>
       {edit ? <Field label="Damage / work description" value={note} onChange={x => setNote(x.target.value)} /> : e.note && <p className="mu">Notes: {e.note}</p>}
       {!draft && e.finalized_at && <p className="mu">Finalized {dt(e.finalized_at)}{e.by_name ? ` by ${e.by_name}` : ''}.{e.used_in ? ` Loaded on ${e.used_in}.` : ' Not loaded on a job card yet.'}</p>}
@@ -107,7 +108,7 @@ export default function EstimateDialog({ id, jid }) {
         {edit && <><Btn onClick={save}>Save</Btn><Btn kind="gr" onClick={finalize}>Finalize estimate</Btn><Btn kind="ol" onClick={remove}>Delete draft</Btn></>}
         {isAdmin(me) && !draft && !e.used_in && <Btn kind="ol" onClick={remove}>Delete estimate</Btn>}
         {sa && !draft && !e.used_in && jc && jc.status === 'Created' && !jc.est && (!e.vid || jc.vid === e.vid) && <Btn kind="gr" onClick={loadOnJob}>Load on {jid}</Btn>}
-        {sa && !draft && !e.used_in && <Btn kind="ol" onClick={reopen}>Back to draft</Btn>}
+        {isMgr(me) && !draft && !e.used_in && <Btn kind="ol" onClick={reopen}>Back to draft</Btn>}
         {jid && <Btn kind="ol" onClick={() => openModal('job', { id: jid })}>Back to job card {jid}</Btn>}
       </div>
       {edit && <div className="mt"><SaveState state={state} restored={init.restored} /></div>}

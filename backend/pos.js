@@ -331,12 +331,12 @@ export function mountStock({ app, db, cfg, auth, wrap, notifier }) {
   }));
 
   // ================= reports =================
-  app.get('/api/reports/sales', auth('SA'), wrap(async (q, s) => {
+  app.get('/api/reports/sales', auth('MGR'), wrap(async (q, s) => {
     const [a, b] = range(q.query);
     const rows = (await db.q("SELECT * FROM sales WHERE kind IN ('Cash','Credit') AND created >= ? AND created < ? ORDER BY created", [new Date(a), new Date(b)])).map(saleRow);
     s.json({ ...S.salesReport(rows, a, b), from: a, to: b });
   }));
-  app.get('/api/reports/lost', auth('SA'), wrap(async (q, s) => {
+  app.get('/api/reports/lost', auth('MGR'), wrap(async (q, s) => {
     const [a, b] = range(q.query);
     const rows = (await db.q('SELECT * FROM lost_sales WHERE `at` >= ? AND `at` < ? ORDER BY `at` DESC LIMIT 5000', [new Date(a), new Date(b)])).map(r => ({ ...r, qty: +r.qty, price: +r.price }));
     s.json({ ...S.lostReport(rows), rows, from: a, to: b });

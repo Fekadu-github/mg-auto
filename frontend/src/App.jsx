@@ -56,9 +56,11 @@ function Shell() {
     addEventListener('keydown', key); addEventListener('mg:search', open);
     return () => { removeEventListener('keydown', key); removeEventListener('mg:search', open); };
   }, []);
-  const menu = [['dash', 'Dashboard'], ['jobs', 'Job cards'], ...(isTech(me) ? [] : [['pro', 'Proformas'], ['est', 'Estimates']]), ['shop', 'Workshop'], ...(isSA(me) ? [['due', 'Service due']] : []), ['cust', 'Customers'],
-    ...(isTech(me) ? [] : [['inv', 'Parts stock']]), ...(isSA(me) ? [['pos', 'Point of sale'], ['invc', 'Invoices & payments'], ['pur', 'Purchases (GRN)']] : []),
-    ...(isTech(me) ? [] : [['svc', 'Services'], ['lab', 'Labour list'], ['ins', 'Insurance']]), ['rep', isTech(me) ? 'My hours' : 'Reports'], ...(isSA(me) ? [['srep', 'Stock & sales reports']] : []), ...(isMgr(me) ? [['sins', 'Stock insight']] : []), ...(isMgr(me) ? [['staff', 'Staff'], ['audit', 'Audit log']] : [])];
+  // Technician: Dashboard, Workshop and My hours. Service advisor: everything except Setup (Services, Labour list, Insurance) and Reports.
+  const adv = me.role === 'SA';
+  const menu = isTech(me) ? [['dash', 'Dashboard'], ['shop', 'Workshop'], ['rep', 'My hours']] : [['dash', 'Dashboard'], ['jobs', 'Job cards'], ['pro', 'Proformas'], ['est', 'Estimates'], ['shop', 'Workshop'], ...(isSA(me) ? [['due', 'Service due']] : []), ['cust', 'Customers'],
+    ['inv', 'Parts stock'], ...(isSA(me) ? [['pos', 'Point of sale'], ['invc', 'Invoices & payments'], ['pur', 'Purchases (GRN)']] : []),
+    ...(adv ? [] : [['svc', 'Services'], ['lab', 'Labour list'], ['ins', 'Insurance'], ['rep', 'Reports']]), ...(isSA(me) && !adv ? [['srep', 'Stock & sales reports']] : []), ...(isMgr(me) ? [['sins', 'Stock insight']] : []), ...(isMgr(me) ? [['staff', 'Staff'], ['audit', 'Audit log']] : [])];
   const badges = navBadges(db, me);
   const [folds, setFolds] = useState(() => stored('nav-folds', {})), [rail, setRail] = useState(() => stored('nav-rail', false)), [drawer, setDrawer] = useState(false);
   const label = Object.fromEntries(menu), groups = GROUPS.map(([g, ks]) => [g, ks.filter(k => label[k])]).filter(([, ks]) => ks.length);
@@ -78,7 +80,7 @@ function Shell() {
   };
   // the phone's bottom bar: the four screens used most by this role, and the full menu
   const QUICK = { dash: 'Home', jobs: 'Jobs', shop: 'Workshop', pos: 'Sales', inv: 'Parts', cust: 'Customers', rep: 'Hours' };
-  const quick = (isTech(me) ? ['jobs', 'shop', 'rep', 'cust'] : isSA(me) ? ['jobs', 'shop', 'pos', 'inv'] : ['jobs', 'shop', 'cust', 'inv']).filter(k => label[k]);
+  const quick = (isTech(me) ? ['dash', 'shop', 'rep'] : isSA(me) ? ['jobs', 'shop', 'pos', 'inv'] : ['jobs', 'shop', 'cust', 'inv']).filter(k => label[k]);
   const Page = PAGES[tab] || Dashboard, [title, text] = PAGE_INFO[tab] || PAGE_INFO.dash;
   return (
     <div data-role={me.role} className={'app' + (rail ? ' rail' : '') + (drawer ? ' drawer-open' : '')}>

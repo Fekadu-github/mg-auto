@@ -20,7 +20,7 @@ import { mountExtras } from './extras.js';
 import { verifyTotp } from './totp.js';
 
 const jobRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, created: r.created, mileage: r.mileage ?? null, est: r.est || null, payer: r.payer || null, policy_no: r.policy_no || null, mileage_out: r.mileage_out ?? null, claim_no: r.claim_no || null, due_date: r.due_date || null, priority: r.priority || null, price_reqs: J(r.price_reqs, []), services: J(r.services, []), requests: J(r.requests, []), labours: J(r.labours, []), parts: J(r.parts, []), inv: J(r.inv, null), log: J(r.log, []) });
-const estRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), created: r.created, finalized_at: r.finalized_at, by_name: r.by_name, used_in: r.used_in, pro: r.pro || null });
+const estRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), created: r.created, finalized_at: r.finalized_at, by_name: r.by_name, used_in: r.used_in, pro: r.pro || null, guest_name: r.guest_name || '', guest_phone: r.guest_phone || '', guest_plate: r.guest_plate || '', guest_brand: r.guest_brand || '', guest_model: r.guest_model || '', guest_vin: r.guest_vin || '', guest_eng: r.guest_eng || '' });
 const proRow = r => r && ({ id: r.id, cid: r.cid || null, vid: r.vid || null, guest_name: r.guest_name || '', guest_phone: r.guest_phone || '', guest_plate: r.guest_plate || '', guest_brand: r.guest_brand || '', guest_model: r.guest_model || '', guest_vin: r.guest_vin || '', guest_eng: r.guest_eng || '', insurer_id: r.insurer_id || null, policy_no: r.policy_no, estimator_id: r.estimator_id || null, estimator: r.estimator, estimator_role: r.estimator_role, pdate: r.pdate, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), est: r.est || null, job: r.job || null, claim_no: r.claim_no || '', priority: r.priority || '', due_date: r.due_date || null, terms: r.terms || '', created: r.created, updated: r.updated });
 const CUS = 'id, name, phone, city, sub, woreda, house, dob, notify, insurer_id, policy_no, tin, (tg_chat IS NOT NULL) AS tg, created_at';   // never the Telegram chat id or link token
 const svcRow = r => r && ({ code: r.code, name: r.name, interval_km: r.interval_km, labours: J(r.labours, []), parts: J(r.parts, []) });
@@ -147,7 +147,7 @@ export function createApp({ cfg, db, notifier }) {
   // The audit trail for the manager: newest first; ?q= finds a person, an action or a record number
   app.get('/api/audit', auth('MGR'), wrap(async (q, s) => {
     const lim = Math.min(Math.max(parseInt(q.query.limit, 10) || 200, 1), 500), t = `%${str(q.query.q, 60).replace(/[%_]/g, '')}%`;
-    s.json(await db.q('SELECT id, at, user_name, role, action, ref, status, method, path, ip FROM audit_log WHERE (user_name LIKE ? OR action LIKE ? OR ref LIKE ?) ORDER BY id DESC LIMIT ?', [t, t, t, lim]));
+    s.json(await db.q('SELECT id, at, user_name, role, action, ref, status, method, path, ip FROM audit_log WHERE (user_name LIKE ? OR action LIKE ? OR ref LIKE ?)' + (q.u.role === 'ADMIN' ? '' : " AND role <> 'ADMIN'") + ' ORDER BY id DESC LIMIT ?', [t, t, t, lim]));
   }));
 
   // ---- everything the screens need, in one call ----
@@ -511,7 +511,8 @@ export function createApp({ cfg, db, notifier }) {
     if ((cid || vid) && !(await db.q('SELECT id FROM vehicles WHERE id = ? AND cid = ?', [vid, cid])).length) fail(400, 'Vehicle does not belong to this customer');
     const id = await db.tx(async c => {
       const id = await numberFor(c, 'estimate', 'EST-');
-      await c.q('INSERT INTO estimates (id, cid, vid, note, status, labours, parts, created) VALUES (?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [id, cid || null, vid || null, str(q.body.note, 500), 'Draft', '[]', '[]']);
+      const g = (k, n) => (cid ? '' : str(q.body[k], n));   // walk-in details are kept only while there is no registered customer
+      await c.q('INSERT INTO estimates (id, cid, vid, note, status, labours, parts, created, guest_name, guest_phone, guest_plate, guest_brand, guest_model, guest_vin, guest_eng) VALUES (?,?,?,?,?,?,?, UTC_TIMESTAMP(3),?,?,?,?,?,?,?)', [id, cid || null, vid || null, str(q.body.note, 500), 'Draft', '[]', '[]', g('guest_name', 120), g('guest_phone', 30), g('guest_plate', 30), g('guest_brand', 40), g('guest_model', 60), g('guest_vin', 40), g('guest_eng', 40)]);
       return id;
     });
     s.json(estRow((await db.q('SELECT * FROM estimates WHERE id = ?', [id]))[0]));
@@ -540,10 +541,10 @@ export function createApp({ cfg, db, notifier }) {
       await c.q('UPDATE estimates SET pro = ? WHERE id = ?', [e.id, e.id]);
     }
   }));
-  app.post('/api/estimates/:id/draft', ...estEdit(async (e, { c }) => {
+  app.post('/api/estimates/:id/draft', auth('MGR'), ...estEdit(async (e, { c }) => {
     rules.checkReopen(e); e.status = 'Draft'; e.finalized_at = null; e.by_name = null;
     await c.q("UPDATE proformas SET status = 'Draft', updated = UTC_TIMESTAMP(3) WHERE id = ? AND status = 'Issued'", [e.id]);
-  }));
+  }).slice(1));   // only the Manager and the Administrator can send a finalized estimate back to draft
   app.delete('/api/estimates/:id', auth('SA'), wrap(async (q, s) => {
     await db.tx(async c => {
       const [row] = await c.q('SELECT * FROM estimates WHERE id = ? FOR UPDATE', [q.params.id]);
@@ -558,14 +559,14 @@ export function createApp({ cfg, db, notifier }) {
 
   // ---- insurance companies and the labour task list ----
   const insForm = b => { const name = str(b.name, 160); if (!name) fail(400, 'Enter the insurance company name'); return { name, phone: str(b.phone, 30), address: str(b.address, 200), active: b.active === false || b.active === 0 ? 0 : 1 }; };
-  app.post('/api/insurers', auth('SA'), wrap(async (q, s) => {
+  app.post('/api/insurers', auth('MGR'), wrap(async (q, s) => {
     const f = insForm(q.body), id = newId();
     if ((await db.q('SELECT id FROM insurers WHERE name = ?', [f.name])).length) fail(409, 'This insurance company is already registered');
     await db.q('INSERT INTO insurers (id, name, phone, address, active) VALUES (?,?,?,?,1)', [id, f.name, f.phone, f.address]);
     s.json({ id, name: f.name, phone: f.phone, address: f.address });
   }));
   // Excel import: rows of { name, phone, address }. A company already registered (same name) is skipped; nothing is changed or deleted.
-  app.post('/api/insurers/import', auth('SA'), wrap(async (q, s) => {
+  app.post('/api/insurers/import', auth('MGR'), wrap(async (q, s) => {
     const rows = Array.isArray(q.body.rows) ? q.body.rows.slice(0, 2000) : [];
     if (!rows.length) fail(400, 'The file has no insurance companies');
     let added = 0, skipped = 0;
@@ -577,7 +578,7 @@ export function createApp({ cfg, db, notifier }) {
     }
     s.json({ added, skipped });
   }));
-  app.put('/api/insurers/:id', auth('SA'), wrap(async (q, s) => {
+  app.put('/api/insurers/:id', auth('MGR'), wrap(async (q, s) => {
     const f = insForm(q.body);
     if ((await db.q('SELECT id FROM insurers WHERE name = ? AND id <> ?', [f.name, q.params.id])).length) fail(409, 'This insurance company is already registered');
     const r = await db.q('UPDATE insurers SET name = ?, phone = ?, address = ?, active = ? WHERE id = ?', [f.name, f.phone, f.address, f.active, q.params.id]);
@@ -585,7 +586,7 @@ export function createApp({ cfg, db, notifier }) {
     s.json({ id: q.params.id, name: f.name, phone: f.phone, address: f.address });
   }));
 
-  app.post('/api/labour-tasks', auth('SA'), wrap(async (q, s) => {
+  app.post('/api/labour-tasks', auth('MGR'), wrap(async (q, s) => {
     const f = normalizeTask(q.body, rules.SECTIONS), id = newId();
     if ((await db.q('SELECT id FROM labour_tasks WHERE code = ? AND model_grp = ? AND task = ? AND name = ? AND section = ?', [f.code, f.model_grp, f.task, f.name, f.section])).length) fail(409, 'This task is already in the list');
     await db.q('INSERT INTO labour_tasks (id, code, model_grp, task, name, section, hours, price, active) VALUES (?,?,?,?,?,?,?,?,1)', [id, f.code, f.model_grp, f.task, f.name, f.section, f.hours, f.price]);
@@ -594,7 +595,7 @@ export function createApp({ cfg, db, notifier }) {
   // Import the garage's Excel price book (the browser reads all its sheets and sends the rows). Only BP- and ME- codes are taken:
   // Labour Code, Description, Model Grp and Hours. The cost is not imported: it is always hours x the labour rate in the system.
   // A line already there (same code and model group) gets its description and hours updated. Nothing is deleted.
-  app.post('/api/labour-tasks/import', auth('SA'), wrap(async (q, s) => {
+  app.post('/api/labour-tasks/import', auth('MGR'), wrap(async (q, s) => {
     const { lines, skipped, ignored } = normalizeImport(q.body.rows, rules.SECTIONS);
     let added = 0, updated = 0;
     await db.tx(async c => {
@@ -606,7 +607,7 @@ export function createApp({ cfg, db, notifier }) {
     });
     s.json({ added, updated, skipped, ignored });
   }));
-  app.put('/api/labour-tasks/:id', auth('SA'), wrap(async (q, s) => {
+  app.put('/api/labour-tasks/:id', auth('MGR'), wrap(async (q, s) => {
     const f = normalizeTask(q.body, rules.SECTIONS);
     if ((await db.q('SELECT id FROM labour_tasks WHERE code = ? AND model_grp = ? AND task = ? AND name = ? AND section = ? AND id <> ?', [f.code, f.model_grp, f.task, f.name, f.section, q.params.id])).length) fail(409, 'This task is already in the list');
     const r = await db.q('UPDATE labour_tasks SET code = ?, model_grp = ?, task = ?, name = ?, section = ?, hours = ?, price = ?, active = ? WHERE id = ?', [f.code, f.model_grp, f.task, f.name, f.section, f.hours, f.price, f.active, q.params.id]);
@@ -782,7 +783,7 @@ export function createApp({ cfg, db, notifier }) {
   }));
 
   // ---- service packages (Type A / B / C) ----
-  app.put('/api/service-types/:code', auth('SA'), wrap(async (q, s) => {
+  app.put('/api/service-types/:code', auth('MGR'), wrap(async (q, s) => {
     const f = normalizeService(q.body);
     if (!(await db.q('SELECT code FROM service_types WHERE code = ?', [q.params.code])).length) fail(404, 'Service type not found');
     await db.q('UPDATE service_types SET name = ?, interval_km = ?, labours = ?, parts = ? WHERE code = ?', [f.name, f.interval_km, sendJson(f.labours), sendJson(f.parts), q.params.code]);
@@ -803,12 +804,12 @@ export function createApp({ cfg, db, notifier }) {
   }));
 
   // ---- reports (Addis Ababa days) ----
-  app.get('/api/reports/revenue', auth('SA'), wrap(async (q, s) => {
+  app.get('/api/reports/revenue', auth('MGR'), wrap(async (q, s) => {
     const [a, b] = range(q.query);
     const [js, cs, vs] = await Promise.all([db.q('SELECT id, cid, vid, labours, parts, inv FROM jobs WHERE inv IS NOT NULL'), db.q('SELECT id, name FROM customers'), db.q('SELECT id, plate FROM vehicles')]);
     s.json({ ...revenueReport(js.map(jobRow), a, b, cfg.vat, Object.fromEntries(cs.map(c => [c.id, c.name])), Object.fromEntries(vs.map(v => [v.id, v.plate]))), from: a, to: b });
   }));
-  app.get('/api/reports/hours', auth('SA', 'WS', 'TECH'), wrap(async (q, s) => {
+  app.get('/api/reports/hours', auth('WS', 'TECH'), wrap(async (q, s) => {
     const [a, b] = range(q.query);
     const js = (await db.q("SELECT id, labours FROM jobs WHERE status <> 'Created'")).map(jobRow);
     s.json({ ...hoursReport(js, a, b, Date.now(), q.u.role === 'TECH' ? q.u.name : null), from: a, to: b });

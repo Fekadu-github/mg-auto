@@ -197,12 +197,13 @@ export function LabourTaskDialog({ id }) {
 
 // Start an estimate for a customer's vehicle (Body & Paints). It opens as a draft.
 export function NewEstimateDialog() {
-  const { db, run, openModal, closeModal } = useApp();
-  const [f, bind, set, reset] = usePersistedForm('form:new-estimate', { none: true, cid: db.c[0]?.id || '', vid: '', note: '' });
+  const { db, run, say, openModal, closeModal } = useApp();
+  const [f, bind, set, reset] = usePersistedForm('form:new-estimate', { none: true, cid: db.c[0]?.id || '', vid: '', note: '', guest_name: '', guest_phone: '', guest_plate: '', guest_brand: '', guest_model: '', guest_vin: '', guest_eng: '' });
   const vehicles = db.v.filter(v => v.cid === f.cid), vid = vehicles.some(v => v.id === f.vid) ? f.vid : vehicles[0]?.id || '';
   const create = async () => {
     if (!f.none && !vid) return;
-    const r = await run(() => api('/estimates', 'POST', f.none ? { note: f.note } : { cid: f.cid, vid, note: f.note }));
+    if (f.none && (!f.guest_name.trim() || !f.guest_plate.trim())) { say('Write the customer name and the plate number first.'); return; }
+    const r = await run(() => api('/estimates', 'POST', f.none ? { note: f.note, guest_name: f.guest_name, guest_phone: f.guest_phone, guest_plate: f.guest_plate, guest_brand: f.guest_brand, guest_model: f.guest_model, guest_vin: f.guest_vin, guest_eng: f.guest_eng } : { cid: f.cid, vid, note: f.note }));
     if (r.ok) { reset(); openModal('estimate', { id: r.data.id }); }
   };
   return (
@@ -211,7 +212,18 @@ export function NewEstimateDialog() {
         <Btn kind={f.none ? '' : 'ol'} onClick={() => set({ none: true })}>No customer yet</Btn>
         <Btn kind={f.none ? 'ol' : ''} onClick={() => set({ none: false })} disabled={!db.c.length}>Registered customer</Btn>
       </div>
-      {f.none ? <p className="mu small">Only the estimation number is made. Add the labour and parts, then make the proforma from this EST number (Proformas page, New proforma) to print it for the insurance. The customer is added when the job card is created.</p> : <div className="row mt">
+      {f.none ? <><p className="mu small">Register the customer and the vehicle as on the proforma. They are printed on the estimate, and the customer is added to Customers when the job card is created.</p>
+        <div className="row mt">
+          <Field label="Customer name" {...bind('guest_name')} />
+          <Field label="Phone" {...bind('guest_phone')} />
+          <Field label="Plate no" {...bind('guest_plate')} />
+        </div>
+        <div className="row">
+          <Field label="Brand" {...bind('guest_brand')} />
+          <Field label="Model" {...bind('guest_model')} />
+          <Field label="Chassis / VIN no" {...bind('guest_vin')} />
+          <Field label="Engine / motor no" {...bind('guest_eng')} />
+        </div></> : <div className="row mt">
         <Field label="Customer"><select value={f.cid} onChange={e => set({ cid: e.target.value, vid: '' })}>{db.c.map(c => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}</select></Field>
         <Field label="Vehicle"><select value={vid} onChange={e => set({ vid: e.target.value })}>
           {vehicles.length ? vehicles.map(v => <option key={v.id} value={v.id}>{v.plate} · {vehicleName(v)}</option>) : <option value="">No vehicle – add one in Customers</option>}
