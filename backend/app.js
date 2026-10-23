@@ -147,7 +147,7 @@ export function createApp({ cfg, db, notifier }) {
   // The audit trail for the manager: newest first; ?q= finds a person, an action or a record number
   app.get('/api/audit', auth('MGR'), wrap(async (q, s) => {
     const lim = Math.min(Math.max(parseInt(q.query.limit, 10) || 200, 1), 500), t = `%${str(q.query.q, 60).replace(/[%_]/g, '')}%`;
-    s.json(await db.q('SELECT id, at, user_name, role, action, ref, status, method, path, ip FROM audit_log WHERE (user_name LIKE ? OR action LIKE ? OR ref LIKE ?)' + (q.u.role === 'ADMIN' ? '' : " AND role <> 'ADMIN'") + ' ORDER BY id DESC LIMIT ?', [t, t, t, lim]));
+    s.json(await db.q('SELECT id, at, user_name, role, action, ref, status, method, path, ip FROM audit_log WHERE (user_name LIKE ? OR action LIKE ? OR ref LIKE ?)' + (q.u.role === 'ADMIN' ? '' : " AND role <> 'ADMIN' AND (user_id IS NULL OR user_id NOT IN (SELECT id FROM app_users WHERE role = 'ADMIN')) AND user_name NOT IN (SELECT username FROM app_users WHERE role = 'ADMIN') AND user_name NOT IN (SELECT name FROM app_users WHERE role = 'ADMIN')") + ' ORDER BY id DESC LIMIT ?', [t, t, t, lim]));
   }));
 
   // ---- everything the screens need, in one call ----

@@ -197,12 +197,11 @@ export function LabourTaskDialog({ id }) {
 
 // Start an estimate for a customer's vehicle (Body & Paints). It opens as a draft.
 export function NewEstimateDialog() {
-  const { db, run, say, openModal, closeModal } = useApp();
+  const { db, run, openModal, closeModal } = useApp();
   const [f, bind, set, reset] = usePersistedForm('form:new-estimate', { none: true, cid: db.c[0]?.id || '', vid: '', note: '', guest_name: '', guest_phone: '', guest_plate: '', guest_brand: '', guest_model: '', guest_vin: '', guest_eng: '' });
   const vehicles = db.v.filter(v => v.cid === f.cid), vid = vehicles.some(v => v.id === f.vid) ? f.vid : vehicles[0]?.id || '';
   const create = async () => {
     if (!f.none && !vid) return;
-    if (f.none && (!f.guest_name.trim() || !f.guest_plate.trim())) { say('Write the customer name and the plate number first.'); return; }
     const r = await run(() => api('/estimates', 'POST', f.none ? { note: f.note, guest_name: f.guest_name, guest_phone: f.guest_phone, guest_plate: f.guest_plate, guest_brand: f.guest_brand, guest_model: f.guest_model, guest_vin: f.guest_vin, guest_eng: f.guest_eng } : { cid: f.cid, vid, note: f.note }));
     if (r.ok) { reset(); openModal('estimate', { id: r.data.id }); }
   };
@@ -212,7 +211,7 @@ export function NewEstimateDialog() {
         <Btn kind={f.none ? '' : 'ol'} onClick={() => set({ none: true })}>No customer yet</Btn>
         <Btn kind={f.none ? 'ol' : ''} onClick={() => set({ none: false })} disabled={!db.c.length}>Registered customer</Btn>
       </div>
-      {f.none ? <><p className="mu small">Register the customer and the vehicle as on the proforma. They are printed on the estimate, and the customer is added to Customers when the job card is created.</p>
+      {f.none ? <><p className="mu small">Optional: register the customer and the vehicle as on the proforma (you can leave them empty and create the estimate now). If filled, they are printed on the estimate, and the customer is added to Customers when the job card is created.</p>
         <div className="row mt">
           <Field label="Customer name" {...bind('guest_name')} />
           <Field label="Phone" {...bind('guest_phone')} />
