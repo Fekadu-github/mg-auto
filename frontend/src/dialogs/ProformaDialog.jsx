@@ -21,7 +21,7 @@ export default function ProformaDialog({ id }) {
   const { db, me, run, say, refresh, openModal, closeModal, goPage, cust, veh } = useApp();
   const { print } = usePrint();
   const p = db.pr.find(x => x.id === id);
-  const fromServer = p && { guest_name: p.guest_name || '', guest_phone: p.guest_phone || '', guest_plate: p.guest_plate || '', guest_brand: p.guest_brand || '', guest_model: p.guest_model || '', insurer_id: p.insurer_id || '', policy_no: p.policy_no || '', estimator_id: p.estimator_id || '', pdate: p.pdate, note: p.note || '', claim_no: p.claim_no || '', priority: p.priority || '', due_date: p.due_date || '', terms: p.terms || '', labours: p.labours, parts: p.parts };
+  const fromServer = p && { guest_name: p.guest_name || '', guest_phone: p.guest_phone || '', guest_plate: p.guest_plate || '', guest_brand: p.guest_brand || '', guest_model: p.guest_model || '', guest_vin: p.guest_vin || '', guest_eng: p.guest_eng || '', insurer_id: p.insurer_id || '', policy_no: p.policy_no || '', estimator_id: p.estimator_id || '', pdate: p.pdate, note: p.note || '', claim_no: p.claim_no || '', priority: p.priority || '', due_date: p.due_date || '', terms: p.terms || '', labours: p.labours, parts: p.parts };
   const open = !!p && p.status !== 'Converted' && isSA(me);
   const [init] = useState(() => restoreDraft('pro:' + id, fromServer, p?.updated ? Date.parse(p.updated) : 0));   // a copy on this PC older than the server's is dropped
   const [f, setF] = useState(() => (init.value ? { ...init.value, labours: init.value.labours.map(l => ({ ...l })), parts: init.value.parts.map(x => ({ ...x })) } : null));
@@ -30,7 +30,7 @@ export default function ProformaDialog({ id }) {
   if (!p || !f) return <Dialog title="Proforma" onClose={closeModal}><p className="mu">This proforma no longer exists.</p></Dialog>;
 
   const walkIn = !p.cid;   // not registered yet: the customer and vehicle details live on the proforma itself
-  const c = walkIn ? { name: f.guest_name, phone: f.guest_phone } : cust(p.cid), v = walkIn ? { plate: f.guest_plate, brand: f.guest_brand, model: f.guest_model } : veh(p.vid), rate = db.cfg.labourRates || db.cfg.labourRate, vat = db.cfg.vat, converted = p.status === 'Converted';
+  const c = walkIn ? { name: f.guest_name, phone: f.guest_phone } : cust(p.cid), v = walkIn ? { plate: f.guest_plate, brand: f.guest_brand, model: f.guest_model, vin: f.guest_vin, eng: f.guest_eng } : veh(p.vid), rate = db.cfg.labourRates || db.cfg.labourRate, vat = db.cfg.vat, converted = p.status === 'Converted';
   const insurer = db.ins.find(x => x.id === f.insurer_id), estimator = db.staff.find(x => x.id === f.estimator_id);
   const set = patch => setF(s => ({ ...s, ...patch }));
   // The vehicle whose registered mileage is used: the proforma's own vehicle, or the one chosen from the linked customer's vehicles (a walk-in's written vehicle has no reading yet)
@@ -82,6 +82,8 @@ export default function ProformaDialog({ id }) {
           <Field label="Plate no" value={f.guest_plate} onChange={e => set({ guest_plate: e.target.value })} />
           <Field label="Brand" value={f.guest_brand} onChange={e => set({ guest_brand: e.target.value })} />
           <Field label="Model" value={f.guest_model} onChange={e => set({ guest_model: e.target.value })} />
+          <Field label="Chassis / VIN no" value={f.guest_vin} onChange={e => set({ guest_vin: e.target.value })} />
+          <Field label="Engine / motor no" value={f.guest_eng} onChange={e => set({ guest_eng: e.target.value })} />
         </div>
       </> : (
         <div className="g g2">

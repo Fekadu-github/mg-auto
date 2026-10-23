@@ -48,7 +48,7 @@ export default function EstimateDialog({ id, jid }) {
   const ready = async () => { if (edit && !(await flush())) { say('The draft is not saved yet. Wait a moment and try again.'); return false; } return true; };
   // An estimate made from a proforma prints that proforma's insurance company, claim and policy; a walk-in's name and vehicle come from the proforma too
   const src = e.pro ? db.pr.find(x => x.id === e.pro) : null, srcIns = src?.insurer_id ? db.ins.find(x => x.id === src.insurer_id) : undefined, walkIn = !e.cid;
-  const docC = walkIn && src ? { name: src.guest_name, phone: src.guest_phone } : c, docV = walkIn && src ? { plate: src.guest_plate, brand: src.guest_brand, model: src.guest_model } : v;
+  const docC = walkIn && src ? { name: src.guest_name, phone: src.guest_phone } : c, docV = walkIn && src ? { plate: src.guest_plate, brand: src.guest_brand, model: src.guest_model, vin: src.guest_vin, eng: src.guest_eng } : v;
   const linked = db.pr.find(x => x.id === e.id && x.status !== 'Converted');   // the proforma made from this estimate (same EST number)
   const printIt = async () => { if (await ready()) print(<EstimateDoc est={doc()} customer={docC} vehicle={docV} pro={src} insurer={srcIns} walkIn={walkIn} garage={db.cfg.garage} vat={vat} />, 'a4'); };
   const download = async () => { if (await ready()) downloadXlsx(`${e.id}-${e.status.toLowerCase()}.xlsx`, estimateRows(doc(), { customer: c, vehicle: v, vat }), 'Estimate'); };

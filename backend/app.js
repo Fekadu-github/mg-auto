@@ -21,7 +21,7 @@ import { verifyTotp } from './totp.js';
 
 const jobRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, created: r.created, mileage: r.mileage ?? null, est: r.est || null, payer: r.payer || null, policy_no: r.policy_no || null, mileage_out: r.mileage_out ?? null, claim_no: r.claim_no || null, due_date: r.due_date || null, priority: r.priority || null, price_reqs: J(r.price_reqs, []), services: J(r.services, []), requests: J(r.requests, []), labours: J(r.labours, []), parts: J(r.parts, []), inv: J(r.inv, null), log: J(r.log, []) });
 const estRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), created: r.created, finalized_at: r.finalized_at, by_name: r.by_name, used_in: r.used_in, pro: r.pro || null });
-const proRow = r => r && ({ id: r.id, cid: r.cid || null, vid: r.vid || null, guest_name: r.guest_name || '', guest_phone: r.guest_phone || '', guest_plate: r.guest_plate || '', guest_brand: r.guest_brand || '', guest_model: r.guest_model || '', insurer_id: r.insurer_id || null, policy_no: r.policy_no, estimator_id: r.estimator_id || null, estimator: r.estimator, estimator_role: r.estimator_role, pdate: r.pdate, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), est: r.est || null, job: r.job || null, claim_no: r.claim_no || '', priority: r.priority || '', due_date: r.due_date || null, terms: r.terms || '', created: r.created, updated: r.updated });
+const proRow = r => r && ({ id: r.id, cid: r.cid || null, vid: r.vid || null, guest_name: r.guest_name || '', guest_phone: r.guest_phone || '', guest_plate: r.guest_plate || '', guest_brand: r.guest_brand || '', guest_model: r.guest_model || '', guest_vin: r.guest_vin || '', guest_eng: r.guest_eng || '', insurer_id: r.insurer_id || null, policy_no: r.policy_no, estimator_id: r.estimator_id || null, estimator: r.estimator, estimator_role: r.estimator_role, pdate: r.pdate, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), est: r.est || null, job: r.job || null, claim_no: r.claim_no || '', priority: r.priority || '', due_date: r.due_date || null, terms: r.terms || '', created: r.created, updated: r.updated });
 const CUS = 'id, name, phone, city, sub, woreda, house, dob, notify, insurer_id, policy_no, tin, (tg_chat IS NOT NULL) AS tg, created_at';   // never the Telegram chat id or link token
 const svcRow = r => r && ({ code: r.code, name: r.name, interval_km: r.interval_km, labours: J(r.labours, []), parts: J(r.parts, []) });
 const VEH = 'id, cid, plate, vin, eng, col, brand, model, mileage, next_km, next_type, created_at';
@@ -642,8 +642,8 @@ export function createApp({ cfg, db, notifier }) {
       if (!row) fail(404, 'Proforma not found');
       const p = proRow(row);
       await fn(p, { c, body: q.body, u: q.u });
-      await c.q('UPDATE proformas SET guest_name = ?, guest_phone = ?, guest_plate = ?, guest_brand = ?, guest_model = ?, insurer_id = ?, policy_no = ?, estimator_id = ?, estimator = ?, estimator_role = ?, pdate = ?, note = ?, status = ?, labours = ?, parts = ?, claim_no = ?, priority = ?, due_date = ?, terms = ?, updated = UTC_TIMESTAMP(3) WHERE id = ?',
-        [p.guest_name || '', p.guest_phone || '', p.guest_plate || '', p.guest_brand || '', p.guest_model || '', p.insurer_id, p.policy_no, p.estimator_id, p.estimator, p.estimator_role, p.pdate, p.note, p.status, sendJson(p.labours), sendJson(p.parts), p.claim_no || '', p.priority || '', p.due_date || null, p.terms || '', p.id]);
+      await c.q('UPDATE proformas SET guest_name = ?, guest_phone = ?, guest_plate = ?, guest_brand = ?, guest_model = ?, guest_vin = ?, guest_eng = ?, insurer_id = ?, policy_no = ?, estimator_id = ?, estimator = ?, estimator_role = ?, pdate = ?, note = ?, status = ?, labours = ?, parts = ?, claim_no = ?, priority = ?, due_date = ?, terms = ?, updated = UTC_TIMESTAMP(3) WHERE id = ?',
+        [p.guest_name || '', p.guest_phone || '', p.guest_plate || '', p.guest_brand || '', p.guest_model || '', p.guest_vin || '', p.guest_eng || '', p.insurer_id, p.policy_no, p.estimator_id, p.estimator, p.estimator_role, p.pdate, p.note, p.status, sendJson(p.labours), sendJson(p.parts), p.claim_no || '', p.priority || '', p.due_date || null, p.terms || '', p.id]);
       return proRow((await c.q('SELECT * FROM proformas WHERE id = ?', [p.id]))[0]);
     });
     s.json(saved);
@@ -656,7 +656,7 @@ export function createApp({ cfg, db, notifier }) {
       p.insurer_id = str(body.insurer_id, 36) || null;
       if (p.insurer_id && !(await c.q('SELECT id FROM insurers WHERE id = ?', [p.insurer_id])).length) fail(400, 'Choose an insurance company from the list');
     }
-    if (!p.cid) for (const [k, n] of [['guest_name', 120], ['guest_phone', 30], ['guest_plate', 30], ['guest_brand', 40], ['guest_model', 60]]) if (body[k] !== undefined) p[k] = str(body[k], n);
+    if (!p.cid) for (const [k, n] of [['guest_name', 120], ['guest_phone', 30], ['guest_plate', 30], ['guest_brand', 40], ['guest_model', 60], ['guest_vin', 40], ['guest_eng', 40]]) if (body[k] !== undefined) p[k] = str(body[k], n);
     if (body.policy_no !== undefined) p.policy_no = str(body.policy_no, 60);
     if (rules.dateOk(body.pdate)) p.pdate = body.pdate;
     if (body.claim_no !== undefined) p.claim_no = str(body.claim_no, 60);
@@ -715,7 +715,7 @@ export function createApp({ cfg, db, notifier }) {
             if (!p.guest_plate) fail(400, 'Write the plate number to register the vehicle');
             if (km0 === null) fail(400, 'Enter the current mileage (km): it is registered with the vehicle');
             p.vid = newId();
-            await c.q('INSERT INTO vehicles (id, cid, plate, vin, eng, col, brand, model, mileage, created_at) VALUES (?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [p.vid, cu.id, p.guest_plate, '', '', '', p.guest_brand, p.guest_model, km0]);
+            await c.q('INSERT INTO vehicles (id, cid, plate, vin, eng, col, brand, model, mileage, created_at) VALUES (?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [p.vid, cu.id, p.guest_plate, p.guest_vin || '', p.guest_eng || '', '', p.guest_brand, p.guest_model, km0]);
           }
           p.cid = cu.id;
         } else {
@@ -725,7 +725,7 @@ export function createApp({ cfg, db, notifier }) {
           p.cid = await numberFor(c, 'customer', 'CUS-'); p.vid = newId();
           const [ins0] = p.insurer_id ? await c.q('SELECT id FROM insurers WHERE id = ?', [p.insurer_id]) : [];
           await c.q('INSERT INTO customers (id, name, phone, city, sub, woreda, house, dob, notify, insurer_id, policy_no, tin, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [p.cid, p.guest_name, p.guest_phone, '', '', '', '', null, 'both', ins0 ? ins0.id : null, ins0 ? p.policy_no || '' : '', '']);
-          await c.q('INSERT INTO vehicles (id, cid, plate, vin, eng, col, brand, model, mileage, created_at) VALUES (?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [p.vid, p.cid, p.guest_plate, '', '', '', p.guest_brand, p.guest_model, km0]);
+          await c.q('INSERT INTO vehicles (id, cid, plate, vin, eng, col, brand, model, mileage, created_at) VALUES (?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [p.vid, p.cid, p.guest_plate, p.guest_vin || '', p.guest_eng || '', '', p.guest_brand, p.guest_model, km0]);
         }
         await c.q('UPDATE proformas SET cid = ?, vid = ? WHERE id = ?', [p.cid, p.vid, p.id]);
       }

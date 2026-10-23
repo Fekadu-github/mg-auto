@@ -193,6 +193,8 @@ CREATE TABLE IF NOT EXISTS proformas (
   guest_plate VARCHAR(30) NOT NULL DEFAULT '',
   guest_brand VARCHAR(40) NOT NULL DEFAULT '',
   guest_model VARCHAR(60) NOT NULL DEFAULT '',
+  guest_vin VARCHAR(40) NOT NULL DEFAULT '',      -- chassis / VIN of the walk-in's vehicle
+  guest_eng VARCHAR(40) NOT NULL DEFAULT '',      -- engine / motor number
   insurer_id CHAR(36) NULL,
   policy_no VARCHAR(60) NOT NULL DEFAULT '',
   estimator_id CHAR(36) NULL,
