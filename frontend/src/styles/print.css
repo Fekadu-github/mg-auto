@@ -36,6 +36,10 @@
 .sigs .line + .line, .sigs .line:not(:first-child) { margin-top: 0; }
 
 /* Service Price Estimation sheet (insurance proforma and estimate), modelled on the E-Ethio sample */
+.est-brands { display: flex; justify-content: center; align-items: center; gap: 14mm; margin: 0 0 2.5mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; break-inside: avoid; }
+.est-brands img { display: block; height: 9mm; width: auto; max-width: 40mm; object-fit: contain; }
+.doc.est[data-density="compact"] .est-brands { gap: 11mm; margin-bottom: 1.5mm; } .doc.est[data-density="compact"] .est-brands img { height: 7mm; }
+.doc.est[data-density="tight"] .est-brands { gap: 9mm; margin-bottom: 1mm; } .doc.est[data-density="tight"] .est-brands img { height: 5.5mm; }
 .est .lh-doc { min-width: 62mm; }
 .est-meta { display: flex; justify-content: space-between; gap: 4mm; border-bottom: 1px solid #000; padding: 0.5mm 0; font-size: 12px; text-align: left; }
 .est-meta span { color: #444; }

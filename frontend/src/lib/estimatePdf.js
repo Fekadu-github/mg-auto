@@ -7,6 +7,7 @@
 // The built-in PDF font (Helvetica) covers Latin letters, digits and common punctuation; any other character (for example Amharic) prints as "?".
 import { TZ, birrInWords, dt, money, pct, splitCode, tot, cur } from './format.js';
 import { DEFAULT_TERMS } from './constants.js';
+import { BRAND_LOGOS } from './brands.js';
 
 const W_REG = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584,761,556,556,222,556,333,1000,556,556,333,1000,667,333,1000,556,611,556,556,222,222,333,333,350,556,1000,333,1000,500,333,944,556,500,667,278,333,556,556,556,556,260,556,333,737,370,556,584,333,737,333,400,584,333,333,333,556,537,278,333,333,365,556,834,834,834,611,667,667,667,667,667,667,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,500,556,556,556,556,278,278,278,278,556,556,556,556,556,556,556,584,611,556,556,556,556,500,556,500];
 const W_BOLD = [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584,761,556,556,278,556,500,1000,556,556,333,1000,667,333,1000,556,611,556,556,278,278,500,500,350,556,1000,333,1000,556,333,944,556,500,667,278,333,556,556,556,556,280,556,333,737,370,556,584,333,737,333,400,584,333,333,333,611,556,278,333,333,365,556,834,834,834,611,722,722,722,722,722,722,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,556,556,556,556,556,278,278,278,278,611,611,611,611,611,611,611,584,611,611,611,611,611,556,611,556];   // Helvetica advance widths for characters 32..255 (WinAnsi), per 1000 units
@@ -86,12 +87,12 @@ function watermark(pg) {   // a faint DRAFT across the page, behind everything
 }
 function logoAt(pg, logo, x, y, size) {   // round, cropped to fill the circle
   const sc = Math.max(size / logo.w, size / logo.h), dw = logo.w * sc, dh = logo.h * sc, r = size / 2, k = .5523 * r, cx = x + r, cy = Y(y + r);
-  put(pg, `q ${n2(cx + r)} ${n2(cy)} m ${n2(cx + r)} ${n2(cy + k)} ${n2(cx + k)} ${n2(cy + r)} ${n2(cx)} ${n2(cy + r)} c ${n2(cx - k)} ${n2(cy + r)} ${n2(cx - r)} ${n2(cy + k)} ${n2(cx - r)} ${n2(cy)} c ${n2(cx - r)} ${n2(cy - k)} ${n2(cx - k)} ${n2(cy - r)} ${n2(cx)} ${n2(cy - r)} c ${n2(cx + k)} ${n2(cy - r)} ${n2(cx + r)} ${n2(cy - k)} ${n2(cx + r)} ${n2(cy)} c W n ${n2(dw)} 0 0 ${n2(dh)} ${n2(cx - dw / 2)} ${n2(cy - dh / 2)} cm /Im1 Do Q`);
+  put(pg, `q ${n2(cx + r)} ${n2(cy)} m ${n2(cx + r)} ${n2(cy + k)} ${n2(cx + k)} ${n2(cy + r)} ${n2(cx)} ${n2(cy + r)} c ${n2(cx - k)} ${n2(cy + r)} ${n2(cx - r)} ${n2(cy + k)} ${n2(cx - r)} ${n2(cy)} c ${n2(cx - r)} ${n2(cy - k)} ${n2(cx - k)} ${n2(cy - r)} ${n2(cx)} ${n2(cy - r)} c ${n2(cx + k)} ${n2(cy - r)} ${n2(cx + r)} ${n2(cy - k)} ${n2(cx + r)} ${n2(cy)} c W n ${n2(dw)} 0 0 ${n2(dh)} ${n2(cx - dw / 2)} ${n2(cy - dh / 2)} cm /${logo.name || 'Im1'} Do Q`);
 }
 
 // ---------- the sheet ----------
 // s scales every size (1 = normal). Returns the pages, each { ops }.
-function layout(d, s, logo) {
+function layout(d, s, logo, brands = []) {
   const g = d.garage || {}, pages = [], LIMIT = A4H - M - 22;
   let pg, y;
   const run = () => { text(pg, `${d.no} · Service Price Estimation (continued)`, M, M + 7, { size: 7.6, color: COL.ps }); hline(pg, M, M + CW, M + 11, COL.pl); y = M + 18; };
@@ -101,6 +102,14 @@ function layout(d, s, logo) {
   const L = (d.labours || []).map(l => ({ ...l, price: num(l.price) })), P = (d.parts || []).map(p => ({ ...p, qty: num(p.qty), price: num(p.price) }));
   const t = tot({ labours: L, parts: P }, d.vat ?? 0.15), c = d.customer || {}, v = d.vehicle || {}, ins = d.insurer;
   const type = ins ? 'Insurance' : d.walkIn ? 'Walk-in customer (private)' : 'Private';
+
+  // the makes we serve: one centred row at the very top (same height for each, so they look even)
+  if (brands.length) {
+    const bh = 24 * s, bg = 24 * s, ws = brands.map(b => b.w * bh / b.h), row = ws.reduce((a, b) => a + b, 0) + bg * (brands.length - 1);
+    let bx = A4W / 2 - row / 2;
+    brands.forEach((b, i) => { put(pg, `q ${n2(ws[i])} 0 0 ${n2(bh)} ${n2(bx)} ${n2(Y(y + bh))} cm /${b.name} Do Q`); bx += ws[i] + bg; });
+    y += bh + 8 * s;
+  }
 
   // letterhead: logo, garage, document numbers, the blue-to-lime rule
   const logoS = 52 * s, metaW = 172, mx = M + CW - metaW, rh = 12.6 * s;
@@ -228,17 +237,17 @@ function layout(d, s, logo) {
 
 // ---------- the PDF file ----------
 const enc8 = new TextEncoder();
-function assemble(pages, { title, logo, footer }) {
+function assemble(pages, { title, images = [], footer }) {
   const total = pages.length, objs = [], str = s => enc8.encode(s);
-  const FIX = logo ? 9 : 8;                       // fixed objects: catalog, pages, 4 fonts, extgstate, info, [image]
+  const FIX = 8 + images.length;                 // fixed objects: catalog, pages, 4 fonts, extgstate, info, then the images
   const pageId = i => FIX + 2 + i * 2, contId = i => FIX + 1 + i * 2;
   objs.push(str('<< /Type /Catalog /Pages 2 0 R >>'));
   objs.push(str(`<< /Type /Pages /Count ${total} /Kids [${pages.map((_, i) => `${pageId(i)} 0 R`).join(' ')}] >>`));
   for (const f of ['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Helvetica-BoldOblique']) objs.push(str(`<< /Type /Font /Subtype /Type1 /BaseFont /${f} /Encoding /WinAnsiEncoding >>`));
   objs.push(str('<< /Type /ExtGState /ca 0.07 /CA 0.07 >>'));
   objs.push(str(`<< /Title <FEFF${[...title].map(ch => ch.charCodeAt(0).toString(16).padStart(4, '0')).join('')}> /Producer (MG Auto) /Creator (MG Auto) >>`));
-  if (logo) objs.push(concat([str(`<< /Type /XObject /Subtype /Image /Width ${logo.w} /Height ${logo.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${logo.data.length} >>\nstream\n`), logo.data, str('\nendstream')]));
-  const res = `<< /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> /ExtGState << /GS1 7 0 R >>${logo ? ' /XObject << /Im1 9 0 R >>' : ''} >>`;
+  for (const im of images) objs.push(concat([str(`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.data.length} >>\nstream\n`), im.data, str('\nendstream')]));
+  const res = `<< /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> /ExtGState << /GS1 7 0 R >>${images.length ? ` /XObject << ${images.map((im, i) => `/${im.name} ${9 + i} 0 R`).join(' ')} >>` : ''} >>`;
   pages.forEach((pg, i) => {
     const ops = [...pg.ops]; const extra = { ops: [] }; footer(extra, i + 1, total); ops.push(...extra.ops);
     const body = str(ops.join('\n'));
@@ -254,11 +263,14 @@ function assemble(pages, { title, logo, footer }) {
 function concat(parts) { const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0)); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out; }
 
 /** props: the EstimationSheet props (no, date, draft, walkIn, customer, vehicle, insurer, policyNo, claimNo, dueDate, note, labours, parts, vat, terms,
- *  garage (already merged with the defaults), preparedBy, preparedRole, label). logo: { data: JPEG bytes, w, h } or nothing. */
-export function buildEstimatePdf(props, { logo = null, printed = Date.now() } = {}) {
+ *  garage (already merged with the defaults), preparedBy, preparedRole, label). logo: { data: JPEG bytes, w, h } or nothing. brands: a list of the same shape (Toyota, BYD, Suzuki), drawn in a row above the letterhead. */
+export function buildEstimatePdf(props, { logo = null, brands = [], printed = Date.now() } = {}) {
+  if (logo) logo = { ...logo, name: 'Im1' };
+  brands = brands.map((b, i) => ({ ...b, name: `Im${i + 2}` }));
+  const images = [logo, ...brands].filter(Boolean);
   let pages = null;
-  for (const s of [1, .94, .88, .82]) { const p = layout(props, s, logo); if (p.length === 1) { pages = p; break; } }   // shrink a little to keep it on ONE page
-  if (!pages) pages = layout(props, 1, logo);
+  for (const s of [1, .94, .88, .82]) { const p = layout(props, s, logo, brands); if (p.length === 1) { pages = p; break; } }   // shrink a little to keep it on ONE page
+  if (!pages) pages = layout(props, 1, logo, brands);
   const g = props.garage || {};
   const footer = (pg, n, total) => {
     const y = A4H - M - 22 + 8;
@@ -267,22 +279,25 @@ export function buildEstimatePdf(props, { logo = null, printed = Date.now() } = 
     text(pg, `Printed ${dt(printed)}`, A4W / 2, y + 11, { size: 7.4, color: COL.ps, align: 'c' });
     text(pg, `Page ${n} of ${total}`, M + CW, y + 11, { size: 7.4, color: COL.ps, align: 'r' });
   };
-  return assemble(pages, { title: `${props.no || 'Estimation'}${props.draft ? ' (draft)' : ''}`, logo, footer });
+  return assemble(pages, { title: `${props.no || 'Estimation'}${props.draft ? ' (draft)' : ''}`, images, footer });
 }
 
-async function loadLogo() {   // the garage logo as a small JPEG; the PDF is still made without it if it cannot be read
+async function loadJpeg(url, max = 360) {   // a picture as a small JPEG on white; null if it cannot be read (so the PDF is still made without it)
   try {
-    const bmp = await createImageBitmap(await (await fetch('/madeg-logo.png')).blob());
-    const k = Math.min(1, 360 / Math.max(bmp.width, bmp.height)), w = Math.round(bmp.width * k), h = Math.round(bmp.height * k);
+    const res = await fetch(url); if (!res.ok) return null;
+    const bmp = await createImageBitmap(await res.blob());
+    const k = Math.min(1, max / Math.max(bmp.width, bmp.height)), w = Math.round(bmp.width * k), h = Math.round(bmp.height * k);
     const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
     const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h); cx.drawImage(bmp, 0, 0, w, h);
     const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', .9));
     return { data: new Uint8Array(await blob.arrayBuffer()), w, h };
   } catch { return null; }
 }
+const loadLogo = () => loadJpeg('/madeg-logo.png');
 
 export async function downloadEstimatePdf(props) {
-  const bytes = buildEstimatePdf(props, { logo: await loadLogo() });
+  const brands = (await Promise.all(BRAND_LOGOS.map(b => loadJpeg(b.src, 480)))).filter(Boolean);
+  const bytes = buildEstimatePdf(props, { logo: await loadLogo(), brands });
   const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
   const a = document.createElement('a');
   a.href = url; a.download = `${String(props.no || 'estimation').replace(/[^\w.-]+/g, '_')}${props.draft ? '-draft' : ''}.pdf`;

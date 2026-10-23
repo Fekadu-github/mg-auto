@@ -1,10 +1,14 @@
 import { TZ, birrInWords, dt, money, pct, splitCode, tot, cur } from '../lib/format.js';
 import { DEFAULT_TERMS } from '../lib/constants.js';
 import { GARAGE, Letterhead } from './InvoiceDoc.jsx';
+import { BRAND_LOGOS } from '../lib/brands.js';
 
 const num = v => parseFloat(v) || 0;
 // 2026-10-09 -> 09/10/2026 (a plain date stays the same day on every PC); a timestamp is shown in Addis Ababa time
 const dmy = d => (!d ? '' : /^\d{4}-\d{2}-\d{2}$/.test(d) ? d.split('-').reverse().join('/') : new Date(d).toLocaleDateString('en-GB', { timeZone: TZ }));
+// The makes we serve (Toyota, BYD, Suzuki), as one row at the very top of the sheet. A logo file that is missing is simply left out.
+const hide = e => { e.currentTarget.style.display = 'none'; };
+const BrandStrip = () => <div className="est-brands">{BRAND_LOGOS.map(b => <img key={b.key} src={b.src} alt="" onError={hide} />)}</div>;
 const F = ({ l, children }) => <div className="f"><span>{l}</span><b>{children}</b></div>;   // an empty value stays a blank line, so a walk-in sheet can be filled in by hand
 
 /** The "Service Price Estimation" sheet (A4) used for the insurance proforma and for the body & paint estimate.
@@ -18,6 +22,7 @@ export default function EstimationSheet({ no, date, draft, walkIn, customer: c =
   return (
     <article className={`doc a4 est${draft ? ' is-draft' : ''}`} data-density="normal">
       <div className="est-main">
+      <BrandStrip />
       <Letterhead g={g}>
         <div className="est-meta"><span>Date</span><b>{dmy(date)}</b></div>
         <div className="est-meta"><span>Est. No</span><b>{no}</b></div>
