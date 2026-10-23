@@ -8,6 +8,7 @@
   "dev": "node --watch --env-file=.env server.js",
   "migrate": "node scripts/migrate.js",
   "seed": "node scripts/seed.js",
+  "import-parts": "node scripts/import-parts.js",
   "test": "node --test"
  },
  "engines": {
