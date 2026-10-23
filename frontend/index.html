@@ -12,6 +12,11 @@
   document.documentElement.setAttribute("data-theme", t);
   var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute("content", t === "light" ? "#f1f4f9" : "#05070c"); })();
 </script>
+<script>
+// Row spacing, accent colour and contrast saved on this device (see src/lib/display.js), set before the first paint too.
+(function () { try { var d = JSON.parse(localStorage.getItem("mg_display") || "{}"), e = document.documentElement;
+  e.setAttribute("data-density", d.density === "compact" ? "compact" : "comfortable"); e.setAttribute("data-accent", ["teal", "orange", "violet"].indexOf(d.accent) > -1 ? d.accent : "blue"); e.setAttribute("data-contrast", d.contrast === true ? "high" : "normal"); } catch (x) {} })();
+</script>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icons/icon-192.png">
 <link rel="apple-touch-icon" href="/icons/icon-192.png">

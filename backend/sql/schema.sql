@@ -342,3 +342,14 @@ CREATE TABLE IF NOT EXISTS job_photos (
   KEY job_photos_job (job_id),
   CONSTRAINT job_photos_job_fk FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Service-due reminders: when a vehicle was last reminded about its next service (so it is not reminded twice)
+CREATE TABLE IF NOT EXISTS service_reminders (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  vid CHAR(36) NOT NULL,
+  next_km INT NULL,
+  channel VARCHAR(12) NOT NULL,
+  `at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  by_name VARCHAR(120) NULL,
+  KEY service_reminders_vid (vid, `at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

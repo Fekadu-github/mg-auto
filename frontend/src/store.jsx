@@ -64,7 +64,7 @@ export function AppProvider({ children }) {
 
   const value = useMemo(() => ({
     me, db, users, ready, toast, modal, say, run, refresh, signIn, signOut,
-    goPage: k => navRef.current?.(k), registerNav: fn => { navRef.current = fn; },
+    goPage: (k, params) => navRef.current?.(k, params), registerNav: fn => { navRef.current = fn; },
     openModal: (type, props) => setModal({ type, ...props }), closeModal: () => setModal(null), dismissToast: () => setToast(null),
     cust: id => db.c.find(x => x.id === id) || {}, veh: id => db.v.find(x => x.id === id) || {}, job: id => db.j.find(x => x.id === id)
   }), [me, db, users, ready, toast, modal, say, run, refresh, signIn, signOut]);

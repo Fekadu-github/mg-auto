@@ -265,7 +265,7 @@ export function createApp({ cfg, db, notifier }) {
     return bal;
   };
   // Items (create, edit, Excel import, bulk price), GRN, point of sale, payments, lost sales and the stock reports: see pos.js. Manager-only where it touches cost or price.
-  mountStock({ app, db, cfg, auth, wrap });
+  mountStock({ app, db, cfg, auth, wrap, notifier });
   mountExtras({ app, db, cfg, auth, wrap, getSetting });
   app.post('/api/inventory/:id/receive', auth('SA'), wrap(async (q, s) => {
     const n = qn(q.body.qty);

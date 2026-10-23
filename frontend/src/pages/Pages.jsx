@@ -1,13 +1,21 @@
 // The screens behind the sidebar: Dashboard, Job cards, Workshop, Customers, Parts stock, Reports, Staff.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../store.jsx';
 import { Btn, Field, Pill, Stat, StatusPill, Table } from '../components/ui.jsx';
 import { NotifySelect } from '../dialogs/Dialogs.jsx';
-import { ROLES, SECTIONS, isAdmin, isMgr, isSA, isTech } from '../lib/constants.js';
+import { ROLES, SECTIONS, STATUSES, STATUS_NAME, isAdmin, isMgr, isSA, isTech } from '../lib/constants.js';
+import Icon from '../components/Icon.jsx';
+import WorkshopBoard from '../components/WorkshopBoard.jsx';
+import ManagerPanel from '../components/ManagerPanel.jsx';
+import MyTasks from '../components/MyTasks.jsx';
+import { serviceDue } from '../lib/insight.js';
+import { isOverdue } from '../lib/jobFlags.js';
+import { clearNavParams, readNavParams } from '../lib/navParams.js';
+import { nextSort, sortRows } from '../lib/sort.js';
 import { InsuranceFields } from '../dialogs/Dialogs.jsx';
 import { SECTION_CODE, sectionOption } from '../lib/constants.js';
-import { usePersistedForm } from '../lib/autosave.js';
+import { usePersistedForm, usePersistedState } from '../lib/autosave.js';
 import { downloadXlsx, readXlsx, rowsToObjects } from '../lib/xlsx.js';
 import { groupCost, groupHours, groupTasks } from '../lib/labourGroups.js';
 import TwoFactor from '../components/TwoFactor.jsx';
@@ -29,20 +37,23 @@ export const PAGE_INFO = {
   pur: ['Purchases (GRN)', 'Parts bought and added to stock, with the quantity and cost of each. Search the stock list to add a part.'],
   pos: ['Point of sale', 'Sell parts directly: cash sale, credit sale or proforma. Search parts by name or part number. Sales go to Invoices & payments by themselves.'],
   invc: ['Invoices & payments', 'Every cash and credit invoice from job cards and the point of sale, what was paid and what is still owed.'],
+  due: ['Service due', 'Vehicles that are due for their next service, or close to it, with a Telegram or SMS reminder for the customer.'],
+  sins: ['Stock insight', 'Parts that do not move, the top sellers, and what to buy based on the sales you lost.'],
   srep: ['Stock & sales reports', 'Sales, lost sales, inventory control and your own reports.'],
   rep: ['Reports', 'Job card revenue and technician hours for the days you choose.'],
   staff: ['Staff', 'Staff accounts and their roles.'],
   audit: ['Audit log', 'Who did what and when: sign-ins, finalized estimates, deleted records, staff changes and refused attempts.']
 };
 
-function JobTable({ list }) {
+function JobTable({ list, sort, onSort }) {
   const { db, me, run, cust, veh, openModal } = useApp();
+  const day = today();
   const del = async j => { if (confirm(`Delete job card ${j.id}?\nParts issued on it go back to stock. This cannot be undone.`)) await run(() => api('/jobs/' + j.id, 'DELETE')); };
   return (
-    <Table head={['Job card', 'Customer', 'Vehicle', 'Status', { t: 'Total', r: 1 }, ...(isAdmin(me) ? [''] : [])]} empty={!list.length && 'Nothing here yet.'}>
+    <Table head={[{ t: 'Job card', k: 'id' }, { t: 'Customer', k: 'cust' }, { t: 'Vehicle', k: 'plate' }, { t: 'Status', k: 'status' }, { t: 'Due', k: 'due' }, { t: 'Total', r: 1, k: 'total' }, ...(isAdmin(me) ? [''] : [])]} sort={sort} onSort={onSort} empty={!list.length && 'Nothing here yet.'}>
       {list.map(j => (
         <tr key={j.id} className="k" tabIndex={0} onClick={() => openModal('job', { id: j.id })} onKeyDown={e => e.key === 'Enter' && openModal('job', { id: j.id })}>
-          <td><b>{j.id}</b></td><td>{cust(j.cid).name}</td><td>{veh(j.vid).plate} {vehicleName(veh(j.vid))}</td><td><StatusPill status={j.status} />{(() => { const n = j.labours.filter(l => l.extra && !l.done).length; return n > 0 && <> <Pill tone="a">{n} additional</Pill></>; })()}</td><td className="r">{money(jobTotals(j, db.cfg.vat).total)}</td>{isAdmin(me) && <td className="acts" onClick={e => e.stopPropagation()}><Btn kind="ol" onClick={() => del(j)}>Delete</Btn></td>}
+          <td><b>{j.id}</b></td><td>{cust(j.cid).name}</td><td>{veh(j.vid).plate} {vehicleName(veh(j.vid))}</td><td><StatusPill status={j.status} />{(() => { const n = j.labours.filter(l => l.extra && !l.done).length; return n > 0 && <> <Pill tone="a">{n} additional</Pill></>; })()}</td><td>{j.due_date ? <>{String(j.due_date).slice(0, 10)}{isOverdue(j, day) && <> <Pill tone="r">overdue</Pill></>}</> : <span className="mu">—</span>}</td><td className="r">{money(jobTotals(j, db.cfg.vat).total)}</td>{isAdmin(me) && <td className="acts" onClick={e => e.stopPropagation()}><Btn kind="ol" onClick={() => del(j)}>Delete</Btn></td>}
         </tr>
       ))}
     </Table>
@@ -50,38 +61,78 @@ function JobTable({ list }) {
 }
 
 export function Dashboard() {
-  const { db, me } = useApp();
-  const n = s => db.j.filter(j => s.includes(j.status)).length;
-  const stats = [['Waiting to dispatch', n(['Created'])], ['In workshop', n(['Dispatched', 'At workshop'])], ['Ready for SA to close', n(['Work done', 'Back with SA'])], ['Awaiting invoice or hand-over', n(['Closed', 'Invoiced'])]];
-  if (!isTech(me)) stats.push(['Parts to reorder', db.p.filter(p => p.stock <= p.reorder).length]);
+  const { db, me, goPage, openModal } = useApp();
+  const day = today(), n = st => db.j.filter(j => st.includes(j.status)).length, jobsOf = status => ({ page: 'jobs', params: { status } });
+  // [label, number, where a click goes, optional icon / tone]
+  const stats = [['Waiting to dispatch', n(['Created']), jobsOf(['Created'])], ['In workshop', n(['Dispatched', 'At workshop']), { page: 'shop' }],
+    ['Ready for SA to close', n(['Work done', 'Back with SA']), jobsOf(['Work done', 'Back with SA'])], ['Awaiting invoice or hand-over', n(['Closed', 'Invoiced']), jobsOf(['Closed', 'Invoiced'])]];
+  const late = db.j.filter(j => isOverdue(j, day)).length;
+  if (late) stats.unshift(['Overdue job cards', late, { page: 'jobs', params: { overdue: true } }, { icon: 'alert', tone: 'a' }]);
+  if (!isTech(me)) stats.push(['Parts to reorder', db.p.filter(p => p.stock <= p.reorder).length, { page: 'inv', params: { low: true } }]);
   const waitingJobs = db.j.filter(j => j.parts.some(p => p.waiting)), priceJobs = db.j.filter(j => (j.price_reqs || []).some(r => r.status === 'Requested'));
-  if (waitingJobs.length) stats.push(['Job cards waiting for parts', waitingJobs.length]);
-  if (isMgr(me) && priceJobs.length) stats.push(['Price changes to approve', priceJobs.length]);
+  if (waitingJobs.length) stats.push(['Job cards waiting for parts', waitingJobs.length, { page: 'jobs', params: { waiting: true } }]);
+  if (isMgr(me) && priceJobs.length) stats.push(['Price changes to approve', priceJobs.length, { page: 'jobs', params: { approve: true } }]);
+  const tech = isTech(me), shown = tech ? stats.filter(x => ['In workshop', 'Overdue job cards'].includes(x[0])) : stats;
+  const dueCount = isSA(me) ? serviceDue(db).length : 0;
+  if (dueCount) stats.push(['Vehicles due for service', dueCount, { page: 'due' }, { icon: 'calendar', tone: 'a' }]);
+  const mine = isTech(me) ? db.j.filter(j => ['Dispatched', 'At workshop'].includes(j.status)).flatMap(j => j.labours.filter(l => !l.done && (l.assigned || []).some(a => a.id === me.id)).map(l => ({ j, l }))) : [];
+  const search = () => window.dispatchEvent(new Event('mg:search'));
   return (
     <>
-      <div className="g g2 mt">{stats.map(([a, b]) => <Stat key={a} label={a} value={b} />)}</div>
-      <h2 className="mt">Latest job cards</h2>
-      <JobTable list={db.j.slice(0, 8)} />
-      <p className="mu mt">Customers: {db.c.length} · Vehicles: {db.v.length} · Job cards: {db.j.length}</p>
+      <div className="qa mt" role="group" aria-label="Quick actions">
+        {isSA(me) && <>
+          <button type="button" className="qa-b" onClick={() => (db.c.length ? openModal('newJob') : alert('Add a customer first.'))}><Icon name="plus" />New job card</button>
+          <button type="button" className="qa-b" onClick={() => goPage('pos')}><Icon name="pos" />New sale</button>
+          <button type="button" className="qa-b" onClick={() => openModal('grn')}><Icon name="pur" />Receive parts</button></>}
+        {!isSA(me) && <button type="button" className="qa-b" onClick={() => goPage('shop')}><Icon name="shop" />{isTech(me) ? 'My tasks and clocking' : 'Workshop'}</button>}
+        <button type="button" className="qa-b" onClick={search}><Icon name="search" />Search everything<kbd>Ctrl K</kbd></button>
+      </div>
+      {isMgr(me) && <ManagerPanel />}
+      {tech && <><h2 className="mt">My tasks now</h2><MyTasks tasks={mine} /></>}
+      <div className="g g2 mt">{shown.map(([a, b, to, x]) => <Stat key={a} label={a} value={b} onClick={to && (() => goPage(to.page, to.params))} {...x} />)}</div>
+      {!tech && <><h2 className="mt">Latest job cards</h2><JobTable list={db.j.slice(0, 8)} /></>}
+      {!tech && <p className="mu mt">Customers: {db.c.length} · Vehicles: {db.v.length} · Job cards: {db.j.length}</p>}
     </>
   );
 }
 
+const NO_FILTER = { status: [], overdue: false, waiting: false, approve: false };
+const SHORT_STATUS = { 'Back with SA': 'With SA' };
 export function JobCards() {
   const { db, me, cust, veh, openModal } = useApp();
-  const [q, setQ] = useState('');
-  const list = db.j.filter(j => (j.id + cust(j.cid).name + veh(j.vid).plate).toLowerCase().includes(q.toLowerCase()));
+  const [q, setQ] = useState(''), [f, setF] = usePersistedState('filter:jobs', NO_FILTER), [sort, setSort] = usePersistedState('sort:jobs', null);
+  const day = today(), np = readNavParams('jobs');
+  // a dashboard tile that opens this list brings its filter along (once)
+  useEffect(() => { if (np) { setF({ ...NO_FILTER, ...np }); setQ(''); } clearNavParams(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  const has = j => ({ overdue: isOverdue(j, day), waiting: j.parts.some(p => p.waiting), approve: (j.price_reqs || []).some(r => r.status === 'Requested') });
+  const count = key => db.j.filter(j => has(j)[key]).length;
+  const match = j => { const h = has(j); return (!f.status.length || f.status.includes(j.status)) && (!f.overdue || h.overdue) && (!f.waiting || h.waiting) && (!f.approve || h.approve); };
+  const get = (j, k) => (k === 'cust' ? cust(j.cid).name : k === 'plate' ? veh(j.vid).plate : k === 'status' ? STATUSES.indexOf(j.status) : k === 'due' ? (j.due_date ? String(j.due_date).slice(0, 10) : null) : k === 'total' ? jobTotals(j, db.cfg.vat).total : j[k]);
+  const list = sortRows(db.j.filter(j => match(j) && (j.id + cust(j.cid).name + veh(j.vid).plate).toLowerCase().includes(q.toLowerCase())), sort, get);
+  const toggle = s => setF(x => ({ ...x, status: x.status.includes(s) ? x.status.filter(y => y !== s) : [...x.status, s] }));
+  const flip = k => setF(x => ({ ...x, [k]: !x[k] }));
+  const any = f.status.length || f.overdue || f.waiting || f.approve;
+  const exportCsv = () => downloadCsv('job-cards.csv', [['Job card', 'Customer', 'Phone', 'Plate', 'Vehicle', 'Status', 'Created', 'Due date', 'Total'],
+    ...list.map(j => [j.id, cust(j.cid).name, cust(j.cid).phone, veh(j.vid).plate, vehicleName(veh(j.vid)), STATUS_NAME[j.status] || j.status, String(j.created || '').slice(0, 10), j.due_date ? String(j.due_date).slice(0, 10) : '', jobTotals(j, db.cfg.vat).total])]);
   return (
     <>
-      <div className="row mt"><input aria-label="Search job cards" placeholder="Search by job card, customer or plate" value={q} onChange={e => setQ(e.target.value)} />{isSA(me) && <Btn onClick={() => (db.c.length ? openModal('newJob') : alert('Add a customer first.'))}>New job card</Btn>}</div>
-      <div className="mt"><JobTable list={list} /></div>
+      <div className="row mt bar"><input aria-label="Search job cards" placeholder="Search by job card, customer or plate" value={q} onChange={e => setQ(e.target.value)} />{isSA(me) && <Btn onClick={() => (db.c.length ? openModal('newJob') : alert('Add a customer first.'))}>New job card</Btn>}{isSA(me) && <Btn kind="ol" onClick={exportCsv} title="Download the list shown below"><Icon name="download" size={16} /> Export CSV</Btn>}</div>
+      <div className="chips mt" role="group" aria-label="Filter job cards">
+        {STATUSES.map(s => <button key={s} type="button" className={'chip' + (f.status.includes(s) ? ' on' : '')} aria-pressed={f.status.includes(s)} onClick={() => toggle(s)}>{SHORT_STATUS[s] || s}<i>{db.j.filter(j => j.status === s).length}</i></button>)}
+        <button type="button" className={'chip warn' + (f.overdue ? ' on' : '')} aria-pressed={f.overdue} onClick={() => flip('overdue')}>Overdue<i>{count('overdue')}</i></button>
+        <button type="button" className={'chip warn' + (f.waiting ? ' on' : '')} aria-pressed={f.waiting} onClick={() => flip('waiting')}>Waiting for parts<i>{count('waiting')}</i></button>
+        {isMgr(me) && <button type="button" className={'chip warn' + (f.approve ? ' on' : '')} aria-pressed={f.approve} onClick={() => flip('approve')}>Price approvals<i>{count('approve')}</i></button>}
+        {any ? <button type="button" className="lnk small" onClick={() => setF(NO_FILTER)}>Clear filters</button> : null}
+      </div>
+      <p className="mu small mt" role="status">{list.length} of {db.j.length} job cards{any ? ' (filtered)' : ''}. Filters and sorting are kept on this device.</p>
+      <div className="mt"><JobTable list={list} sort={sort} onSort={k => setSort(nextSort(sort, k))} /></div>
     </>
   );
 }
 
 export function Workshop() {
   const { db, me, run, say, openModal } = useApp();
-  const [sec, setSec] = useState('');
+  const [sec, setSec] = useState(''), [view, setView] = usePersistedState('view:shop', 'list');
   const canStop = ['WS', 'MGR', 'ADMIN'].includes(me.role);
   const endOfDay = async () => {
     if (!confirm('End of the working day: clock out everybody who is still clocked in?\n\nThe clock-out reason will be "End of work day". Their tasks stay open for tomorrow.')) return;
@@ -95,8 +146,16 @@ export function Workshop() {
   const isMine = (l, id) => (l.assigned || []).some(a => a.id === id), free = openTasks.filter(({ l }) => !(l.assigned || []).length);
   const taskLinks = tasks => tasks.map(({ j, l }) => <div key={l.id}><button type="button" className="lnk" onClick={e => { e.stopPropagation(); openModal('job', { id: j.id }); }}>{j.id}</button> {l.desc}{activeClock(l) && <> <Pill tone="a">working</Pill></>}</div>);
   const mine = openTasks.filter(({ l }) => isMine(l, me.id));
+  const views = (
+    <div className="row mt"><div className="seg" role="group" aria-label="View">
+      <button type="button" className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => setView('list')}><Icon name="list" size={16} />List</button>
+      <button type="button" className={view === 'board' ? 'on' : ''} aria-pressed={view === 'board'} onClick={() => setView('board')}><Icon name="board" size={16} />Board</button></div>
+      {view === 'board' && <span className="mu small">Every job card in the column of its stage. Red: overdue · amber: due today · flag: urgent.</span>}</div>
+  );
+  if (view === 'board') return <>{views}<div className="mt"><WorkshopBoard jobs={db.j} /></div></>;
   return (
     <>
+      {views}
       <div className="row mt"><Field label="Section"><select value={sec} onChange={e => setSec(e.target.value)}><option value="">All sections</option>{SECTIONS.map(s => <option key={s}>{s}</option>)}</select></Field></div>
       <div className="row mt"><h2 style={{ margin: 0 }}>Clocked in now</h2>{canStop && live.length > 0 && <Btn kind="ol" onClick={endOfDay}>End of working day: clock everybody out</Btn>}{db.cfg.workEnd && <span className="mu small">Clocks still running at {db.cfg.workEnd} close by themselves.</span>}</div>
       <Table head={['Technician', 'Work', 'Job card', 'Since']} empty={!live.length && 'Nobody is clocked in.'}>

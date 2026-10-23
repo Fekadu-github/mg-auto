@@ -2,8 +2,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../store.jsx';
-import { Btn, Dialog, Field, Pill, Table } from '../components/ui.jsx';
-import { usePersistedForm } from '../lib/autosave.js';
+import { Btn, Dialog, Field, MakeChip, Pill, Table } from '../components/ui.jsx';
+import Icon from '../components/Icon.jsx';
+import { clearNavParams, readNavParams } from '../lib/navParams.js';
+import { nextSort, sortRows } from '../lib/sort.js';
+import { usePersistedForm, usePersistedState } from '../lib/autosave.js';
 import { isMgr, isSA } from '../lib/constants.js';
 import { dt, money, cur } from '../lib/format.js';
 import { MAKES, NO_MODEL, downloadInventory, inMake, lowKey, lowParts, makeOf, priceFromCost } from '../lib/stock.js';
@@ -14,10 +17,13 @@ const NEW = { code: '', name: '', category: '', cost: '', price: '', priceTyped:
 
 export function Parts() {
   const { db, me, run, openModal } = useApp();
-  const sa = isSA(me), mgr = isMgr(me), [q, setQ] = useState(''), [make, setMake] = useState('');
+  const sa = isSA(me), mgr = isMgr(me), [q, setQ] = useState(''), [make, setMake] = useState(''), [sort, setSort] = usePersistedState('sort:parts', null);
+  const [onlyLow, setOnlyLow] = useState(() => !!readNavParams('inv')?.low);   // the dashboard tile "Parts to reorder" opens this list already filtered
+  useEffect(() => { clearNavParams(); }, []);
   const [f, , set, reset] = usePersistedForm('form:new-part', NEW);
   const low = lowParts(db.p);
-  const list = db.p.filter(p => inMake(p.code, make) && (p.code + ' ' + p.name + ' ' + (p.category || '')).toLowerCase().includes(q.toLowerCase()));
+  const get = (p, k) => (k === 'make' ? makeOf(p.code) : p[k]);
+  const list = sortRows(db.p.filter(p => inMake(p.code, make) && (!onlyLow || p.stock <= p.reorder) && (p.code + ' ' + p.name + ' ' + (p.category || '')).toLowerCase().includes(q.toLowerCase())), sort, get);
   // the price fills itself from the cost until the manager types one
   const shownPrice = f.priceTyped ? f.price : f.cost !== '' ? String(priceFromCost(f.cost, db.cfg.markup)) : '';
   const add = async () => {
@@ -28,7 +34,7 @@ export function Parts() {
   const bind = k => ({ value: f[k], onChange: e => set({ [k]: e.target.value }) });
   return (
     <>
-      {low.length > 0 && <div className="box mt"><b>{low.length} part(s) at or below the minimum stock:</b> {low.slice(0, 20).map(p => p.code).join(', ')}{low.length > 20 ? '…' : ''}</div>}
+      {low.length > 0 && <div className="box mt"><b>{low.length} part(s) at or below the minimum stock:</b> {low.slice(0, 20).map(p => p.code).join(', ')}{low.length > 20 ? '…' : ''} <button type="button" className="lnk" onClick={() => setOnlyLow(v => !v)}>{onlyLow ? 'Show all parts' : 'Show only these'}</button></div>}
       {mgr && <div className="box mt"><h3>New item</h3>
         <div className="row">
           <Field label="Part number" {...bind('code')} />
@@ -42,16 +48,16 @@ export function Parts() {
         </div>
         <div className="mu small">{f.code && (makeOf(f.code) ? `${makeOf(f.code)} part. ` : 'No model (oil or a general part), kept as typed. ')}The price is filled as cost x {db.cfg.markup}; type another price to override it.</div>
       </div>}
-      <div className="row mt">
+      <div className="row mt bar">
         <input aria-label="Search parts" placeholder="Search by part number or description" value={q} onChange={e => setQ(e.target.value)} style={{ flex: '3 1 240px' }} />
         <select aria-label="Make" value={make} onChange={e => setMake(e.target.value)} style={{ flex: '0 1 180px' }}><option value="">All makes</option>{Object.entries(MAKES).map(([k, n]) => <option key={k} value={k}>{n} ({k})</option>)}<option value={NO_MODEL}>Other (no model)</option></select>
         {sa && <Btn onClick={() => openModal('grn')}>New GRN (purchase)</Btn>}
         {mgr && <><Btn kind="ol" onClick={() => openModal('importItems')}>Import Excel</Btn><Btn kind="ol" onClick={() => downloadInventory(db.p)}>Export to Excel</Btn><Btn kind="ol" onClick={() => openModal('bulkPrice')}>Change all prices</Btn></>}
       </div>
-      <div className="mt"><Table head={['Part number', 'Make', 'Description', ...(mgr ? [{ t: 'Cost', r: 1 }] : []), { t: 'Price', r: 1 }, { t: 'In stock', r: 1 }, { t: 'Minimum', r: 1 }, '']} empty={!list.length && 'No parts match.'}>
+      <div className="mt"><Table head={[{ t: 'Part number', k: 'code' }, { t: 'Make', k: 'make' }, { t: 'Description', k: 'name' }, ...(mgr ? [{ t: 'Cost', r: 1, k: 'cost' }] : []), { t: 'Price', r: 1, k: 'price' }, { t: 'In stock', r: 1, k: 'stock' }, { t: 'Minimum', r: 1, k: 'reorder' }, '']} sort={sort} onSort={k => setSort(nextSort(sort, k))} empty={!list.length && 'No parts match.'}>
         {list.map(p => (
           <tr key={p.id}>
-            <td><b>{p.code}</b></td><td>{makeOf(p.code) || <span className="mu">—</span>}</td><td>{p.name}{p.category && <span className="mu small"> · {p.category}</span>}</td>
+            <td><b>{p.code}</b></td><td><span className="mk-row"><MakeChip code={p.code} />{makeOf(p.code) || <span className="mu">—</span>}</span></td><td>{p.name}{p.category && <span className="mu small"> · {p.category}</span>}</td>
             {mgr && <td className="r">{money(p.cost)}</td>}
             <td className="r">{money(p.price)}</td>
             <td className="r">{p.stock <= p.reorder ? <Pill tone="a">{p.stock <= 0 ? 'out' : `${p.stock} low`}</Pill> : p.stock}</td><td className="r">{p.reorder}</td>
@@ -61,6 +67,7 @@ export function Parts() {
           </tr>
         ))}
       </Table></div>
+      <p className="mu small mt" role="status">{list.length} of {db.p.length} parts{onlyLow ? ' (only parts at or below the minimum)' : ''}. Click a column title to sort.</p>
       {!mgr && sa && <p className="mu small mt">Costs and prices are set by the manager.</p>}
     </>
   );

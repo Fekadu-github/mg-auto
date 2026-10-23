@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { api } from '../api.js';
 import { searchParts } from '../lib/search.js';
 import { money } from '../lib/format.js';
+import { MakeChip } from './ui.jsx';
+import ScanButton, { canScan } from './ScanButton.jsx';
 
 // Type a part number or any words of the description: matching parts appear under the box (not a drop-down to scroll through).
 // value / onChange keep the typed text; onPick(part) runs when a part is chosen (click, or arrow keys + Enter).
@@ -32,15 +34,21 @@ export default function PartSearch({ label, stock, remote, value, onChange, onPi
   }, [show, text]);
 
   const pick = p => { setOpen(false); onPick(p); };
+  const scanned = async code => {
+    const exact = r => (r || []).find(p => String(p.code).toLowerCase() === code.toLowerCase());
+    const hit = remote ? exact(await api('/parts/search?q=' + encodeURIComponent(code)).catch(() => [])) : exact(stock);
+    if (hit) pick(hit); else { onChange(code); setOpen(true); setHi(0); input.current?.focus(); }
+  };
   const keys = e => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHi(h => Math.min(h + 1, Math.max(hits.length - 1, 0))); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
     else if (e.key === 'Enter' && show && hits[hi]) { e.preventDefault(); pick(hits[hi]); }
     else if (e.key === 'Escape' && show) { e.stopPropagation(); setOpen(false); }          // closes the list, not the dialog behind it
   };
+  const scan = canScan() && !disabled && ((stock || []).length > 0 || remote);
   const field = (
-    <input id={id} ref={input} role="combobox" aria-expanded={show} aria-controls={id + '-l'} aria-autocomplete="list" aria-label={aria} autoComplete="off" disabled={disabled}
-      placeholder={placeholder} value={text} onChange={e => { onChange(e.target.value); setOpen(true); setHi(0); }} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} onKeyDown={keys} />
+    <span className={'ps-box' + (scan ? ' has-scan' : '')}><input id={id} ref={input} role="combobox" aria-expanded={show} aria-controls={id + '-l'} aria-autocomplete="list" aria-label={aria} autoComplete="off" disabled={disabled}
+      placeholder={placeholder} value={text} onChange={e => { onChange(e.target.value); setOpen(true); setHi(0); }} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} onKeyDown={keys} />{scan && <ScanButton onCode={scanned} />}</span>
   );
   return (
     <div className="ps" style={grow ? { flex: grow } : undefined}>
@@ -49,7 +57,7 @@ export default function PartSearch({ label, stock, remote, value, onChange, onPi
         <ul className="ps-list" id={id + '-l'} role="listbox" style={{ left: rect.left, top: rect.top, width: rect.width }}>
           {hits.map((p, i) => (
             <li key={p.id} role="option" aria-selected={i === hi} className={i === hi ? 'on' : ''} onMouseDown={e => { e.preventDefault(); pick(p); }} onMouseEnter={() => setHi(i)}>
-              <b>{p.code}</b> <span>{p.name}</span>
+              <MakeChip code={p.code} /> <b>{p.code}</b> <span>{p.name}</span>
               <span className="ps-meta">{p.price !== undefined ? <>{money(p.price)} · {p.stock > 0 ? `${p.stock} in stock` : <em>out of stock</em>}</> : p.in_stock ? 'in stock' : <em>out of stock</em>}</span>
             </li>
           ))}

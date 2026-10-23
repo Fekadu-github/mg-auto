@@ -56,6 +56,23 @@ export function createNotifier({ cfg, db }) {
     } catch (e) { console.error('notifyReady', job.id, e.message); }
   }
 
+  // One free-text message to a customer (service-due reminders): Telegram first when linked, SMS as the fallback; the customer's choice is respected.
+  // Returns 'telegram' or 'sms'; throws a plain-language reason when nothing could be sent.
+  async function sendText(c, text) {
+    const pref = c.notify || 'both', why = [];
+    if (pref === 'none') throw new Error('The customer asked not to be notified');
+    if (pref !== 'sms') {
+      if (!botName) why.push('the Telegram bot is not set up'); else if (!c.tg_chat) why.push('the customer has not linked Telegram');
+      else try { await tgApi('sendMessage', { chat_id: c.tg_chat, text }); return 'telegram'; } catch (e) { why.push('Telegram: ' + e.message); }
+    }
+    if (pref !== 'telegram') {
+      const to = e164(c.phone, sms.countryCode);
+      if (!sms.key) why.push('the SMS gateway is not set up'); else if (!to) why.push('the phone number is not a valid mobile number');
+      else try { await sendSms(to, text); return 'sms'; } catch (e) { why.push('SMS: ' + e.message); }
+    }
+    throw new Error('Could not send: ' + why.join('; '));
+  }
+
   // Telegram webhook body: the customer taps the one-time link, the bot learns their chat id
   async function handleUpdate(update) {
     const m = update?.message, chat = m?.chat?.id;
@@ -71,5 +88,5 @@ export function createNotifier({ cfg, db }) {
     return say('Welcome to MG Auto. To get a message when your vehicle is ready, open the link the service advisor gave you.');
   }
 
-  return { init, notifyReady, handleUpdate, secret, enabled: !!tg.token, get botName() { return botName; }, smsReady: !!sms.key };
+  return { init, notifyReady, sendText, handleUpdate, secret, enabled: !!tg.token, get botName() { return botName; }, smsReady: !!sms.key };
 }

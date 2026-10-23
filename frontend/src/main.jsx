@@ -4,6 +4,10 @@ import App from './App.jsx';
 import './styles/app.css';
 import './styles/pro.css';
 import './styles/print.css';
+import './styles/extras.css';
+import { applyDisplay } from './lib/display.js';
+
+applyDisplay();   // row spacing, accent colour and contrast saved on this device
 
 createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>);
 

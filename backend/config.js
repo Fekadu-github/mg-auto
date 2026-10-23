@@ -25,6 +25,7 @@ export function loadConfig(env = process.env) {
       motto: env.GARAGE_MOTTO || 'Your car, our care'
     },
     readyMessage: env.READY_MESSAGE || 'MG Auto: Dear {name}, your vehicle {plate} is ready (job card {jc}). Please come to collect it. Questions? Call {phone}.',
+    serviceMessage: env.SERVICE_DUE_MESSAGE || 'MG Auto: Dear {name}, your vehicle {plate} is due for its {service} at {km} km. Please call {phone} to book.',
     sms: {
       url: env.SMS_API_URL || 'https://api.afromessage.com/api/send', key: env.SMS_API_KEY || '',
       identifier: env.SMS_IDENTIFIER || '', sender: env.SMS_SENDER || '', countryCode: env.SMS_COUNTRY_CODE || '251'

@@ -6,6 +6,7 @@ import { range, r2 } from './lib.js';
 import { str, qn } from './rules.js';
 import * as S from './stock.js';
 import { SOURCES } from './custom.js';
+import { mountInsight } from './insight.js';
 
 const sendJson = v => JSON.stringify(v);
 const isMgr = u => ['ADMIN', 'MGR'].includes(u.role);
@@ -33,7 +34,7 @@ const saleRow = r => r && ({
 });
 const grnRow = r => r && ({ id: r.id, supplier: r.supplier, ref: r.ref, note: r.note, lines: J(r.lines, []), total: +r.total, created: r.created, by_name: r.by_name });
 
-export function mountStock({ app, db, cfg, auth, wrap }) {
+export function mountStock({ app, db, cfg, auth, wrap, notifier }) {
   const stock = async (c, id, d, reason, ref, by, note) => {
     const bal = await adjustStock(c, id, d, reason, ref, by, note);
     if (bal === null) fail(d > 0 ? 404 : 409, d > 0 ? 'Part not found' : 'Not enough stock');
@@ -353,4 +354,7 @@ export function mountStock({ app, db, cfg, auth, wrap }) {
     const [a, b] = src.dated ? range(q.query) : [0, 0];
     s.json({ rows: await src.load((sql, p) => db.q(sql, p), new Date(a), new Date(b)) });
   }));
+
+  // manager dashboard numbers, stock insight and service-due reminders
+  mountInsight({ app, db, cfg, auth, wrap, invoiceList, notifier });
 }
