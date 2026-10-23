@@ -5,6 +5,13 @@ export const COMPANY_NAME = 'MADEG General Trading PLC';
 // override the full name, so those old forms are replaced by it. Any other value is kept as the owner typed it.
 const LEGACY_NAME = /^\s*(madeg\s*[-\u2013\u2014]+\s*)?mg[\s-]*auto(\s*(plc|p\.l\.c\.?))?\s*$/i;
 export const garageName = v => (!v || !String(v).trim() || LEGACY_NAME.test(String(v)) ? COMPANY_NAME : String(v).trim());
+// The phone number is printed on its own "Tel" line, so a number typed into GARAGE_ADDRESS ("Gurdshola ... · 0980766566") is
+// removed from the address, together with its "Tel"/"Phone" label and the separator before it.
+const PHONE_IN_ADDRESS = /\s*[·|,;\u2013\u2014-]?\s*(?:(?:tel|phone|mob(?:ile)?)\.?\s*:?\s*)?\+?\d[\d\s().-]{6,}\d/gi;
+export const garageAddress = v => {
+  const d = String(v || '').replace(PHONE_IN_ADDRESS, '').replace(/\(\s*\)/g, '').replace(/[\s·|,;\u2013\u2014-]+$/, '').trim();
+  return d || 'Gurdshola, around Top Ten Hotel, Addis Ababa';
+};
 const num = (v, d) => (v === undefined || v === '' || !Number.isFinite(+v) ? d : +v);
 
 export function loadConfig(env = process.env) {
@@ -24,7 +31,7 @@ export function loadConfig(env = process.env) {
     garage: {
       name: garageName(env.GARAGE_NAME),
       brand: env.GARAGE_BRAND || 'MG Auto',          // the trade name, printed under the company name on invoices and proformas
-      address: env.GARAGE_ADDRESS || 'Gurdshola, around Top Ten Hotel, Addis Ababa',
+      address: garageAddress(env.GARAGE_ADDRESS),
       phone: env.GARAGE_PHONE || '0980766566',
       tin: env.GARAGE_TIN || '',                  // printed on invoices when set
       email: env.GARAGE_EMAIL || '',              // printed in the letterhead of estimates when set

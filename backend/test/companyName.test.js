@@ -13,3 +13,12 @@ test('a different company name typed by the owner is kept', () => {
   assert.equal(garageName('Another Garage PLC'), 'Another Garage PLC');
   assert.equal(garageName('MADEG General Trading PLC'), 'MADEG General Trading PLC');
 });
+
+test('the phone number is printed once (Tel line): it is removed from the address', async () => {
+  const { garageAddress } = await import('../config.js');
+  for (const a of ['Gurdshola, around Top Ten Hotel · 0980766566', 'Gurdshola, around Top Ten Hotel, 0980766566', 'Gurdshola, around Top Ten Hotel - Tel: +251 98 076 6566', 'Gurdshola, around Top Ten Hotel (0980766566)'])
+    assert.equal(garageAddress(a).replace(/[\s,(]+$/, ''), 'Gurdshola, around Top Ten Hotel', a);
+  assert.equal(garageAddress('Gurdshola, around Top Ten Hotel, Addis Ababa'), 'Gurdshola, around Top Ten Hotel, Addis Ababa');
+  assert.equal(loadConfig({ GARAGE_ADDRESS: 'Bole · 0911 22 33 44' }).garage.address, 'Bole');
+  assert.equal(garageAddress(''), 'Gurdshola, around Top Ten Hotel, Addis Ababa');
+});
