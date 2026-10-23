@@ -1,4 +1,4 @@
-# MADEG Garage · MG Auto
+# MADEG General Trading PLC · MG Auto
 
 Job cards, workshop clocks, parts stock, invoices and delivery vouchers for the garage.
 

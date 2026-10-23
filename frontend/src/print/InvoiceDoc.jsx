@@ -1,6 +1,6 @@
 import { dt, invoiceLines, money, pct, snap, vehicleName, cur } from '../lib/format.js';
 
-export const GARAGE = { name: 'MADEG — MG Auto', address: 'Gurdshola, around Top Ten Hotel, Addis Ababa', phone: '0980766566', tin: '', motto: 'Your car, our care' };
+export const GARAGE = { name: 'MADEG General Trading PLC', brand: 'MG Auto', address: 'Gurdshola, around Top Ten Hotel, Addis Ababa', phone: '0980766566', tin: '', motto: 'Your car, our care' };
 
 // Proforma = quotation on A4. Cash and Credit invoices = 80 mm point-of-sale receipt.
 export const invoiceSize = doc => (doc.type === 'Proforma' ? 'a4' : 'pos');
@@ -11,7 +11,7 @@ export function Letterhead({ g, children }) {
   return (
     <div className="lh">
       <img src="/madeg-logo.png" alt="" className="lh-logo" />
-      <div className="lh-co"><b>{g.name}</b><div>{g.address}</div><div>Tel {g.phone}{g.email ? ` · ${g.email}` : ''}{g.tin ? ` · TIN ${g.tin}` : ''}</div></div>
+      <div className="lh-co"><b>{g.name}</b>{g.brand && <div className="lh-brand">{g.brand}</div>}<div>{g.address}</div><div>Tel {g.phone}{g.email ? ` · ${g.email}` : ''}{g.tin ? ` · TIN ${g.tin}` : ''}</div></div>
       <div className="lh-doc">{children}</div>
     </div>
   );
@@ -48,7 +48,7 @@ export default function InvoiceDoc({ job, customer: c = {}, vehicle: v = {}, doc
     </article>
   ) : (
     <article className="doc pos">
-      <div className="c"><b className="big">{g.name}</b><div>{g.address}</div><div>Tel {g.phone}</div>{g.tin && <div>TIN {g.tin}</div>}</div>
+      <div className="c"><b className="big">{g.name}</b>{g.brand && <div><b>{g.brand}</b></div>}<div>{g.address}</div><div>Tel {g.phone}</div>{g.tin && <div>TIN {g.tin}</div>}</div>
       <hr />
       <div className="c"><b>{doc.type.toUpperCase()} INVOICE</b></div>
       <div className="kv"><span>No</span><span>{doc.no}</span></div>

@@ -16,7 +16,8 @@ export function loadConfig(env = process.env) {
     workEnd: /^([01]?\d|2[0-3]):[0-5]\d$/.test(String(env.WORK_END || '').trim()) ? String(env.WORK_END).trim() : '',   // e.g. 17:30: running clocks are closed then (empty = only by hand)
     labourRate: rate >= 0 ? rate : 350,           // ETB per labour hour
     garage: {
-      name: env.GARAGE_NAME || 'MADEG — MG Auto',
+      name: env.GARAGE_NAME || 'MADEG General Trading PLC',
+      brand: env.GARAGE_BRAND || 'MG Auto',          // the trade name, printed under the company name on invoices and proformas
       address: env.GARAGE_ADDRESS || 'Gurdshola, around Top Ten Hotel, Addis Ababa',
       phone: env.GARAGE_PHONE || '0980766566',
       tin: env.GARAGE_TIN || '',                  // printed on invoices when set

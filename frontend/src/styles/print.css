@@ -143,3 +143,5 @@
 
 /* on screen only: tidy preview if a document is ever shown inline */
 @media screen { .doc.a4 { padding: 10mm; } }
+
+.lh-co .lh-brand { font-weight: 700; letter-spacing: .02em; }

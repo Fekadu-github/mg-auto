@@ -5,7 +5,7 @@ import LangToggle from './LangToggle.jsx';
 import { t } from '../lib/i18n.js';
 import Icon from './Icon.jsx';
 
-const B = { garage: 'MADEG', system: 'MG Auto', motto: 'Your car, our care', company: 'MADEG Garage · MG Auto', place: 'Gurdshola, around Top Ten Hotel', phone: '0980766566' };
+const B = { garage: 'MADEG', rest: 'General Trading PLC', system: 'MG Auto', motto: 'Your car, our care', company: 'MADEG General Trading PLC', place: 'Gurdshola, around Top Ten Hotel', phone: '0980766566' };
 
 // The hero art: the logo's ring (blue to green) drawn once on load, with a line drawing of a car and speed lines
 function Hero() {
@@ -43,10 +43,10 @@ export default function Cover() {
   return (
     <div className="cv">
       <section className="cv-l">
-        <header className="cv-brand"><img className="cv-logo" src="/madeg-logo.png" alt="MG Auto logo" /><div><b>{B.garage}</b> Garage<span>{B.system} · Workshop system</span></div></header>
+        <header className="cv-brand"><img className="cv-logo" src="/madeg-logo.png" alt="MG Auto logo" /><div><b>{B.garage}</b> {B.rest}<span>{B.system} · Workshop system</span></div></header>
         <div className="cv-hero">
           <h1>{B.motto}.</h1>
-          <p>Job cards, workshop clocks, parts stock and invoicing for {B.garage} Garage: one system from the front desk to the bay.</p>
+          <p>Job cards, workshop clocks, parts stock and invoicing for {B.company} ({B.system}): one system from the front desk to the bay.</p>
           <Hero />
         </div>
         <ul className="cv-feat" aria-label="What the system does">{FEATURES.map(([ic, h, d]) => <li key={h}><Icon name={ic} size={22} /><b>{h}</b><span>{d}</span></li>)}</ul>

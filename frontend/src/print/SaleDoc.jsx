@@ -34,7 +34,7 @@ export default function SaleDoc({ sale, garage = {} }) {
   }
   return (
     <article className="doc pos">
-      <div className="c"><b className="big">{g.name}</b><div>{g.address}</div><div>Tel {g.phone}</div>{g.tin && <div>TIN {g.tin}</div>}</div>
+      <div className="c"><b className="big">{g.name}</b>{g.brand && <div><b>{g.brand}</b></div>}<div>{g.address}</div><div>Tel {g.phone}</div>{g.tin && <div>TIN {g.tin}</div>}</div>
       <hr />
       <div className="c"><b>{sale.kind.toUpperCase()} INVOICE{cancelled ? ' (CANCELLED)' : ''}</b></div>
       <div className="kv"><span>No</span><span>{sale.id}</span></div>

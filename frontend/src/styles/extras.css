@@ -161,3 +161,8 @@ tr.late > td { background: color-mix(in srgb, var(--rd) 8%, transparent); }
   [data-role="TECH"] .btm button { min-height: 64px; font-size: 12px; } [data-role="TECH"] .btm .ico { width: 28px; height: 28px; }
   [data-role="TECH"] .page .tw.cards td { padding: 12px 0; }
 }
+
+/* ---- company name (MADEG General Trading PLC) is longer than the old one: let it wrap ---- */
+.splash-t { font-size: clamp(20px, 6.4vw, 30px); text-align: center; }
+.sb-n2 { line-height: 1.25; white-space: normal; }
+.cv-brand > div { max-width: 100%; }
