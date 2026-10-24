@@ -22,6 +22,7 @@ import Approve from './pages/Approve.jsx';
 import { TwoFactorNag } from './components/TwoFactorNag.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
 import DisplayDialog from './components/DisplayDialog.jsx';
+import ChangePasswordDialog from './components/ChangePasswordDialog.jsx';
 import Credit from './components/Credit.jsx';
 import { navBadges } from './lib/navBadges.js';
 import { setNavParams } from './lib/navParams.js';
@@ -39,7 +40,7 @@ const keep = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } cat
 
 function Shell() {
   const { me, db, signOut, registerNav, openModal } = useApp();
-  const [tab, setTab] = useState('dash'), [opening, setOpening] = useState(false), [nonce, setNonce] = useState(0), [pal, setPal] = useState(false), [disp, setDisp] = useState(false);
+  const [tab, setTab] = useState('dash'), [opening, setOpening] = useState(false), [nonce, setNonce] = useState(0), [pal, setPal] = useState(false), [disp, setDisp] = useState(false), [pwd, setPwd] = useState(false);
   // a short "opening" state when moving between screens (see lib/loading.js)
   const go = (k, params) => {
     if (params) setNavParams(k, params);            // e.g. the "Parts to reorder" tile opens Parts already filtered
@@ -100,6 +101,7 @@ function Shell() {
           <div className="av" aria-hidden="true">{(me.name || '?').slice(0, 1).toUpperCase()}</div>
           <div className="who"><b>{me.name}</b><span>{ROLES[me.role]}</span></div>
           <div className="so-g">
+          <button type="button" className="so" onClick={() => setPwd(true)} aria-label="Change my password" title="Change my password"><Icon name="lock" size={18} /></button>
           <button type="button" className="so" onClick={() => setDisp(true)} aria-label="Display settings" title="Display: spacing, colour, contrast"><Icon name="sliders" size={18} /></button>
           <button type="button" className="so" onClick={signOut} aria-label={t('Sign out')} title={t('Sign out')}>
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>
@@ -126,6 +128,7 @@ function Shell() {
       </nav>
       {pal && <CommandPalette pages={pages} onClose={() => setPal(false)} onChoose={choose} />}
       {disp && <DisplayDialog onClose={() => setDisp(false)} />}
+      {pwd && <ChangePasswordDialog onClose={() => setPwd(false)} />}
       {drawer && <div className="dr-bd" onClick={() => setDrawer(false)} aria-hidden="true" />}
     </div>
   );

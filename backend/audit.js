@@ -2,7 +2,7 @@
 // attempts and sign-ins (failed ones too). Only the action, the record number and the person are kept: never the data sent, never a password.
 const LABELS = [
   [/^POST \/api\/auth\/login$/, 'Sign in'],
-  [/^POST \/api\/users$/, 'Staff account created'], [/^PUT \/api\/users\/[^/]+$/, 'Staff account changed'], [/^DELETE \/api\/users\/[^/]+$/, 'Staff account deleted'],
+  [/^POST \/api\/auth\/password$/, 'Own password changed'], [/^POST \/api\/users$/, 'Staff account created'], [/^PUT \/api\/users\/[^/]+$/, 'Staff account changed'], [/^DELETE \/api\/users\/[^/]+$/, 'Staff account deleted'],
   [/^POST \/api\/estimates$/, 'Estimate created'], [/^POST \/api\/estimates\/[^/]+\/finalize$/, 'Estimate finalized'], [/^POST \/api\/estimates\/[^/]+\/draft$/, 'Estimate back to draft'], [/^DELETE \/api\/estimates\/[^/]+$/, 'Estimate deleted'],
   [/^POST \/api\/proformas$/, 'Proforma created'], [/^POST \/api\/proformas\/[^/]+\/issue$/, 'Proforma finalized'], [/^POST \/api\/proformas\/[^/]+\/convert$/, 'Proforma turned into job card'], [/^DELETE \/api\/proformas\/[^/]+$/, 'Proforma deleted'],
   [/^POST \/api\/jobs$/, 'Job card created'], [/^DELETE \/api\/jobs\/[^/]+$/, 'Job card deleted'], [/^POST \/api\/jobs\/[^/]+\/estimate$/, 'Estimate loaded on job card'],

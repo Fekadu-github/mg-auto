@@ -34,7 +34,7 @@ export const PAGE_INFO = {
   ins: ['Insurance companies', 'The registered insurance companies. Pick one on a customer profile or on a proforma.'],
   lab: ['Labour list', 'The labour tasks (BP body & paints, ME mechanical) that are picked on proformas, estimates and job cards. Hours x labour rate gives the cost, unless a fixed price is set.'],
   est: ['Estimates', 'Body & Paints estimates. A draft can be changed; Finalize locks it (and finalizes the proforma made from it). A finalized estimate is picked by its number when a job card is created.'],
-  svc: ['Services', 'Type A, B and C services: how often they are due and the labour and parts each one adds to a job card.'],
+  svc: ['Services', 'Type A, B, C and D services: how often they are due and the labour and parts each one adds to a job card.'],
   cust: ['Customers', 'Customers and their vehicles. These details feed every job card.'],
   inv: ['Parts stock', 'Part numbers, prices and quantities. Cost and price are set by the manager (price = cost x 1.3 unless changed). Every stock change is kept in the part’s history.'],
   pur: ['Purchases (GRN)', 'Parts bought and added to stock, with the quantity and cost of each. Search the stock list to add a part.'],
@@ -462,6 +462,21 @@ function PasswordBox({ label, value, onChange, autoComplete = 'new-password' }) 
   );
 }
 
+// The Manager reads a person's password (for someone who forgot it): fetched only when he presses Show, never kept in the list
+function SeePassword({ id }) {
+  const [pw, setPw] = useState(null), [busy, setBusy] = useState(false);   // pw: null = hidden, string = shown, false = none stored
+  const toggle = async () => {
+    if (pw !== null) return setPw(null);
+    setBusy(true);
+    try { const d = await api(`/users/${id}/password`); setPw(d.password ?? false); } catch (e) { alert(e.message); }
+    setBusy(false);
+  };
+  return <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+    <code>{pw === null ? '••••••••' : pw === false ? 'not saved yet' : pw}</code>
+    <Btn kind="ol" onClick={toggle} disabled={busy}>{pw === null ? 'Show' : 'Hide'}</Btn>
+  </span>;
+}
+
 export function Staff() {
   const { users, me, run } = useApp();
   const [f, bind, , reset] = usePersistedForm('form:new-staff', { name: '', username: '', password: '', role: 'SA' });
@@ -496,7 +511,8 @@ export function Staff() {
         <PasswordBox label={ed.mode === 'pass' ? 'New password (8+ characters)' : 'New password (leave empty to keep)'} value={ed.password} onChange={e => set({ password: e.target.value })} />
         <Btn onClick={save}>Save</Btn><Btn kind="ol" onClick={() => setEd(null)}>Cancel</Btn>
       </div><p className="mu small">After a change, the person signs in again with the new details.</p></div>}
-      <div className="mt"><Table head={['Name', 'Username', 'Role', '']}>{users.map(u => <tr key={u.id}><td>{u.name}{u.id === me.id && <span className="mu small"> (you)</span>}</td><td>{u.username}</td><td>{ROLES[u.role]}</td>
+      <p className="mu small mt">Press <b>Show</b> to read a password and <b>Change password</b> to set a new one for someone who forgot it. Every look is written to the audit trail. A password shows as “not saved yet” until that person signs in once or you set a new one.</p>
+      <div className="mt"><Table head={['Name', 'Username', 'Password', 'Role', '']}>{users.map(u => <tr key={u.id}><td>{u.name}{u.id === me.id && <span className="mu small"> (you)</span>}</td><td>{u.username}</td><td><SeePassword id={u.id} /></td><td>{ROLES[u.role]}</td>
         <td className="acts"><Btn kind="ol" onClick={() => setEd({ id: u.id, mode: 'edit', name: u.name, username: u.username, role: u.role, password: '' })}>Edit</Btn>
           <Btn kind="ol" onClick={() => setEd({ id: u.id, mode: 'pass', name: u.name, username: u.username, role: u.role, password: '' })}>Change password</Btn>
           {u.tfa && <Btn kind="ol" onClick={() => reset2fa(u)}>{t('Reset two-step')}</Btn>}

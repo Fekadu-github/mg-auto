@@ -18,6 +18,7 @@ import { mountStock, recordLost, shortage } from './pos.js';
 import { closeRunningClocks } from './workday.js';
 import { mountExtras, sniffImage } from './extras.js';
 import { verifyTotp } from './totp.js';
+import { encryptPassword, decryptPassword } from './passwords.js';
 
 const jobRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, created: r.created, mileage: r.mileage ?? null, est: r.est || null, payer: r.payer || null, policy_no: r.policy_no || null, mileage_out: r.mileage_out ?? null, claim_no: r.claim_no || null, due_date: r.due_date || null, priority: r.priority || null, price_reqs: J(r.price_reqs, []), services: J(r.services, []), requests: J(r.requests, []), labours: J(r.labours, []), parts: J(r.parts, []), inv: J(r.inv, null), log: J(r.log, []) });
 const estRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), created: r.created, finalized_at: r.finalized_at, by_name: r.by_name, used_in: r.used_in, pro: r.pro || null, guest_name: r.guest_name || '', guest_phone: r.guest_phone || '', guest_plate: r.guest_plate || '', guest_brand: r.guest_brand || '', guest_model: r.guest_model || '', guest_vin: r.guest_vin || '', guest_eng: r.guest_eng || '' });
@@ -29,7 +30,8 @@ const partRow = r => r && ({ ...r, price: +r.price, stock: +r.stock, reorder: +r
 const sendJson = v => JSON.stringify(v);
 
 export function createApp({ cfg, db, notifier }) {
-  const KEY = cfg.jwtSecret, app = express();
+  const KEY = cfg.jwtSecret, PKEY = cfg.passwordKey || cfg.jwtSecret, app = express();
+  const sealPw = p => encryptPassword(p, PKEY);   // the readable-by-Manager copy of a password (encrypted)
   app.set('trust proxy', 1);
   app.disable('x-powered-by');
   app.use(securityHeaders());
@@ -94,6 +96,7 @@ export function createApp({ cfg, db, notifier }) {
       await db.q('UPDATE app_users SET totp_last = ? WHERE id = ?', [step, u.id]);
     }
     tries.delete(ip);
+    if (!u.pass_enc || decryptPassword(u.pass_enc, PKEY) !== str(q.body.password, 100)) await db.q('UPDATE app_users SET pass_enc = ? WHERE id = ?', [sealPw(str(q.body.password, 100)), u.id]).catch(() => {});
     const user = { id: u.id, name: u.name, role: u.role };
     s.json({ user: { ...user, tfa }, token: jwt.sign(user, KEY, { expiresIn: '12h' }) });
   }));
@@ -112,7 +115,7 @@ export function createApp({ cfg, db, notifier }) {
     if (!mayGive(q.u, role)) fail(403, 'Only the Administrator can create an Administrator');
     if (str(password, 100).length < 8) fail(400, 'Password needs at least 8 characters');
     const u = { id: newId(), username: str(username, 60).toLowerCase(), name: str(name, 120), role };
-    await db.q('INSERT INTO app_users (id, username, name, role, pass_hash, created_at) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3))', [u.id, u.username, u.name, u.role, await bcrypt.hash(str(password, 100), 10)]).catch(dup);
+    await db.q('INSERT INTO app_users (id, username, name, role, pass_hash, pass_enc, created_at) VALUES (?,?,?,?,?,?, UTC_TIMESTAMP(3))', [u.id, u.username, u.name, u.role, await bcrypt.hash(str(password, 100), 10), sealPw(str(password, 100))]).catch(dup);
     s.json(u);
   }));
   // change name, username, role and/or password (only the fields sent)
@@ -129,12 +132,31 @@ export function createApp({ cfg, db, notifier }) {
       if (t.role === 'ADMIN' && (await db.q("SELECT id FROM app_users WHERE role = 'ADMIN' AND id <> ?", [t.id])).length === 0) fail(400, 'There must be at least one Administrator');
       sets.push('role = ?'); vals.push(b.role);
     }
-    if (b.password) { if (str(b.password, 100).length < 8) fail(400, 'Password needs at least 8 characters'); sets.push('pass_hash = ?'); vals.push(await bcrypt.hash(str(b.password, 100), 10)); }
+    if (b.password) { if (str(b.password, 100).length < 8) fail(400, 'Password needs at least 8 characters'); sets.push('pass_hash = ?', 'pass_enc = ?'); vals.push(await bcrypt.hash(str(b.password, 100), 10), sealPw(str(b.password, 100))); }
     if (b.reset2fa) { sets.push('totp_on = 0', 'totp_secret = NULL', 'totp_last = NULL'); }   // lost phone: he can set up two-step sign-in again
     if (!sets.length) return s.json(userRow(t));
     await db.q(`UPDATE app_users SET ${sets.join(', ')} WHERE id = ?`, [...vals, t.id]).catch(dup);
     if (t.id !== q.u.id) revoked.set(t.id, Date.now());   // his old sign-in stops working: he signs in again with the new details
     s.json(userRow((await db.q('SELECT * FROM app_users WHERE id = ?', [t.id]))[0]));
+  }));
+  // The Manager reads a person's password (for someone who forgot it). Never an Administrator's, unless he is the Administrator. Every look is written to the audit trail.
+  app.get('/api/users/:id/password', auth('MGR'), wrap(async (q, s) => {
+    const [t] = await db.q('SELECT id, role, pass_enc FROM app_users WHERE id = ?', [q.params.id]);
+    if (!t) fail(404, 'User not found');
+    if (!mayTouch(q.u, t)) fail(403, 'Only the Administrator can see an Administrator password');
+    await db.q("INSERT INTO audit_log (at, user_id, user_name, role, method, path, action, ref, status, ip) VALUES (UTC_TIMESTAMP(3),?,?,?,'GET','/api/users/:id/password','Staff password viewed',?,200,?)", [q.u.id, q.u.name, q.u.role, t.id, String(q.ip || '').slice(0, 64)]).catch(() => {});
+    s.json({ password: decryptPassword(t.pass_enc, PKEY) });   // null: not stored yet (he has not signed in since this feature) - set a new one
+  }));
+  // Everybody changes his own password: the old one is asked first
+  app.post('/api/auth/password', auth(), wrap(async (q, s) => {
+    const [u] = await db.q('SELECT * FROM app_users WHERE id = ?', [q.u.id]);
+    if (!u) fail(404, 'User not found');
+    const cur = str(q.body.current, 100), pw = str(q.body.password, 100);
+    if (!(await bcrypt.compare(cur, u.pass_hash))) fail(400, 'Your current password is wrong');
+    if (pw.length < 8) fail(400, 'Password needs at least 8 characters');
+    if (pw === cur) fail(400, 'Choose a password different from the old one');
+    await db.q('UPDATE app_users SET pass_hash = ?, pass_enc = ? WHERE id = ?', [await bcrypt.hash(pw, 10), sealPw(pw), u.id]);
+    s.json({ ok: true });   // his own sign-in stays open; nobody else's token is touched
   }));
   app.delete('/api/users/:id', auth('MGR'), wrap(async (q, s) => {
     const [t] = await db.q('SELECT * FROM app_users WHERE id = ?', [q.params.id]);

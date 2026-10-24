@@ -43,8 +43,8 @@ test('mileage: whole km, not negative, never below the last recorded reading', (
   assert.throws(() => R.checkMileage(3999, 4000), err(400, /lower than the last recorded 4000 km/));
 });
 
-test('next service: milestones belong to the largest interval that divides them (A 5 000, B 10 000, C 20 000)', () => {
-  assert.deepEqual([5000, 10000, 15000, 20000, 40000, 25000].map(k => milestoneType(k, TYPES).code), ['A', 'B', 'A', 'C', 'C', 'A']);
+test('next service: milestones belong to the largest interval that divides them (A 5 000, B 10 000, C 20 000, D 40 000)', () => {
+  assert.deepEqual([5000, 10000, 15000, 20000, 40000, 25000].map(k => milestoneType(k, TYPES).code), ['A', 'B', 'A', 'C', 'D', 'A']);   // 40 000 is now the Type D milestone
   assert.equal(milestoneType(7000, TYPES), null);
   assert.deepEqual(nextService(5000, TYPES), { km: 10000, code: 'B', name: 'Type B service' });   // after an A at 5 000 comes the B at 10 000
   assert.deepEqual(nextService(10000, TYPES), { km: 15000, code: 'A', name: 'Type A service' });

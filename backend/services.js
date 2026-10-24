@@ -1,4 +1,4 @@
-// Service packages (Type A / B / C) and the "next service" suggestion. Pure functions: no database, easy to test (node --test).
+// Service packages (Type A / B / C / D) and the "next service" suggestion. Pure functions: no database, easy to test (node --test).
 import { fail } from './errors.js';
 import { str, qn, partQty } from './rules.js';
 
@@ -16,6 +16,12 @@ export const DEFAULT_SERVICES = [
     labours: [{ desc: 'Engine oil & oil filter change', hours: 0.75, price: 0 }, { desc: 'Multi-point inspection', hours: 0.5, price: 0 },
       { desc: 'Air filter & cabin filter replacement', hours: 0.5, price: 0 }, { desc: 'Brake inspection & cleaning', hours: 0.75, price: 0 },
       { desc: 'Spark plugs, brake fluid & coolant service', hours: 1.5, price: 0 }],
+    parts: [{ code: 'TOIL-001', name: 'Engine Oil 15W-40', qty: 4, price: 0 }, { code: 'TFLT-001', name: 'Oil Filter', qty: 1, price: 0 }] },
+  // Type D: the manager sets its amount (labour prices and part prices) on the Services screen, exactly like A, B and C.
+  { code: 'D', name: 'Type D service', interval_km: 40000,
+    labours: [{ desc: 'Engine oil & oil filter change', hours: 0.75, price: 0 }, { desc: 'Multi-point inspection', hours: 0.5, price: 0 },
+      { desc: 'Air filter & cabin filter replacement', hours: 0.5, price: 0 }, { desc: 'Brake inspection & cleaning', hours: 0.75, price: 0 },
+      { desc: 'Spark plugs, brake fluid & coolant service', hours: 1.5, price: 0 }, { desc: 'Gearbox & differential oil service', hours: 1.5, price: 0 }],
     parts: [{ code: 'TOIL-001', name: 'Engine Oil 15W-40', qty: 4, price: 0 }, { code: 'TFLT-001', name: 'Oil Filter', qty: 1, price: 0 }] }
 ];
 

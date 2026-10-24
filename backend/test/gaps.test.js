@@ -161,3 +161,26 @@ test('settings: price limit defaults to 10 percent; WORK_END must be a time of d
   assert.deepEqual([loadConfig({}).priceLimitPct, loadConfig({ PRICE_LIMIT_PCT: '0' }).priceLimitPct, loadConfig({ PRICE_LIMIT_PCT: '-3' }).priceLimitPct], [10, 0, 10]);
   assert.deepEqual([loadConfig({ WORK_END: '17:30' }).workEnd, loadConfig({ WORK_END: '25:00' }).workEnd, loadConfig({}).workEnd], ['17:30', '', '']);
 });
+
+// ---- password read-back, photo clean-up, Type D ----
+import { encryptPassword, decryptPassword } from '../passwords.js';
+import { deliveredAt, photosExpired } from '../photos.js';
+test('password round trip, wrong key and tampering give nothing', () => {
+  const e = encryptPassword('Sup3r secret', 'key-1');
+  assert.equal(decryptPassword(e, 'key-1'), 'Sup3r secret');
+  assert.equal(decryptPassword(e, 'key-2'), null);
+  assert.equal(decryptPassword(e.slice(0, -4) + 'AAAA', 'key-1'), null);
+  assert.equal(decryptPassword(null, 'key-1'), null);
+});
+test('photos expire 5 days after delivery only', () => {
+  const D = 86400e3, now = 100 * D, log = [{ s: 'Invoiced', t: now - 9 * D }, { s: 'Delivered', t: now - 5 * D }];
+  assert.equal(deliveredAt(log), now - 5 * D);
+  assert.equal(photosExpired(log, now, 5), true);
+  assert.equal(photosExpired(log, now - D, 5), false);
+  assert.equal(photosExpired([{ s: 'Invoiced', t: 1 }], now, 5), false);
+  assert.equal(photosExpired(JSON.stringify(log), now, 5), true);
+});
+test('Type D exists with an editable package', () => {
+  const d = DEFAULT_SERVICES.find(x => x.code === 'D');
+  assert.ok(d && d.interval_km > 0 && d.labours.length && d.parts.length);
+});

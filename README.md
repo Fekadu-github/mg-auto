@@ -205,3 +205,10 @@ When the workshop sends the card back (Work done -> Received by SA), the Service
 - A technician cannot be taken off a task while he is clocked in on it. Completed tasks keep their record ("done by ...").
 - **Workshop** screen: technicians get **My tasks** (what is assigned to them); the supervisor gets **Tasks by technician** (open tasks per technician, who is working, and tasks nobody has yet). Every assignment is written in the job card history.
 - Technicians are the users with the *Technician* role. The server sends the list to staff in `/api/data` (`techs`); assignment is `POST /api/jobs/:id/assign` with `{ lids, tech_ids }`.
+
+
+## Update: passwords, photo clean-up, Type D
+
+- **Passwords.** Every user changes his own password (lock button at the bottom of the menu, old password asked first). The Manager sees every password on **Staff** (Show / Hide) and can set a new one with **Change password**. Passwords are kept encrypted (AES-256-GCM) with `PASSWORD_KEY` (or `JWT_SECRET`); each look is written to the audit trail. A password shows "not saved yet" until that person signs in once or the Manager sets a new one.
+- **Photos.** Vehicle photos are deleted by the server 5 days after the car is *Delivered* (`PHOTO_KEEP_DAYS`, checked at start and every hour).
+- **Type D service.** Added next to A, B and C (40 000 km, edit on **Services**). Labour and part prices start at 0: the Manager sets the amount.

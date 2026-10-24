@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS app_users (
   name VARCHAR(120) NOT NULL,
   role ENUM('SA','WS','TECH','ADMIN','MGR') NOT NULL,   -- MGR = Manager (appended last so older databases can be upgraded in place)
   pass_hash VARCHAR(100) NOT NULL,
+  pass_enc VARCHAR(400) NULL,       -- the password, ENCRYPTED, so the Manager can read it back for a person who forgot it (sign-in uses pass_hash)
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   UNIQUE KEY app_users_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

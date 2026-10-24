@@ -19,6 +19,8 @@ export function loadConfig(env = process.env) {
   return {
     port: num(env.PORT, 3000),
     jwtSecret: env.JWT_SECRET || '',
+    passwordKey: env.PASSWORD_KEY || '',          // key that encrypts the passwords the Manager can read back (falls back to JWT_SECRET)
+    photoKeepDays: num(env.PHOTO_KEEP_DAYS, 5) > 0 ? num(env.PHOTO_KEEP_DAYS, 5) : 5,   // vehicle photos are deleted this many days after delivery
     corsOrigin: env.CORS_ORIGIN || '*',
     rateLimitPerMin: num(env.RATE_LIMIT_PER_MIN, 1200) > 0 ? num(env.RATE_LIMIT_PER_MIN, 1200) : 1200,   // requests per minute from one address (a whole garage shares one)
     requestLog: env.REQUEST_LOG !== 'false',     // one JSON line per request in the logs

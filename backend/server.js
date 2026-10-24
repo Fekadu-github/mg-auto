@@ -5,6 +5,8 @@ import { createDb, newId } from './db.js';
 import { createNotifier } from './notify.js';
 import { createApp } from './app.js';
 import { startWorkdayTimer } from './workday.js';
+import { startPhotoCleanup } from './photos.js';
+import { encryptPassword } from './passwords.js';
 
 const cfg = loadConfig();
 if (cfg.jwtSecret.length < 16) throw new Error('Set JWT_SECRET to a long random string (16+ characters)');
@@ -16,14 +18,15 @@ await db.migrate();                       // creates the tables on the first sta
 const [{ n }] = await db.q('SELECT COUNT(*) AS n FROM app_users');
 if (!n && cfg.adminUser && cfg.adminPass) {
   if (cfg.adminPass.length < 8) throw new Error('ADMIN_PASS needs at least 8 characters');
-  await db.q('INSERT INTO app_users (id, username, name, role, pass_hash, created_at) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3))',
-    [newId(), cfg.adminUser.toLowerCase(), 'Administrator', 'ADMIN', await bcrypt.hash(cfg.adminPass, 10)]);
+  await db.q('INSERT INTO app_users (id, username, name, role, pass_hash, pass_enc, created_at) VALUES (?,?,?,?,?,?, UTC_TIMESTAMP(3))',
+    [newId(), cfg.adminUser.toLowerCase(), 'Administrator', 'ADMIN', await bcrypt.hash(cfg.adminPass, 10), encryptPassword(cfg.adminPass, cfg.passwordKey || cfg.jwtSecret)]);
   console.log('Admin account created');
 } else if (!n) console.warn('No users yet: set ADMIN_USER and ADMIN_PASS and restart to create the administrator');
 
 const notifier = createNotifier({ cfg, db });
 const server = createApp({ cfg, db, notifier }).listen(cfg.port, () => console.log('MG Auto API on ' + cfg.port));
 notifier.init();                          // Telegram webhook registration; never blocks or crashes the start
+const stopPhotos = startPhotoCleanup(db, cfg.photoKeepDays);   // vehicle photos are deleted 5 days after the car was delivered
 const stopWorkday = startWorkdayTimer(db, cfg.workEnd);   // WORK_END (e.g. 17:30) set: running clocks are closed at the end of the working day
 
-for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { stopWorkday(); server.close(() => db.close().finally(() => process.exit(0))); });
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { stopWorkday(); stopPhotos(); server.close(() => db.close().finally(() => process.exit(0))); });

@@ -35,7 +35,7 @@ export const NEW_COLUMNS = [
   ['labour_tasks', 'task', "VARCHAR(200) NOT NULL DEFAULT ''"],
   ['labour_tasks', 'code', "VARCHAR(40) NOT NULL DEFAULT ''"], ['labour_tasks', 'model_grp', "VARCHAR(60) NOT NULL DEFAULT ''"],
   ['insurers', 'address', "VARCHAR(200) NOT NULL DEFAULT ''"],
-  ['app_users', 'totp_secret', 'VARCHAR(64) NULL'], ['app_users', 'totp_on', 'TINYINT(1) NOT NULL DEFAULT 0'], ['app_users', 'totp_last', 'BIGINT NULL']
+  ['app_users', 'totp_secret', 'VARCHAR(64) NULL'], ['app_users', 'totp_on', 'TINYINT(1) NOT NULL DEFAULT 0'], ['app_users', 'totp_last', 'BIGINT NULL'], ['app_users', 'pass_enc', 'VARCHAR(400) NULL']
 ];
 
 
@@ -104,7 +104,7 @@ export function createDb(env = process.env) {
       if (add.length) console.log(`Labour price book: ${add.length} lines added`);
     } catch (e) { console.error('Labour price book skipped:', e.message); }
     for (const i of DEFAULT_INSURERS) await pool.query('INSERT IGNORE INTO insurers (id, name, phone, active) VALUES (UUID(),?,?,1)', [i.name, i.phone]);   // the contact directory's companies; INSERT IGNORE skips a name already there
-    if (!n) for (const t of DEFAULT_SERVICES) await pool.query('INSERT IGNORE INTO service_types (code, name, interval_km, labours, parts, active) VALUES (?,?,?,?,?,1)', [t.code, t.name, t.interval_km, JSON.stringify(t.labours), JSON.stringify(t.parts)]);
+    for (const t of DEFAULT_SERVICES) if (!n || t.code === 'D') await pool.query('INSERT IGNORE INTO service_types (code, name, interval_km, labours, parts, active) VALUES (?,?,?,?,?,1)', [t.code, t.name, t.interval_km, JSON.stringify(t.labours), JSON.stringify(t.parts)]);
     // Repair: a proforma left "Converted" with no job card (the card was deleted) goes back to Finalized so it can be used again,
     // and an estimate that says it is on a job card that no longer exists is free again. Never stops the start.
     try {
