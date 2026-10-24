@@ -12,8 +12,8 @@ import { BRAND_LOGOS } from './brands.js';
 const W_REG = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584,761,556,556,222,556,333,1000,556,556,333,1000,667,333,1000,556,611,556,556,222,222,333,333,350,556,1000,333,1000,500,333,944,556,500,667,278,333,556,556,556,556,260,556,333,737,370,556,584,333,737,333,400,584,333,333,333,556,537,278,333,333,365,556,834,834,834,611,667,667,667,667,667,667,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,500,556,556,556,556,278,278,278,278,556,556,556,556,556,556,556,584,611,556,556,556,556,500,556,500];
 const W_BOLD = [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584,761,556,556,278,556,500,1000,556,556,333,1000,667,333,1000,556,611,556,556,278,278,500,500,350,556,1000,333,1000,556,333,944,556,500,667,278,333,556,556,556,556,280,556,333,737,370,556,584,333,737,333,400,584,333,333,333,611,556,278,333,333,365,556,834,834,834,611,722,722,722,722,722,722,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,556,556,556,556,556,278,278,278,278,611,611,611,611,611,611,611,584,611,611,611,611,611,556,611,556];   // Helvetica advance widths for characters 32..255 (WinAnsi), per 1000 units
 
-const A4W = 595.28, A4H = 841.89, M = 34, CW = A4W - 2 * M;
-const COL = { pb: '#1c5fc2', pd: '#123f85', pg: '#4a9a24', pt: '#eef4fd', pl: '#c6d3e8', ps: '#55637d', tx: '#14203a', amber: '#d9a032', amberBg: '#fdf3dc', amberTx: '#8a5a06' };
+export const A4W = 595.28, A4H = 841.89, M = 34, CW = A4W - 2 * M;
+export const COL = { pb: '#1c5fc2', pd: '#123f85', pg: '#4a9a24', pt: '#eef4fd', pl: '#c6d3e8', ps: '#55637d', tx: '#14203a', amber: '#d9a032', amberBg: '#fdf3dc', amberTx: '#8a5a06' };
 const FONT = { r: ['F1', W_REG], b: ['F2', W_BOLD], i: ['F3', W_REG], bi: ['F4', W_BOLD] };
 const num = v => parseFloat(v) || 0;
 const n2 = v => (Math.round(v * 100) / 100).toString();
@@ -31,12 +31,12 @@ const enc = s => {
   return out;
 };
 const widthOf = (bytes, f, size, cs = 0) => { const t = FONT[f][1]; let w = 0; for (const c of bytes) w += (t[c - 32] ?? 556); return w / 1000 * size + cs * bytes.length; };
-const tw = (s, f, size, cs = 0) => widthOf(enc(s), f, size, cs);
+export const tw = (s, f, size, cs = 0) => widthOf(enc(s), f, size, cs);
 const hex = bytes => bytes.map(b => b.toString(16).padStart(2, '0')).join('');
 const clip = (s, f, size, maxW) => { let b = enc(s); if (widthOf(b, f, size) <= maxW) return b; while (b.length > 1 && widthOf([...b, 133], f, size) > maxW) b = b.slice(0, -1); return [...b, 133]; };
 
 // Breaks a text into lines no wider than w (the first line may have its own width); a word longer than a line is cut
-function wrap(s, f, size, w, w1 = w) {
+export function wrap(s, f, size, w, w1 = w) {
   const lines = []; let line = '';
   for (const word of String(s ?? '').replace(/\s+/g, ' ').trim().split(' ')) {
     if (!word) continue;
@@ -57,15 +57,15 @@ function wrap(s, f, size, w, w1 = w) {
 // ---------- drawing (y counts from the top of the page) ----------
 const Y = y => A4H - y;
 const put = (pg, op) => pg.ops.push(op);
-const fillRect = (pg, x, y, w, h, c) => put(pg, `${rgb(c)} rg ${n2(x)} ${n2(Y(y + h))} ${n2(w)} ${n2(h)} re f`);
+export const fillRect = (pg, x, y, w, h, c) => put(pg, `${rgb(c)} rg ${n2(x)} ${n2(Y(y + h))} ${n2(w)} ${n2(h)} re f`);
 const strokeRect = (pg, x, y, w, h, c, lw = .5) => put(pg, `${rgb(c)} RG ${lw} w ${n2(x)} ${n2(Y(y + h))} ${n2(w)} ${n2(h)} re S`);
-const hline = (pg, x1, x2, y, c, lw = .4) => put(pg, `${rgb(c)} RG ${lw} w ${n2(x1)} ${n2(Y(y))} m ${n2(x2)} ${n2(Y(y))} l S`);
+export const hline = (pg, x1, x2, y, c, lw = .4) => put(pg, `${rgb(c)} RG ${lw} w ${n2(x1)} ${n2(Y(y))} m ${n2(x2)} ${n2(Y(y))} l S`);
 function rrect(pg, x, y, w, h, r, fill, stroke, lw = .6) {
   const k = .5523 * r, X0 = x, X1 = x + w, Y0 = Y(y), Y1 = Y(y + h);
   const p = `${n2(X0 + r)} ${n2(Y0)} m ${n2(X1 - r)} ${n2(Y0)} l ${n2(X1 - r + k)} ${n2(Y0)} ${n2(X1)} ${n2(Y0 - r + k)} ${n2(X1)} ${n2(Y0 - r)} c ${n2(X1)} ${n2(Y1 + r)} l ${n2(X1)} ${n2(Y1 + r - k)} ${n2(X1 - r + k)} ${n2(Y1)} ${n2(X1 - r)} ${n2(Y1)} c ${n2(X0 + r)} ${n2(Y1)} l ${n2(X0 + r - k)} ${n2(Y1)} ${n2(X0)} ${n2(Y1 + r - k)} ${n2(X0)} ${n2(Y1 + r)} c ${n2(X0)} ${n2(Y0 - r)} l ${n2(X0)} ${n2(Y0 - r + k)} ${n2(X0 + r - k)} ${n2(Y0)} ${n2(X0 + r)} ${n2(Y0)} c h`;
   put(pg, `${rgb(fill)} rg ${rgb(stroke)} RG ${lw} w ${p} B`);
 }
-const gradient = (pg, x, y, w, h) => {   // the blue-to-lime rule
+export const gradient = (pg, x, y, w, h) => {   // the blue-to-lime rule
   const a = [0x1f, 0x78, 0xee], b = [0x6b, 0xbf, 0x2f], N = 48;
   for (let i = 0; i < N; i++) {
     const c = a.map((v, k) => Math.round(v + (b[k] - v) * i / (N - 1)));
@@ -73,7 +73,7 @@ const gradient = (pg, x, y, w, h) => {   // the blue-to-lime rule
   }
 };
 // o: f font, size, color, align l|r|c, cs letter spacing
-function text(pg, s, x, y, { f = 'r', size = 9, color = COL.tx, align = 'l', cs = 0, maxW } = {}) {
+export function text(pg, s, x, y, { f = 'r', size = 9, color = COL.tx, align = 'l', cs = 0, maxW } = {}) {
   let bytes = maxW ? clip(s, f, size, maxW) : enc(s);
   if (!bytes.length) return;
   const w = widthOf(bytes, f, size, cs);
@@ -85,7 +85,7 @@ function watermark(pg) {   // a faint DRAFT across the page, behind everything
   const lx = -w / 2, ly = -.35 * size, cx = A4W / 2, cy = A4H / 2 - 10;
   put(pg, `q /GS1 gs ${rgb(COL.pb)} rg BT /F2 ${size} Tf 14 Tc ${n2(c)} ${n2(s)} ${n2(-s)} ${n2(c)} ${n2(cx + lx * c - ly * s)} ${n2(cy + lx * s + ly * c)} Tm <${hex(enc('DRAFT'))}> Tj ET Q`);
 }
-function logoAt(pg, logo, x, y, size) {   // round, cropped to fill the circle
+export function logoAt(pg, logo, x, y, size) {   // round, cropped to fill the circle
   const sc = Math.max(size / logo.w, size / logo.h), dw = logo.w * sc, dh = logo.h * sc, r = size / 2, k = .5523 * r, cx = x + r, cy = Y(y + r);
   put(pg, `q ${n2(cx + r)} ${n2(cy)} m ${n2(cx + r)} ${n2(cy + k)} ${n2(cx + k)} ${n2(cy + r)} ${n2(cx)} ${n2(cy + r)} c ${n2(cx - k)} ${n2(cy + r)} ${n2(cx - r)} ${n2(cy + k)} ${n2(cx - r)} ${n2(cy)} c ${n2(cx - r)} ${n2(cy - k)} ${n2(cx - k)} ${n2(cy - r)} ${n2(cx)} ${n2(cy - r)} c ${n2(cx + k)} ${n2(cy - r)} ${n2(cx + r)} ${n2(cy - k)} ${n2(cx + r)} ${n2(cy)} c W n ${n2(dw)} 0 0 ${n2(dh)} ${n2(cx - dw / 2)} ${n2(cy - dh / 2)} cm /${logo.name || 'Im1'} Do Q`);
 }
@@ -237,7 +237,7 @@ function layout(d, s, logo, brands = []) {
 
 // ---------- the PDF file ----------
 const enc8 = new TextEncoder();
-function assemble(pages, { title, images = [], footer }) {
+export function assemble(pages, { title, images = [], footer }) {
   const total = pages.length, objs = [], str = s => enc8.encode(s);
   const FIX = 8 + images.length;                 // fixed objects: catalog, pages, 4 fonts, extgstate, info, then the images
   const pageId = i => FIX + 2 + i * 2, contId = i => FIX + 1 + i * 2;
@@ -293,7 +293,7 @@ async function loadJpeg(url, max = 360) {   // a picture as a small JPEG on whit
     return { data: new Uint8Array(await blob.arrayBuffer()), w, h };
   } catch { return null; }
 }
-const loadLogo = () => loadJpeg('/madeg-logo.png');
+export const loadLogo = () => loadJpeg('/madeg-logo.png');
 
 export async function downloadEstimatePdf(props) {
   const brands = (await Promise.all(BRAND_LOGOS.map(b => loadJpeg(b.src, 480)))).filter(Boolean);

@@ -18,6 +18,7 @@ import { SECTION_CODE, sectionOption } from '../lib/constants.js';
 import { usePersistedForm, usePersistedState } from '../lib/autosave.js';
 import { downloadXlsx, readXlsx, rowsToObjects } from '../lib/xlsx.js';
 import { groupCost, groupHours, groupTasks } from '../lib/labourGroups.js';
+import { downloadLabourPdf, downloadLabourXlsx, labourRows, labourSummary } from '../lib/labourExport.js';
 import TwoFactor from '../components/TwoFactor.jsx';
 import CurrencyBox from '../components/CurrencyBox.jsx';
 import { t } from '../lib/i18n.js';
@@ -259,8 +260,14 @@ export function LabourList() {
     const r = await run(() => api('/labour-tasks/import', 'POST', { rows: send }));
     if (r.ok) setRes(r.data);
   };
+  const total = labourSummary(labourRows(db.lt, rates));
   return (
     <>
+      <div className="box"><div className="row"><h3 style={{ flex: 1, margin: 0 }}>Total labour registered</h3>
+        <Btn kind="ol" disabled={!db.lt.length} onClick={() => downloadLabourPdf(db.lt, rates)}>Download PDF</Btn><Btn kind="ol" disabled={!db.lt.length} onClick={() => downloadLabourXlsx(db.lt, rates)}>Download Excel</Btn></div>
+        <div className="g g2 mt"><Stat label="Labour lines registered" value={total.count} small /><Stat label="Total hours" value={total.hours} small />
+          {total.bySection.map(x => <Stat key={x.section} label={`${x.code} · ${x.section}`} value={x.count} small />)}<Stat label={`Total cost (${cur()})`} value={money(total.cost)} small /></div>
+        <p className="mu small">The PDF and Excel files list every registered labour line (not only the search result below): section, code, task, model group, hours and total cost.</p></div>
       {isMgr(me) && <RatesBox rates={rates} />}
       {sa && <div className="box mt"><h3>New labour task</h3><div className="row">
         <Field label="Labour code" {...bind('code')} /><Field label="Model group" {...bind('model_grp')} /><Field label="Task (group, optional)" grow="2 1 180px" {...bind('task')} /><Field label="Labour line" grow="3 1 200px" {...bind('name')} /><Field label="Section"><select {...bind('section')}>{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
