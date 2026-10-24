@@ -167,6 +167,11 @@ tr.late > td { background: color-mix(in srgb, var(--rd) 8%, transparent); }
 .sb-n2 { line-height: 1.25; white-space: normal; }
 .cv-brand > div { max-width: 100%; }
 
-/* ---- MADEG General Trading PLC: the same typeface and weight everywhere the name appears (sidebar, splash, cover, print) ---- */
-.sb-n1, .sb-n2, .splash-t, .splash-t span, .cv-brand, .cv-brand b, .lh-co > b, .c > b.big { font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
+/* ---- MADEG General Trading PLC: ONE typeface and weight everywhere the name appears ----
+   sidebar, splash (also the static one in index.html), cover, login/approve page, every printed document
+   (A4 letterhead, 80 mm receipt, estimation sheet footer). !important so print.css / pro.css can never override it. */
+:root { --co-font: 'Space Grotesk', 'Plus Jakarta Sans', system-ui, sans-serif; }
+.sb-n1, .sb-n2, .splash-t, .splash-t span, .cv-brand > div, .cv-brand b, .lh-co > b, .c > b.big, .co-name {
+  font-family: var(--co-font) !important; font-weight: 700 !important; font-style: normal !important;
+}
 .cv-brand span { font-family: 'Plus Jakarta Sans', sans-serif; }

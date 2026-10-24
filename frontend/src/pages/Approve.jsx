@@ -19,7 +19,7 @@ export default function Approve({ token }) {
   const th = { textAlign: 'left', borderBottom: '1px solid #8884', padding: '6px 4px' }, tdr = { textAlign: 'right', padding: '6px 4px' }, td = { padding: '6px 4px' };
   return (
     <div style={wrap}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><b style={{ fontSize: 20, fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700 }}>{g.name || 'MADEG General Trading PLC'}</b>{(g.brand || !g.name) && <><br /><b>{g.brand || 'MG Auto'}</b></>}<br /><span style={{ opacity: .7 }}>{[g.address, g.phone].filter(Boolean).join(' · ')}</span></div><LangToggle /></div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><b className="co-name" style={{ fontSize: 20 }}>{g.name || 'MADEG General Trading PLC'}</b>{(g.brand || !g.name) && <><br /><b>{g.brand || 'MG Auto'}</b></>}<br /><span style={{ opacity: .7 }}>{[g.address, g.phone].filter(Boolean).join(' · ')}</span></div><LangToggle /></div>
       <h2>{t('Please check the estimate')} {x.no}</h2>
       <p>{x.customer && <><b>{x.customer}</b> · </>}{x.plate && <b>{x.plate}</b>} {x.vehicle && `· ${x.vehicle}`}<br /><span style={{ opacity: .7 }}>{x.note}</span></p>
       <div style={{ overflowX: 'auto' }}>

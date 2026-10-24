@@ -104,7 +104,7 @@ export default function EstimationSheet({ no, date, draft, walkIn, customer: c =
         <div><div className="line" /><b>Checked by</b></div>
         <div><div className="line" /><b>Approved by</b></div>
       </div>
-      <div className="est-foot"><span>{g.name}{g.phone ? ` · ${g.phone}` : ''}</span><span>Printed {dt(Date.now())}</span></div>
+      <div className="est-foot"><span><b className="co-name">{g.name}</b>{g.phone ? ` · ${g.phone}` : ''}</span><span>Printed {dt(Date.now())}</span></div>
       </div>
     </article>
   );
