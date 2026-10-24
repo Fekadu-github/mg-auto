@@ -6,7 +6,7 @@ import { groupHours, groupLabel } from '../lib/labourGroups.js';
 const low = s => String(s ?? '').toLowerCase();
 const words = s => low(s).split(/[^a-z0-9]+/).filter(Boolean);
 // One letter is enough: a task shows when its code, task name, line name or model starts with the typed letters (any word of the name), best matches first
-export function searchTasks(groups, singles, text, max = 40) {
+export function searchTasks(groups, singles, text, max = 400) {
   const toks = words(text);
   if (!toks.length) return [];
   const score = (fields) => {

@@ -393,8 +393,9 @@ function BulkAssign({ job: j }) {
 const groupLabelText = g => `▤ ${g.name}`;
 function LabourForm({ id, rate, known, late, services, brand }) {
   const { run, say } = useApp();
-  const [allModels, setAllModels] = useState(false), [billing, setBilling] = useState(false);
-  const offered = allModels ? known : tasksForVehicle(known, brand);   // only the lines of the vehicle's make (and general lines)
+  const [allModels, setAllModels] = useState(true), [billing, setBilling] = useState(false);
+  const own = new Set(tasksForVehicle(known, brand));
+  const offered = allModels ? [...(known || []).filter(x => own.has(x)), ...(known || []).filter(x => !own.has(x))] : [...own];   // all lines are searchable; this vehicle's make is listed first
   const groups = [...groupTasks(offered), ...serviceGroups(services)];
   const allGroups = [...groupTasks(known), ...serviceGroups(services)];
   const [f, bind, set, reset] = useForm(`form:${id}:labour`, { desc: '', section: '', hours: '', price: '' });
@@ -425,7 +426,7 @@ function LabourForm({ id, rate, known, late, services, brand }) {
     <>
       <div className="row mt">
         <div style={{ flex: '3 1 260px' }}><label>Labour task (type a letter of the code or task name)<TaskSearch groups={groups} singles={singles} section={f.section} disabled={!f.section} value={f.desc} onChange={text => set({ desc: text })} onPick={picked} invalid={!!f.desc.trim() && !chosen} /></label>
-          {!!(brand || '').trim() && <div className="mu small">{allModels ? 'Showing the labour of all models.' : `Showing the labour for ${brand} (and general lines).`} <button type="button" className="lnk" onClick={() => setAllModels(x => !x)}>{allModels ? `Only ${brand}` : 'Show all models'}</button></div>}</div>
+          {!!(brand || '').trim() && <div className="mu small">{allModels ? `Showing the labour of all models (${brand} first).` : `Showing the labour for ${brand} (and general lines).`} <button type="button" className="lnk" onClick={() => setAllModels(x => !x)}>{allModels ? `Only ${brand}` : 'Show all models'}</button></div>}</div>
         <Field label="Section (choose first)"><select value={f.section} onChange={e => set({ section: e.target.value, desc: '', hours: '', price: '' })}>{!f.section && <option value="">Choose section…</option>}{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
         <Field label="Hours" type="number" min="0" step="0.25" value={f.hours} onChange={e => set({ hours: e.target.value, price: priceFor(e.target.value) })} />
         <Field label={`Labour cost (${cur()}) · ${rateOf(rate, f.section)}/h`} type="number" min="0" {...bind('price')} />

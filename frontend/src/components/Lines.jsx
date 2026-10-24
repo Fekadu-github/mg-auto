@@ -27,9 +27,10 @@ export const isListed = (tasks, groups) => {
 // Or type any work by hand. Hours x labour rate fills a cost that is left empty; every cost can be typed over.
 export function LabourLines({ labs, setLabs, tasks, rate, services, brand }) {
   const set = (i, patch) => setLabs(ls => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
-  const [allModels, setAllModels] = useState(false);
+  const [allModels, setAllModels] = useState(true);
   // only the lines of the vehicle's make are offered (brand empty or "show all" = the whole list); a line already on the sheet stays valid either way
-  const offered = allModels ? tasks : tasksForVehicle(tasks, brand);
+  const own = new Set(tasksForVehicle(tasks, brand));
+  const offered = allModels ? [...(tasks || []).filter(x => own.has(x)), ...(tasks || []).filter(x => !own.has(x))] : [...own];   // all lines are searchable; this vehicle's make is listed first
   const groups = [...groupTasks(offered), ...serviceGroups(services)];
   const singles = (offered || []).filter(x => !x.task);
   const allGroups = [...groupTasks(tasks), ...serviceGroups(services)];
@@ -53,7 +54,7 @@ export function LabourLines({ labs, setLabs, tasks, rate, services, brand }) {
           </tr>
         ))}
       </Table>
-      {!!(brand || '').trim() && <div className="mu small mt">{allModels ? 'Showing the labour of all models.' : `Showing the labour for ${brand} (and general lines).`} <button type="button" className="lnk" onClick={() => setAllModels(x => !x)}>{allModels ? `Only ${brand}` : 'Show all models'}</button></div>}
+      {!!(brand || '').trim() && <div className="mu small mt">{allModels ? `Showing the labour of all models (${brand} first).` : `Showing the labour for ${brand} (and general lines).`} <button type="button" className="lnk" onClick={() => setAllModels(x => !x)}>{allModels ? `Only ${brand}` : 'Show all models'}</button></div>}
       <div className="mt"><Btn kind="ol" onClick={() => setLabs(ls => [...ls, { desc: '', section: '', hours: '', price: '' }])}>Add labour line</Btn> <span className="mu small">Hours x the section's rate ({SECTIONS.map(s => `${SECTION_CODE[s]} ${rateOf(rate, s)}`).join(' · ')} {cur()}/h) fills the cost; type another amount to change it.</span></div>
     </>
   );
