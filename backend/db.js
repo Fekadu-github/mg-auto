@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import mysql from 'mysql2/promise';
 import { splitSql, ROLE_ENUM, lacksManagerRole } from './sql.js';
 import { DEFAULT_LABOUR, DEFAULT_SERVICES } from './services.js';
+import { missingPriceBook } from './labour.seed.js';
 import { DEFAULT_INSURERS } from './insurers.seed.js';
 
 // Connection settings: DATABASE_URL (mysql://user:pass@host:3306/name) or DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME.
@@ -89,6 +90,17 @@ export function createDb(env = process.env) {
     const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM service_types');
     const [[{ m }]] = await pool.query('SELECT COUNT(*) AS m FROM labour_tasks');
     if (!m) for (const t of DEFAULT_LABOUR) await pool.query('INSERT IGNORE INTO labour_tasks (id, name, section, hours, price) VALUES (UUID(),?,?,?,?)', [t.name, t.section, t.hours, t.price]);
+    // The labour price book (labour code, description, model group, hours): lines not yet in the list are added when the server starts, 200 at a time.
+    // A line already there (same code and model group) is left exactly as it is. Never stops the start.
+    try {
+      const [have] = await pool.query('SELECT code, model_grp FROM labour_tasks');
+      const add = missingPriceBook(have);
+      for (let i = 0; i < add.length; i += 200) {
+        const part = add.slice(i, i + 200);
+        await pool.query(`INSERT IGNORE INTO labour_tasks (id, code, model_grp, task, name, section, hours, price, active) VALUES ${part.map(() => "(UUID(),?,?,'',?,?,?,0,1)").join(',')}`, part.flatMap(l => [l.code, l.model_grp, l.name, l.section, l.hours]));
+      }
+      if (add.length) console.log(`Labour price book: ${add.length} lines added`);
+    } catch (e) { console.error('Labour price book skipped:', e.message); }
     for (const i of DEFAULT_INSURERS) await pool.query('INSERT IGNORE INTO insurers (id, name, phone, active) VALUES (UUID(),?,?,1)', [i.name, i.phone]);   // the contact directory's companies; INSERT IGNORE skips a name already there
     if (!n) for (const t of DEFAULT_SERVICES) await pool.query('INSERT IGNORE INTO service_types (code, name, interval_km, labours, parts, active) VALUES (?,?,?,?,?,1)', [t.code, t.name, t.interval_km, JSON.stringify(t.labours), JSON.stringify(t.parts)]);
     // Repair: a proforma left "Converted" with no job card (the card was deleted) goes back to Finalized so it can be used again,

@@ -36,6 +36,7 @@ export function createApp({ cfg, db, notifier }) {
   if (cfg.requestLog !== false) app.use(requestLog());
   app.use('/api', rateLimit({ max: cfg.rateLimitPerMin || 1200 }));
   app.use('/api/inventory/import', express.json({ limit: '5mb' }));   // an Excel import sends the whole sheet (1,000+ parts is over 100kb)
+  app.use('/api/labour-tasks/import', express.json({ limit: '5mb' }));   // the price book is thousands of rows: far over the usual 100kb
   app.use(express.json({ limit: '100kb' }));
   app.use(cors({ origin: cfg.corsOrigin === '*' ? true : cfg.corsOrigin.split(',').map(s => s.trim()) }));
 

@@ -257,7 +257,17 @@ export function LabourList() {
       if (c.length < 3 || seen.has(k)) continue;
       seen.add(k); send.push(c);
     }
-    const r = await run(() => api('/labour-tasks/import', 'POST', { rows: send }));
+    if (!send.length) return alert('No labour rows were found. The first columns must be: Labour Code, Labour Type Description, Model Grp, Hours Required.');
+    // sent in batches so a big price book never hits the server's size or row limit; the results are added together
+    const r = await run(async () => {
+      const sum = { added: 0, updated: 0, skipped: [], ignored: { sv: 0, other: 0, duplicate: 0 } };
+      for (let i = 0; i < send.length; i += 2000) {
+        const d = await api('/labour-tasks/import', 'POST', { rows: send.slice(i, i + 2000) });
+        sum.added += d.added; sum.updated += d.updated; sum.skipped.push(...(d.skipped || []));
+        for (const k of Object.keys(sum.ignored)) sum.ignored[k] += d.ignored?.[k] || 0;
+      }
+      return sum;
+    });
     if (r.ok) setRes(r.data);
   };
   const total = labourSummary(labourRows(db.lt, rates));
