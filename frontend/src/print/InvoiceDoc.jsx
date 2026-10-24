@@ -1,6 +1,6 @@
 import { dt, invoiceLines, money, pct, snap, vehicleName, cur } from '../lib/format.js';
 
-export const GARAGE = { name: 'MADEG General Trading PLC', brand: 'MG Auto', address: 'Gurdshola, around Top Ten Hotel, Addis Ababa', phone: '0980766566', tin: '', motto: 'Your car, our care' };
+export const GARAGE = { name: 'MADEG GENERAL TRADING PLC', brand: 'MG Auto', address: 'Gurdshola, around Top Ten Hotel, Addis Ababa', phone: '0980766566', tin: '', motto: 'Your car, our care' };
 
 // Proforma = quotation on A4. Cash and Credit invoices = 80 mm point-of-sale receipt.
 export const invoiceSize = doc => (doc.type === 'Proforma' ? 'a4' : 'pos');

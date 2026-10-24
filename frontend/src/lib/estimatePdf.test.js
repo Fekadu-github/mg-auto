@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildEstimatePdf } from './estimatePdf.js';
 
-const garage = { name: 'MADEG General Trading PLC', brand: 'MG Auto', address: 'Gurdshola, Addis Ababa', phone: '0980766566', motto: 'Your car, our care' };
+const garage = { name: 'MADEG GENERAL TRADING PLC', brand: 'MG Auto', address: 'Gurdshola, Addis Ababa', phone: '0980766566', motto: 'Your car, our care' };
 const sheet = (nl, np, o = {}) => ({
   no: 'EST-20261023-0046', date: '2026-10-23', draft: true, walkIn: true, customer: { name: 'Abebe', phone: '0911' }, vehicle: { plate: 'AA-1', vin: 'VIN123', eng: 'ENG9' }, note: 'Body and paint', vat: 0.15, garage,
   labours: Array.from({ length: nl }, (_, i) => ({ desc: `Labour ${i + 1}`, price: 1000 })), parts: Array.from({ length: np }, (_, i) => ({ code: 'P' + i, name: `Part ${i + 1}`, qty: 1, price: 500 })), ...o

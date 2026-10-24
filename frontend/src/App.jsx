@@ -86,7 +86,7 @@ function Shell() {
   return (
     <div data-role={me.role} className={'app' + (rail ? ' rail' : '') + (drawer ? ' drawer-open' : '')}>
       <aside className="sb">
-        <div className="sb-top"><img className="sb-logo" src="/madeg-logo.png" alt="" /><div><div className="sb-n1">MADEG</div><div className="sb-n2">General Trading PLC · MG Auto</div></div><LangToggle /> <ThemeToggle className="sb-tt" /></div>
+        <div className="sb-top"><img className="sb-logo" src="/madeg-logo.png" alt="" /><div><div className="sb-n1">MADEG</div><div className="sb-n2">GENERAL TRADING PLC · MG Auto</div></div><LangToggle /> <ThemeToggle className="sb-tt" /></div>
         <button type="button" className="sb-search" onClick={() => setPal(true)} aria-label={t('Search')} title={`${t('Search')} (Ctrl K)`}><Icon name="search" size={18} /><span>{t('Search')}…</span><kbd>Ctrl K</kbd></button>
         <nav className="sb-mid" aria-label="Main">
           {groups.map(([g, ks]) => { const open = isOpen(g, ks); return (

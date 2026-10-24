@@ -6,7 +6,7 @@ import { t } from '../lib/i18n.js';
 import Icon from './Icon.jsx';
 import Credit from './Credit.jsx';
 
-const B = { garage: 'MADEG', rest: 'General Trading PLC', system: 'MG Auto', motto: 'Your car, our care', company: 'MADEG General Trading PLC', place: 'Gurdshola, around Top Ten Hotel', phone: '0980766566' };
+const B = { garage: 'MADEG', rest: 'GENERAL TRADING PLC', system: 'MG Auto', motto: 'Your car, our care', company: 'MADEG GENERAL TRADING PLC', place: 'Gurdshola, around Top Ten Hotel', phone: '0980766566' };
 
 // The hero art: the logo's ring (blue to green) drawn once on load, with a line drawing of a car and speed lines
 function Hero() {

@@ -11,7 +11,7 @@ export default function Splash({ steps, ms }) {
     <div className="splash" role="status" aria-live="polite">
       <div className="splash-in">
         <div className="splash-ring"><img src="/madeg-logo.png" alt="" /></div>
-        <div className="splash-t">MADEG <span>General Trading PLC</span></div>
+        <div className="splash-t">MADEG <span>GENERAL TRADING PLC</span></div>
         <div className="splash-s">MG Auto · Workshop system</div>
         <div className="ldbar" style={{ '--ms': ms + 'ms' }} aria-hidden="true"><i /></div>
         <ul className="splash-steps">

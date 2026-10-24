@@ -162,12 +162,12 @@ tr.late > td { background: color-mix(in srgb, var(--rd) 8%, transparent); }
   [data-role="TECH"] .page .tw.cards td { padding: 12px 0; }
 }
 
-/* ---- company name (MADEG General Trading PLC) is longer than the old one: let it wrap ---- */
+/* ---- company name (MADEG GENERAL TRADING PLC) is longer than the old one: let it wrap ---- */
 .splash-t { font-size: clamp(20px, 6.4vw, 30px); text-align: center; }
 .sb-n2 { line-height: 1.25; white-space: normal; }
 .cv-brand > div { max-width: 100%; }
 
-/* ---- MADEG General Trading PLC: ONE typeface and weight everywhere the name appears ----
+/* ---- MADEG GENERAL TRADING PLC: ONE typeface and weight everywhere the name appears ----
    sidebar, splash (also the static one in index.html), cover, login/approve page, every printed document
    (A4 letterhead, 80 mm receipt, estimation sheet footer). !important so print.css / pro.css can never override it. */
 :root { --co-font: 'Space Grotesk', 'Plus Jakarta Sans', system-ui, sans-serif; }

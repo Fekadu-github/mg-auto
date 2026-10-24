@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import { loadConfig, garageName, COMPANY_NAME } from '../config.js';
 
 test('the printed company name is the full legal name, even when the host still has an old GARAGE_NAME', () => {
-  assert.equal(COMPANY_NAME, 'MADEG General Trading PLC');
+  assert.equal(COMPANY_NAME, 'MADEG GENERAL TRADING PLC');
   assert.equal(loadConfig({}).garage.name, COMPANY_NAME);
-  for (const old of ['MADEG — MG Auto', 'MADEG — MG Auto Plc', 'MADEG - MG Auto PLC', 'MADEG-MG AUTO PLC', 'MG Auto', 'MG Auto Plc', '  mg-auto plc ', ''])
+  for (const old of ['MADEG — MG Auto', 'MADEG — MG Auto Plc', 'MADEG - MG Auto PLC', 'MADEG-MG AUTO PLC', 'MG Auto', 'MG Auto Plc', '  mg-auto plc ', 'MADEG General Trading PLC', ''])
     assert.equal(loadConfig({ GARAGE_NAME: old }).garage.name, COMPANY_NAME, JSON.stringify(old));
 });
 
 test('a different company name typed by the owner is kept', () => {
   assert.equal(garageName('Another Garage PLC'), 'Another Garage PLC');
-  assert.equal(garageName('MADEG General Trading PLC'), 'MADEG General Trading PLC');
+  assert.equal(garageName('MADEG GENERAL TRADING PLC'), 'MADEG GENERAL TRADING PLC');
 });
 
 test('the phone number is printed once (Tel line): it is removed from the address', async () => {

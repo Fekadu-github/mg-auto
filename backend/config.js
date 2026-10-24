@@ -1,9 +1,9 @@
 // All settings come from environment variables (see .env.example).
 // The company's full legal name, printed on every estimate, proforma, job card, invoice, voucher, GRN and sale.
-export const COMPANY_NAME = 'MADEG General Trading PLC';
+export const COMPANY_NAME = 'MADEG GENERAL TRADING PLC';
 // An old GARAGE_NAME left in the host's settings ("MADEG — MG Auto", "MADEG - MG Auto Plc", "MG Auto PLC"...) must not
 // override the full name, so those old forms are replaced by it. Any other value is kept as the owner typed it.
-const LEGACY_NAME = /^\s*(madeg\s*[-\u2013\u2014]+\s*)?mg[\s-]*auto(\s*(plc|p\.l\.c\.?))?\s*$/i;
+const LEGACY_NAME = /^\s*((madeg\s*[-\u2013\u2014]+\s*)?mg[\s-]*auto(\s*(plc|p\.l\.c\.?))?|madeg\s+general\s+trading(\s*(plc|p\.l\.c\.?))?)\s*$/i;
 export const garageName = v => (!v || !String(v).trim() || LEGACY_NAME.test(String(v)) ? COMPANY_NAME : String(v).trim());
 // The phone number is printed on its own "Tel" line, so a number typed into GARAGE_ADDRESS ("Gurdshola ... · 0980766566") is
 // removed from the address, together with its "Tel"/"Phone" label and the separator before it.
