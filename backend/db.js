@@ -85,6 +85,8 @@ export function createDb(env = process.env) {
       const [[c]] = await pool.query("SELECT IS_NULLABLE AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?", [table, col]);
       if (c && c.n === 'NO') await pool.query(`ALTER TABLE \`${table}\` MODIFY COLUMN \`${col}\` ${ddl}`);
     }
+    // Proformas made before the estimate's customer details were copied over: fill the blank walk-in details from the estimate with the same EST number
+    await pool.query("UPDATE proformas p JOIN estimates e ON e.id = p.id SET p.guest_name = e.guest_name, p.guest_phone = e.guest_phone, p.guest_plate = e.guest_plate, p.guest_brand = e.guest_brand, p.guest_model = e.guest_model, p.guest_vin = e.guest_vin, p.guest_eng = e.guest_eng WHERE p.status <> 'Converted' AND p.cid IS NULL AND p.guest_name = '' AND p.guest_phone = '' AND p.guest_plate = '' AND e.cid IS NULL AND (e.guest_name <> '' OR e.guest_plate <> '')");
     const [roleCol] = (await pool.query("SELECT COLUMN_TYPE AS t FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_users' AND COLUMN_NAME = 'role'"))[0];
     if (roleCol && lacksManagerRole(roleCol.t)) await pool.query(`ALTER TABLE app_users MODIFY COLUMN role ${ROLE_ENUM} NOT NULL`);
     const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM service_types');

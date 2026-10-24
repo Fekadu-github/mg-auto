@@ -649,8 +649,9 @@ export function createApp({ cfg, db, notifier }) {
       if (insId && !(await db.q('SELECT id FROM insurers WHERE id = ?', [insId])).length) fail(400, 'Choose an insurance company from the list');
       const e = estRow(er);
       const [cu0 = {}] = e.cid ? await db.q('SELECT insurer_id, policy_no FROM customers WHERE id = ?', [e.cid]) : [];
-      await db.q('INSERT INTO proformas (id, cid, vid, guest_name, guest_phone, guest_plate, guest_brand, guest_model, insurer_id, policy_no, estimator_id, estimator, estimator_role, pdate, note, status, labours, parts, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))',
-        [estId, e.cid || null, e.vid || null, '', '', '', '', '', insId || cu0.insurer_id || null, insId ? '' : cu0.policy_no || '', q.u.id, q.u.name, q.u.role, dayKey(Date.now()), e.note, e.status === 'Finalized' ? 'Issued' : 'Draft', sendJson(e.labours), sendJson(e.parts)]);   // a finalized estimate gives a finalized proforma; a draft one is finalized together with its estimate
+      // the customer and vehicle registered on the estimation come with it: a registered customer by cid / vid, a walk-in by the name, phone and vehicle written on the estimate
+      await db.q('INSERT INTO proformas (id, cid, vid, guest_name, guest_phone, guest_plate, guest_brand, guest_model, guest_vin, guest_eng, insurer_id, policy_no, estimator_id, estimator, estimator_role, pdate, note, status, labours, parts, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))',
+        [estId, e.cid || null, e.vid || null, e.cid ? '' : e.guest_name, e.cid ? '' : e.guest_phone, e.cid ? '' : e.guest_plate, e.cid ? '' : e.guest_brand, e.cid ? '' : e.guest_model, e.cid ? '' : e.guest_vin, e.cid ? '' : e.guest_eng, insId || cu0.insurer_id || null, insId ? '' : cu0.policy_no || '', q.u.id, q.u.name, q.u.role, dayKey(Date.now()), e.note, e.status === 'Finalized' ? 'Issued' : 'Draft', sendJson(e.labours), sendJson(e.parts)]);   // a finalized estimate gives a finalized proforma; a draft one is finalized together with its estimate
       await db.q('UPDATE estimates SET pro = ? WHERE id = ?', [estId, estId]);
       return s.json(proRow((await db.q('SELECT * FROM proformas WHERE id = ?', [estId]))[0]));
     }
