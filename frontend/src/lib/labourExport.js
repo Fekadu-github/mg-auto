@@ -14,7 +14,7 @@ const cmp = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, 
 export function labourRows(tasks, rates) {
   const secNo = s => { const i = SECTIONS.indexOf(s); return i < 0 ? 99 : i; };
   return [...(tasks || [])].map(t => {
-    const hours = +t.hours || 0, rate = rateOf(rates, t.section);
+    const hours = +t.hours || 0, rate = rateOf(rates, t.section, t.model_grp);
     return { section: t.section, code: t.code || '', task: t.task || '', line: t.name || '', model: t.model_grp || '', hours, rate, fixed: !!+t.price, cost: +t.price || r2(hours * rate) };
   }).sort((a, b) => secNo(a.section) - secNo(b.section) || cmp(a.task, b.task) || cmp(a.code, b.code) || cmp(a.line, b.line));
 }

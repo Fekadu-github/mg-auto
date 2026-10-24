@@ -10,7 +10,7 @@ const FUEL = ['E', '1/4', '1/2', '3/4', 'F'], LABELS = ['Front', 'Rear', 'Left s
 const EMPTY = { items: {}, fuel: '', damage: '', valuables: '', keys: '', notes: '' };
 
 // Shrink a phone photo to about 1280 px JPEG (a few hundred KB) before it is sent
-async function shrink(file, max = 1280) {
+export async function shrink(file, max = 1280) {
   const bmp = await createImageBitmap(file), k = Math.min(1, max / Math.max(bmp.width, bmp.height));
   const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
   cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);

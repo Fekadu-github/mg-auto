@@ -16,7 +16,7 @@ import { str, qn } from './rules.js';
 import * as S from './stock.js';
 import { mountStock, recordLost, shortage } from './pos.js';
 import { closeRunningClocks } from './workday.js';
-import { mountExtras } from './extras.js';
+import { mountExtras, sniffImage } from './extras.js';
 import { verifyTotp } from './totp.js';
 
 const jobRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, created: r.created, mileage: r.mileage ?? null, est: r.est || null, payer: r.payer || null, policy_no: r.policy_no || null, mileage_out: r.mileage_out ?? null, claim_no: r.claim_no || null, due_date: r.due_date || null, priority: r.priority || null, price_reqs: J(r.price_reqs, []), services: J(r.services, []), requests: J(r.requests, []), labours: J(r.labours, []), parts: J(r.parts, []), inv: J(r.inv, null), log: J(r.log, []) });
@@ -37,6 +37,8 @@ export function createApp({ cfg, db, notifier }) {
   app.use('/api', rateLimit({ max: cfg.rateLimitPerMin || 1200 }));
   app.use('/api/inventory/import', express.json({ limit: '5mb' }));   // an Excel import sends the whole sheet (1,000+ parts is over 100kb)
   app.use('/api/labour-tasks/import', express.json({ limit: '5mb' }));   // the price book is thousands of rows: far over the usual 100kb
+  const bigJson = express.json({ limit: '14mb' });   // creating a job card carries its photos (the browser shrinks each to a few hundred KB)
+  app.use('/api/jobs', (q, s, next) => (q.method === 'POST' && (q.path === '/' || q.path === '') ? bigJson(q, s, next) : next()));
   app.use(express.json({ limit: '100kb' }));
   app.use(cors({ origin: cfg.corsOrigin === '*' ? true : cfg.corsOrigin.split(',').map(s => s.trim()) }));
 
@@ -64,8 +66,8 @@ export function createApp({ cfg, db, notifier }) {
 
   // Settings kept in the database. Labour rate per section: the manager sets it on the Labour list screen; a section with no rate uses LABOUR_RATE.
   const getSetting = async (c, k, d) => { const [r] = await c.q('SELECT v FROM settings WHERE k = ?', [k]); return r ? J(r.v, d) : d; };
-  const labourRates = async c => ({ default: cfg.labourRate, ...(await getSetting(c, 'labour_rates', {})) });
-  const rateMap = r => ({ default: r.default, ...Object.fromEntries(rules.SECTIONS.map(sec => [sec, rules.rateOf(r, sec)])) });
+  const labourRates = async c => ({ default: cfg.labourRate, ...rules.DEFAULT_MAKE_RATES, ...(await getSetting(c, 'labour_rates', {})) });   // Suzuki 350, Toyota 400, Others 450 unless the manager changes them
+  const rateMap = r => ({ default: r.default, ...Object.fromEntries(rules.SECTIONS.map(sec => [sec, rules.rateOf(r, sec)])), ...Object.fromEntries(rules.MAKES.map(m => [m, rules.rateOf(r, '', m)])) });
   // A short fingerprint of the stock list. The screens send it back with each refresh, and the list is only sent again when it has changed.
   const partsVersion = async () => {
     const [r] = await db.q("SELECT COUNT(*) AS n, COALESCE(SUM(active),0) AS a, COALESCE(SUM(stock),0) AS s, COALESCE(SUM(price),0) AS pr, COALESCE(SUM(cost),0) AS co, COALESCE(SUM(reorder),0) AS re, COALESCE(SUM(CRC32(CONCAT(code, '|', name, '|', category))),0) AS h FROM inventory");
@@ -288,16 +290,31 @@ export function createApp({ cfg, db, notifier }) {
     s.json((await db.q('SELECT id, part_id, delta, balance, reason, job, by_name, note, `at` FROM stock_moves WHERE part_id = ? ORDER BY `at` DESC, id DESC LIMIT 100', [q.params.id])).map(m => ({ ...m, delta: +m.delta, balance: +m.balance })))));
 
   // ---- job cards ----
+  // A job card is created WITH photos of the vehicle as it arrives (scratches, dents, broken parts, dashboard warning lights), and work cannot be
+  // started (sent to the workshop, or a technician clocking in) while the card has no photo. Cards made before this rule add a photo in the card's Inspection.
+  const NEED_PHOTO = 'Add at least one photo of the vehicle first (scratches, dents, broken parts, dashboard warning lights). Work cannot start and a job card cannot be created without it.';
+  const cleanPhotos = list => {
+    const out = (Array.isArray(list) ? list.slice(0, 8) : []).map(p => {
+      const buf = Buffer.from(String(p?.data || ''), 'base64'), mime = sniffImage(buf);
+      if (!mime || buf.length > 3 * 1024 * 1024) fail(400, 'Each photo must be a JPEG, PNG or WebP picture under 3 MB');
+      return { label: str(p.label, 60), mime, buf };
+    });
+    if (!out.length) fail(400, NEED_PHOTO);
+    return out;
+  };
+  const requirePhoto = async (c, id) => { const [{ n }] = await c.q('SELECT COUNT(*) AS n FROM job_photos WHERE job_id = ?', [id]); if (!n) fail(409, NEED_PHOTO); };
   app.post('/api/jobs', auth('SA'), wrap(async (q, s) => {
     const { cid, vid } = q.body;
     const [veh] = await db.q('SELECT id, mileage FROM vehicles WHERE id = ? AND cid = ?', [vid, cid]);
     if (!veh) fail(400, 'Vehicle does not belong to this customer');
     const km = rules.checkMileage(rules.cleanKm(q.body.mileage), veh.mileage);
+    const photos = cleanPhotos(q.body.photos);   // no photo of the vehicle's condition, no job card
     const estNo = str(q.body.est, 40);   // optional: a finalized estimate chosen while creating the card; its labour and parts come onto the new card at once
     const id = await db.tx(async c => {
       const id = await numberFor(c, 'job', 'TC-');
       await c.q('INSERT INTO jobs (id, cid, vid, note, status, created, labours, parts, inv, `log`, mileage, services, est, requests) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3), ?, ?, NULL, ?, ?, ?, NULL, ?)',
         [id, cid, vid, str(q.body.note, 500), 'Created', '[]', '[]', sendJson([{ s: 'Created', t: Date.now(), by: q.u.name }]), km, '[]', '[]']);
+      for (const p of photos) await c.q('INSERT INTO job_photos (id, job_id, label, mime, data, by_name, created) VALUES (?,?,?,?,?,?, UTC_TIMESTAMP(3))', [newId(), id, p.label, p.mime, p.buf, q.u.name]);
       if (estNo) {   // a problem with the estimate (draft, used, another vehicle) undoes the card too, so nothing is half-created
         const [row] = await c.q('SELECT * FROM jobs WHERE id = ? FOR UPDATE', [id]);
         const j = jobRow(row);
@@ -473,6 +490,7 @@ export function createApp({ cfg, db, notifier }) {
 
   // Closing the card completes the visit: the vehicle's mileage moves forward and, if a service was done, the next service is suggested
   app.post('/api/jobs/:id/status', ...edit([], async (j, { body, u, after, c }) => {
+    if (body.to === 'Dispatched') await requirePhoto(c, j.id);   // sending the card to the workshop starts the work
     if (body.to === 'Closed') rules.setMileageOut(j, body.mileage_out);   // the reading when the vehicle leaves; checked before the status moves
     rules.transition(j, body.to, u);
     if (body.to === 'Closed') {
@@ -494,6 +512,7 @@ export function createApp({ cfg, db, notifier }) {
   }));
   app.post('/api/jobs/:id/labour/:lid/clockin', ...edit(['TECH', 'WS'], async (j, { params, u, c }) => {
     // one running clock per person, so technician hours are never counted twice; lock the person's row so two phones cannot both pass the check
+    await requirePhoto(c, j.id);   // a technician cannot start labour on a card with no photo of the vehicle
     await c.q('SELECT id FROM app_users WHERE id = ? FOR UPDATE', [u.id]);
     const others = (await c.q("SELECT id, labours FROM jobs WHERE status = 'At workshop' AND id <> ?", [j.id])).map(o => ({ id: o.id, labours: J(o.labours, []) }));
     rules.clockIn(j, params.lid, u, others);
@@ -760,7 +779,7 @@ export function createApp({ cfg, db, notifier }) {
   // ---- labour rate per section (manager) ----
   app.put('/api/settings/labour-rates', auth('MGR'), wrap(async (q, s) => {
     const out = {};
-    for (const sec of rules.SECTIONS) {
+    for (const sec of [...rules.SECTIONS, ...rules.MAKES]) {
       const v = q.body.rates?.[sec];
       if (v === undefined || v === null || String(v).trim() === '') continue;           // empty = use the standard rate
       const n = qn(v);

@@ -38,7 +38,7 @@ export function LabourLines({ labs, setLabs, tasks, rate, services, brand }) {
   const picked = (i, h) => {
     if (h.kind === 'group') return setLabs(ls => [...ls.slice(0, i), ...groupLines(h.g, rate), ...ls.slice(i + 1)]);
     const t = h.t;
-    set(i, { desc: taskDesc(t), section: t.section, hours: t.hours || '', price: t.price || r2(t.hours * rateOf(rate, t.section)) || '' });
+    set(i, { desc: taskDesc(t), section: t.section, model: t.model_grp || '', hours: t.hours || '', price: t.price || r2(t.hours * rateOf(rate, t.section, t.model_grp)) || '' });
   };
   const listed = isListed(tasks, allGroups);
   return (
@@ -48,7 +48,7 @@ export function LabourLines({ labs, setLabs, tasks, rate, services, brand }) {
           <tr key={i}>
             <td style={{ minWidth: 300 }}><TaskSearch groups={groups} singles={singles} section={l.section} disabled={!l.section} value={l.desc} onChange={text => set(i, { desc: text })} onPick={h => picked(i, h)} invalid={!!l.desc?.trim() && !listed(l.desc)} />{!!l.desc?.trim() && !listed(l.desc) && <div className="small" style={{ color: 'var(--rd)' }}>Choose a task from the list.</div>}</td>
             <td><select aria-label="Section" value={l.section || ''} onChange={x => set(i, { section: x.target.value, desc: '', hours: '', price: '' })} style={{ width: 'auto' }}>{!l.section && <option value="">Choose section…</option>}{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></td>
-            <td><input aria-label="Hours" type="number" min="0" step="0.25" style={{ width: 90 }} value={l.hours ?? ''} onChange={x => set(i, { hours: x.target.value, price: r2(num(x.target.value) * rateOf(rate, l.section)) || '' })} /></td>
+            <td><input aria-label="Hours" type="number" min="0" step="0.25" style={{ width: 90 }} value={l.hours ?? ''} onChange={x => set(i, { hours: x.target.value, price: r2(num(x.target.value) * rateOf(rate, l.section, l.model ?? (tasks || []).find(t => taskDesc(t) === l.desc)?.model_grp)) || '' })} /></td>
             <td><input aria-label="Labour cost" type="number" min="0" step="any" style={{ width: 120 }} value={l.price ?? ''} onChange={x => set(i, { price: x.target.value })} /></td>
             <td><Btn kind="ol" onClick={() => setLabs(ls => ls.filter((_, k) => k !== i))}>Remove</Btn></td>
           </tr>

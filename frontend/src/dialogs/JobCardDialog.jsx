@@ -398,8 +398,8 @@ function LabourForm({ id, rate, known, late, services, brand }) {
   const offered = allModels ? [...(known || []).filter(x => own.has(x)), ...(known || []).filter(x => !own.has(x))] : [...own];   // all lines are searchable; this vehicle's make is listed first
   const groups = [...groupTasks(offered), ...serviceGroups(services)];
   const allGroups = [...groupTasks(known), ...serviceGroups(services)];
-  const [f, bind, set, reset] = useForm(`form:${id}:labour`, { desc: '', section: '', hours: '', price: '' });
-  const priceFor = (h, section = f.section) => r2((parseFloat(h) || 0) * rateOf(rate, section)) || '';   // hours x the rate of the section
+  const [f, bind, set, reset] = useForm(`form:${id}:labour`, { desc: '', section: '', model: '', hours: '', price: '' });
+  const priceFor = (h, section = f.section, model = f.model) => r2((parseFloat(h) || 0) * rateOf(rate, section, model)) || '';   // hours x the rate of the task's make (Suzuki / Toyota / Others), else of the section
   // A task picked by its name adds all its lines to the card, one after the other
   const addGroup = async g => {
     for (const l of groupLines(g, rate)) {
@@ -412,7 +412,7 @@ function LabourForm({ id, rate, known, late, services, brand }) {
   const picked = h => {
     if (h.kind === 'group') { set({ desc: groupLabelText(h.g) }); return addGroup(h.g); }
     const k = h.t;
-    set({ desc: taskDesc(k), section: k.section, hours: k.hours || '', price: k.price || priceFor(k.hours, k.section) });
+    set({ desc: taskDesc(k), section: k.section, model: k.model_grp || '', hours: k.hours || '', price: k.price || priceFor(k.hours, k.section, k.model_grp) });
   };
   const chosen = !!f.desc.trim() && isListed(known, allGroups)(f.desc);
   const add = async () => {
@@ -429,11 +429,11 @@ function LabourForm({ id, rate, known, late, services, brand }) {
           {!!(brand || '').trim() && <div className="mu small">{allModels ? `Showing the labour of all models (${brand} first).` : `Showing the labour for ${brand} (and general lines).`} <button type="button" className="lnk" onClick={() => setAllModels(x => !x)}>{allModels ? `Only ${brand}` : 'Show all models'}</button></div>}</div>
         <Field label="Section (choose first)"><select value={f.section} onChange={e => set({ section: e.target.value, desc: '', hours: '', price: '' })}>{!f.section && <option value="">Choose section…</option>}{SECTIONS.map(s => <option key={s} value={s}>{sectionOption(s)}</option>)}</select></Field>
         <Field label="Hours" type="number" min="0" step="0.25" value={f.hours} onChange={e => set({ hours: e.target.value, price: priceFor(e.target.value) })} />
-        <Field label={`Labour cost (${cur()}) · ${rateOf(rate, f.section)}/h`} type="number" min="0" {...bind('price')} />
+        <Field label={`Labour cost (${cur()}) · ${rateOf(rate, f.section, f.model)}/h`} type="number" min="0" {...bind('price')} />
         <Btn onClick={add}>Add labour</Btn>
       </div>
       <div className="mu small">
-        {f.price ? `Labour cost: ${cur()} ${money(f.price)}${f.hours ? ` (${f.hours} h x ${rateOf(rate, f.section)})` : ''}. Type another amount to change it.` : 'Choose the section, then type a letter and pick a task from the list (▤ adds all its lines); its section, hours and cost fill themselves.'}
+        {f.price ? `Labour cost: ${cur()} ${money(f.price)}${f.hours ? ` (${f.hours} h x ${rateOf(rate, f.section, f.model)})` : ''}. Type another amount to change it.` : 'Choose the section, then type a letter and pick a task from the list (▤ adds all its lines); its section, hours and cost fill themselves.'}
         {late && ' The workshop has already finished: this is an additional task. Add all of them, then press Return to workshop: a technician clocks in and out on each task and completes it.'}
       </div>
       {late && <label className="mu small" style={{ display: 'block' }}><input type="checkbox" checked={billing} onChange={e => setBilling(e.target.checked)} style={{ width: 'auto' }} /> Billing only: a charge that needs no workshop work (no clock, added as completed)</label>}

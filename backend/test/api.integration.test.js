@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const URL_ = process.env.TEST_DATABASE_URL;
+const PHOTO = [{ label: 'Damage', data: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70, 0, 1, 1, 1]).toString('base64') }];   // a job card is created with a photo
 const skip = URL_ ? false : 'set TEST_DATABASE_URL to run the API tests against a real MySQL';
 
 test('API: full job card life, stock, roles and concurrency', { skip }, async t => {
@@ -50,7 +51,7 @@ test('API: full job card life, stock, roles and concurrency', { skip }, async t 
   assert.equal((await call(mg, 'GET', '/api/data')).body.p.find(x => x.id === part.id).cost, 76.92);
   assert.equal((await call(t1, 'POST', '/api/customers', { name: 'x', phone: '1' })).status, 403);
 
-  const jc = (await call(sa, 'POST', '/api/jobs', { cid: cus.id, vid: veh.id, note: 'noise', mileage: 1200 })).body;
+  const jc = (await call(sa, 'POST', '/api/jobs', { cid: cus.id, vid: veh.id, note: 'noise', mileage: 1200, photos: PHOTO })).body;
   assert.match(jc.id, /^TC-\d{8}-\d{4}$/);
   const J = p => `/api/jobs/${jc.id}${p}`;
   assert.equal((await call(sa, 'POST', J('/status'), { to: 'Dispatched' })).status, 400);       // no labour yet
@@ -114,7 +115,7 @@ test('API: full job card life, stock, roles and concurrency', { skip }, async t 
   assert.equal(veh2.mileage, 4800);
   assert.equal((await call(sa, 'POST', '/api/jobs', { cid: cus.id, vid: veh2.id })).status, 400);                    // the card needs the mileage too
   assert.equal((await call(sa, 'POST', '/api/jobs', { cid: cus.id, vid: veh2.id, mileage: 4000 })).status, 400);     // and it cannot go backwards
-  const j2 = (await call(sa, 'POST', '/api/jobs', { cid: cus.id, vid: veh2.id, mileage: 5000 })).body;
+  const j2 = (await call(sa, 'POST', '/api/jobs', { cid: cus.id, vid: veh2.id, mileage: 5000, photos: PHOTO })).body;
   assert.equal(j2.mileage, 5000);
   const K = p => `/api/jobs/${j2.id}${p}`;
   assert.deepEqual((await data()).st.map(t => t.code), ['A', 'B', 'C']);
@@ -214,7 +215,7 @@ test('API: full job card life, stock, roles and concurrency', { skip }, async t 
   assert.equal((await call(sa, 'POST', E('/finalize'))).status, 400);                                                // nothing on it yet
   const filled = (await call(sa, 'PUT', E(''), { note: 'rear bumper', labours: [{ desc: 'Panel beating', hours: 3 }], parts: [{ pid: part.id, qty: 1, price: '' }, { name: 'Clips', qty: 4, price: 5 }] })).body;
   assert.equal(filled.labours[0].price, 1050); assert.equal(filled.parts[0].price, 100);
-  const j3 = (await call(sa, 'POST', '/api/jobs', { cid: cus.id, vid: veh2.id, mileage: 5100 })).body;
+  const j3 = (await call(sa, 'POST', '/api/jobs', { cid: cus.id, vid: veh2.id, mileage: 5100, photos: PHOTO })).body;
   const L = p => `/api/jobs/${j3.id}${p}`;
   assert.equal((await call(sa, 'POST', L('/estimate'), { no: est.id })).status, 409);                                // still a draft
   assert.equal((await call(sa, 'POST', E('/finalize'))).body.status, 'Finalized');
@@ -309,7 +310,7 @@ test('API: full job card life, stock, roles and concurrency', { skip }, async t 
   // labour rate per section: only the manager sets it; a labour line is priced from its own section
   assert.equal((await call(sa, 'PUT', '/api/settings/labour-rates', { rates: { 'Body & Paints': 500 } })).status, 403);
   assert.equal((await call(mg, 'PUT', '/api/settings/labour-rates', { rates: { 'Body & Paints': 500, 'Regular Service': '' } })).body['Body & Paints'], 500);
-  const jr = (await call(sa, 'POST', '/api/jobs', { cid: cus.id, vid: veh2.id, mileage: 7000 })).body;
+  const jr = (await call(sa, 'POST', '/api/jobs', { cid: cus.id, vid: veh2.id, mileage: 7000, photos: PHOTO })).body;
   const rated = (await call(sa, 'POST', `/api/jobs/${jr.id}/labour`, { desc: 'Respray', section: 'Body & Paints', hours: 2 })).body;
   assert.equal(rated.labours[0].price, 1000);
   assert.equal((await call(sa, 'GET', '/api/data')).body.cfg.labourRates['Body & Paints'], 500);

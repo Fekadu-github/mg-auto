@@ -15,8 +15,11 @@ export const today = (now = Date.now()) => new Date(now + 3 * 36e5).toISOString(
 export const vehicleName = v => [v?.brand, v?.model].filter(Boolean).join(' ');
 export const pct = rate => Math.round(rate * 1000) / 10;
 // Labour rate (ETB per hour): one number, or { default, 'Regular Service': 300, ... } (same rule as backend/rules.js)
-export const rateOf = (rate, section) => {
-  if (rate && typeof rate === 'object') { const r = Number(rate[section] ?? rate.default); return r >= 0 ? r : 0; }
+// The price book's model group says the make (Suzuki, Toyota, Others); each make has its own rate, then the section's, then the standard rate.
+export const makeOf = g => { const s = String(g ?? '').trim().toLowerCase(); return !s ? '' : s.includes('toyota') ? 'Toyota' : s.includes('suzuki') ? 'Suzuki' : 'Others'; };
+export const MAKES = ['Suzuki', 'Toyota', 'Others'];
+export const rateOf = (rate, section, model) => {
+  if (rate && typeof rate === 'object') { const m = makeOf(model), r = Number((m ? rate[m] : undefined) ?? rate[section] ?? rate.default); return r >= 0 ? r : 0; }
   return Number(rate) >= 0 ? Number(rate) : 0;
 };
 

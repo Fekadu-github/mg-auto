@@ -18,8 +18,13 @@ export const str = (v, max = 200) => String(v ?? '').trim().slice(0, max);
 export const qn = v => Math.round(+v * 100) / 100;
 export const activeClock = l => (l.logs || []).find(x => !x.out);
 // Labour rate (ETB per hour). `rate` is one number for every section, or { default, 'Regular Service': 300, 'Body & Paints': 450, ... }.
-export const rateOf = (rate, section) => {
-  if (rate && typeof rate === 'object') { const r = Number(rate[section] ?? rate.default); return r >= 0 ? r : 0; }
+// The price book's model group says the make: Suzuki, Toyota (SEDAN / SUV ...) or Others. Each make has its own hourly rate; a line with no model group
+// uses the rate of its section, then the standard rate.
+export const MAKES = ['Suzuki', 'Toyota', 'Others'];
+export const DEFAULT_MAKE_RATES = { Suzuki: 350, Toyota: 400, Others: 450 };
+export const makeOf = g => { const s = String(g ?? '').trim().toLowerCase(); return !s ? '' : s.includes('toyota') ? 'Toyota' : s.includes('suzuki') ? 'Suzuki' : 'Others'; };
+export const rateOf = (rate, section, model) => {
+  if (rate && typeof rate === 'object') { const m = makeOf(model), r = Number((m ? rate[m] : undefined) ?? rate[section] ?? rate.default); return r >= 0 ? r : 0; }
   return Number(rate) >= 0 ? Number(rate) : 0;
 };
 export const isAdminOr = (u, ...roles) => ['ADMIN', 'MGR', ...roles].includes(u.role);   // the Manager can take any step the Administrator can

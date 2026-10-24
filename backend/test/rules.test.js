@@ -120,3 +120,12 @@ test('schema.sql splits into whole statements with no comments left', () => {
   assert.ok(st.every(s => /^CREATE TABLE IF NOT EXISTS/.test(s) && !s.includes('--') && s.endsWith('utf8mb4')));
   assert.deepEqual(splitSql("a; -- x\nb;\n\n-- only a comment\n"), ['a', 'b']);
 });
+
+import { makeOf, rateOf as rateOfMake, DEFAULT_MAKE_RATES } from '../rules.js';
+test('labour rate by make: Suzuki, Toyota, Others; no model group falls back to the section, then the standard rate', async () => {
+  const assert = (await import('node:assert/strict')).default;
+  const r = { default: 300, 'Body & Paints': 320, ...DEFAULT_MAKE_RATES };
+  assert.equal(makeOf('Suzuki'), 'Suzuki'); assert.equal(makeOf('Toyota (SEDAN)'), 'Toyota'); assert.equal(makeOf('TOYOTA ( SUV)'), 'Toyota'); assert.equal(makeOf('Others'), 'Others'); assert.equal(makeOf(''), '');
+  assert.equal(rateOfMake(r, 'Body & Paints', 'Suzuki'), 350); assert.equal(rateOfMake(r, 'Body & Paints', 'Toyota (SEDAN)'), 400); assert.equal(rateOfMake(r, 'Mechanical Repairs', 'Others'), 450);
+  assert.equal(rateOfMake(r, 'Body & Paints', ''), 320); assert.equal(rateOfMake(r, 'Mechanical Repairs'), 300); assert.equal(rateOfMake(250, 'Body & Paints', 'Suzuki'), 250);
+});

@@ -24,14 +24,14 @@ export const serviceGroups = types => (types || []).filter(t => t.active !== fal
 }));
 
 export const groupHours = g => r2(g.items.reduce((a, t) => a + (+t.hours || 0), 0));
-export const groupCost = (g, rate) => r2(g.items.reduce((a, t) => a + (+t.price || (+t.hours || 0) * rateOf(rate, t.section)), 0));
+export const groupCost = (g, rate) => r2(g.items.reduce((a, t) => a + (+t.price || (+t.hours || 0) * rateOf(rate, t.section, t.model_grp)), 0));
 export const groupLabel = g => `▤ ${g.name} (${g.items.length} line${g.items.length === 1 ? '' : 's'})`;
 export const matchGroup = (groups, text) => (key(text) ? groups.find(g => key(groupLabel(g)) === key(text)) : undefined);
 
 // The lines a group adds: the description shows the task and the line ("Front bumper repair: Paint bumper"); the cost is the sheet's total cost, or hours x the section's rate
 export const groupLines = (g, rate) => g.items.map(t => ({
   desc: key(t.name) === key(g.name) ? t.name : `${g.name}: ${t.name}`,
-  section: t.section, hours: t.hours || '', price: t.price || r2((+t.hours || 0) * rateOf(rate, t.section)) || ''
+  section: t.section, hours: t.hours || '', price: t.price || r2((+t.hours || 0) * rateOf(rate, t.section, t.model_grp)) || ''
 }));
 
 // Limit the labour list to the vehicle's make. The price book names a model group per line ("Suzuki", "Toyota (SEDAN)", "Others"):

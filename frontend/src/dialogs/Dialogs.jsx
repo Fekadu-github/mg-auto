@@ -11,6 +11,7 @@ import { suggestService } from '../lib/services.js';
 import EstimatePicker, { EstimatePreview } from '../components/EstimatePicker.jsx';
 import CustomerPicker from '../components/CustomerPicker.jsx';
 import { PartLines } from '../components/Lines.jsx';
+import { shrink } from '../components/Inspection.jsx';
 import JobCardDialog from './JobCardDialog.jsx';
 import EstimateDialog from './EstimateDialog.jsx';
 import ProformaDialog from './ProformaDialog.jsx';
@@ -20,8 +21,22 @@ export const NotifySelect = ({ bind }) => (
   <Field label="Notify when vehicle is ready"><select {...bind('notify')}>{NOTIFY_OPTIONS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></Field>
 );
 
+// The vehicle as it arrives: scratches, dents, broken parts, dashboard warning lights. At least one photo is needed before a job card can be created.
+const PHOTO_LABELS = ['Front', 'Rear', 'Left side', 'Right side', 'Damage', 'Dashboard', 'Interior', 'Other'];
+const base64Of = blob => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = () => no(new Error('Cannot read this picture')); r.readAsDataURL(blob); });
+
 export function NewJobDialog() {
   const { db, run, openModal, closeModal } = useApp();
+  const [photos, setPhotos] = useState([]), [label, setLabel] = useState('Damage'), [busy, setBusy] = useState(false);   // { label, data (base64), url }
+  const addPhotos = async e => {
+    const files = [...(e.target.files || [])]; e.target.value = '';
+    setBusy(true);
+    try {
+      for (const file of files.slice(0, Math.max(0, 8 - photos.length))) { const blob = await shrink(file), data = await base64Of(blob), url = URL.createObjectURL(blob); setPhotos(ps => [...ps, { label, data, url }]); }
+    } catch (x) { alert(x.message || 'This picture could not be read.'); }
+    setBusy(false);
+  };
+  const dropPhoto = i => setPhotos(ps => { URL.revokeObjectURL(ps[i].url); return ps.filter((_, k) => k !== i); });
   const [f, bind, set, reset] = usePersistedForm('form:new-job', { cid: db.c[0]?.id || '', vid: '', note: '', km: '', est: '' });
   const vehicles = db.v.filter(v => v.cid === f.cid), cur = vehicles.find(v => v.id === f.vid) || vehicles[0], vid = cur?.id || '';
   const kmShown = f.km !== '' ? f.km : cur?.mileage ?? '';                       // the vehicle's last mileage until the advisor types the reading
@@ -33,11 +48,12 @@ export function NewJobDialog() {
     if (!vid) return;
     if (kmShown === '') return alert('Enter the vehicle mileage (km).');
     if (typed && !picked) return alert(`${typed} is not a finalized estimate for this vehicle. Pick one from the list, or clear the box to create the job card without an estimate.`);
-    const r = await run(() => api('/jobs', 'POST', { cid: f.cid, vid, note: f.note, mileage: parseFloat(kmShown), ...(picked ? { est: picked.id } : {}) }));
-    if (r.ok) { reset(); openModal('job', { id: r.data.id }); }
+    if (!photos.length) return alert('Add at least one photo of the vehicle first (scratches, dents, broken parts, dashboard warning lights). A job card cannot be created without it.');
+    const r = await run(() => api('/jobs', 'POST', { cid: f.cid, vid, note: f.note, mileage: parseFloat(kmShown), photos: photos.map(({ label: l, data }) => ({ label: l, data })), ...(picked ? { est: picked.id } : {}) }));
+    if (r.ok) { photos.forEach(p => URL.revokeObjectURL(p.url)); reset(); openModal('job', { id: r.data.id }); }
   };
   return (
-    <Dialog title="New job card" onClose={closeModal} actions={<><Btn onClick={create} disabled={!vid}>Create job card</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
+    <Dialog title="New job card" onClose={closeModal} actions={<><Btn onClick={create} disabled={!vid || !photos.length || busy}>Create job card</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
       <div className="row mt">
         <CustomerPicker label="Customer" value={f.cid} onPick={id => set({ cid: id, vid: '', km: '', est: '' })} />
         <Field label="Vehicle"><select value={vid} onChange={e => set({ vid: e.target.value, km: '', est: '' })}>
@@ -47,6 +63,15 @@ export function NewJobDialog() {
       </div>
       {cur && <div className="mu small">{cur.mileage != null ? `Last recorded: ${km(cur.mileage)}. ` : 'No mileage recorded yet. '}{sug ? `Service suggestion: ${sug.name} (due at ${km(sug.km)}).` : ''}</div>}
       <Field label="Customer complaint / notes" {...bind('note')} />
+      <div className="box mt"><h3 style={{ marginTop: 0 }}>Photos of the vehicle (required)</h3>
+        <div className="mu small">Take or choose photos of the vehicle as it arrives: scratches, dents, broken parts, dashboard warning lights. A job card cannot be created, and work cannot start, without at least one photo.</div>
+        <div className="row mt"><Field label="Photo of"><select value={label} onChange={e => setLabel(e.target.value)}>{PHOTO_LABELS.map(x => <option key={x} value={x}>{x}</option>)}</select></Field>
+          <label className="b ol" style={{ cursor: photos.length >= 8 ? 'not-allowed' : 'pointer' }}>{busy ? 'Adding…' : 'Add photos'}<input type="file" accept="image/*" multiple hidden disabled={busy || photos.length >= 8} onChange={addPhotos} /></label>
+          <span className="mu small">{photos.length} of 8 added</span></div>
+        {!!photos.length && <div className="row mt" style={{ gap: 10 }}>{photos.map((p, i) => (
+          <figure key={p.url} style={{ margin: 0, width: 110 }}><img src={p.url} alt={p.label} style={{ width: 110, height: 82, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+            <figcaption className="mu small">{p.label} · <button type="button" className="lnk" onClick={() => dropPhoto(i)}>Remove</button></figcaption></figure>))}</div>}
+      </div>
       <div className="mt">
         <EstimatePicker label="Finalized estimate (optional)" estimates={ready} value={f.est || ''} onChange={x => set({ est: x })} onPick={e => set({ est: e.id })} />
         <div className="mu small">Type a letter or number and the finalized estimates appear. Pick one and its labour and parts are listed here and added to the new job card automatically. Leave it empty to add labour and parts by hand.</div>

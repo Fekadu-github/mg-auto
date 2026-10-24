@@ -22,7 +22,9 @@ import { downloadLabourPdf, downloadLabourXlsx, labourRows, labourSummary } from
 import TwoFactor from '../components/TwoFactor.jsx';
 import CurrencyBox from '../components/CurrencyBox.jsx';
 import { t } from '../lib/i18n.js';
-import { activeClock, dt, downloadCsv, jobTotals, km, money, rateOf, tot, today, vehicleName, cur } from '../lib/format.js';
+import { activeClock, dt, downloadCsv, jobTotals, km, money, rateOf, tot, today, vehicleName, cur, MAKES } from '../lib/format.js';
+
+const DEFAULT_MAKE_RATE = { Suzuki: 350, Toyota: 400, Others: 450 };   // the same starting rates as the server
 
 export const PAGE_INFO = {
   dash: ['Garage today', 'Today in the garage: what is waiting to be dispatched, in the workshop, ready to close, or waiting for hand-over.'],
@@ -242,7 +244,7 @@ export function LabourList() {
   };
   const list = db.lt.filter(t => ((t.code || '') + ' ' + (t.model_grp || '') + ' ' + (t.task || '') + ' ' + t.name + ' ' + SECTION_CODE[t.section]).toLowerCase().includes(q.toLowerCase()));
   const groups = groupTasks(list), single = list.filter(t => !t.task), [open, setOpen] = useState({}), [res, setRes] = useState(null);
-  const rowCost = t => t.price || Math.round(t.hours * rateOf(rates, t.section) * 100) / 100;
+  const rowCost = t => t.price || Math.round(t.hours * rateOf(rates, t.section, t.model_grp) * 100) / 100;
   const template = () => downloadXlsx('labour-list-template.xlsx', [['Labour Code', 'Labour Type Description', 'Model Grp', 'Hours Required'],
     ['BP-BR101A', 'Apron, Repair - One Side', 'Suzuki', 2], ['ME-BR101', 'ABS System, Diagnosis', 'Suzuki', 5.25]], 'Labour list');
   const importFile = async e => {
@@ -296,8 +298,8 @@ export function LabourList() {
           return [<tr key={'h' + sec}><td colSpan={5}><b>{SECTION_CODE[sec]}</b> <span className="mu small">{sec}</span></td></tr>,
             ...gs.flatMap(g => { const items = g.items.filter(t => t.section === sec), o = open[g.name] || !!q;
               return [<tr key={sec + g.name}><td /><td><button type="button" className="lnk" onClick={() => setOpen(x => ({ ...x, [g.name]: !x[g.name] }))}>{o ? '▾' : '▸'} <b>{g.name}</b></button> <span className="mu small">{items.length} line{items.length === 1 ? '' : 's'}</span></td><td className="r">{groupHours({ items })}</td><td className="r"><b>{money(groupCost({ items }, rates))}</b></td><td /></tr>,
-                ...(o ? items.map(t => <tr key={t.id}><td /><td style={{ paddingLeft: 28 }}>{t.name}</td><td className="r">{t.hours}</td><td className="r">{money(rowCost(t))}{!t.price && <span className="mu small"> ({t.hours} x {rateOf(rates, t.section)})</span>}</td><td className="acts">{sa && <Btn kind="ol" onClick={() => openModal('labourTask', { id: t.id })}>Edit</Btn>}</td></tr>) : [])]; }),
-            ...ss.map(t => <tr key={t.id}><td /><td>{t.name}{t.code && <span className="mu small"> · {t.code}{t.model_grp ? ' · ' + t.model_grp : ''}</span>}</td><td className="r">{t.hours}</td><td className="r">{money(rowCost(t))}{!t.price && <span className="mu small"> ({t.hours} x {rateOf(rates, t.section)})</span>}</td><td className="acts">{sa && <Btn kind="ol" onClick={() => openModal('labourTask', { id: t.id })}>Edit</Btn>}</td></tr>)];
+                ...(o ? items.map(t => <tr key={t.id}><td /><td style={{ paddingLeft: 28 }}>{t.name}</td><td className="r">{t.hours}</td><td className="r">{money(rowCost(t))}{!t.price && <span className="mu small"> ({t.hours} x {rateOf(rates, t.section, t.model_grp)})</span>}</td><td className="acts">{sa && <Btn kind="ol" onClick={() => openModal('labourTask', { id: t.id })}>Edit</Btn>}</td></tr>) : [])]; }),
+            ...ss.map(t => <tr key={t.id}><td /><td>{t.name}{t.code && <span className="mu small"> · {t.code}{t.model_grp ? ' · ' + t.model_grp : ''}</span>}</td><td className="r">{t.hours}</td><td className="r">{money(rowCost(t))}{!t.price && <span className="mu small"> ({t.hours} x {rateOf(rates, t.section, t.model_grp)})</span>}</td><td className="acts">{sa && <Btn kind="ol" onClick={() => openModal('labourTask', { id: t.id })}>Edit</Btn>}</td></tr>)];
         })}
       </Table></div>
     </>
@@ -307,16 +309,19 @@ export function LabourList() {
 // The manager sets the labour rate (ETB per hour) of each section; an empty box uses the standard rate.
 function RatesBox({ rates }) {
   const { run, say } = useApp();
-  const init = () => Object.fromEntries(SECTIONS.map(s => [s, rates[s] !== undefined && rates[s] !== rates.default ? String(rates[s]) : '']));
+  const init = () => ({ ...Object.fromEntries(SECTIONS.map(s => [s, rates[s] !== undefined && rates[s] !== rates.default ? String(rates[s]) : ''])), ...Object.fromEntries(MAKES.map(m => [m, String(rates[m] ?? '')])) });
   const [f, setF] = useState(init);
   const save = async () => { const r = await run(() => api('/settings/labour-rates', 'PUT', { rates: f })); if (r.ok) say('Labour rates saved. They apply to labour added from now on.'); };
+  const box = (k, label, ph) => <Field key={k} label={label} type="number" min="0" step="any" placeholder={ph} value={f[k]} onChange={e => setF(x => ({ ...x, [k]: e.target.value }))} />;
   return (
     <div className="box mt"><h3>Labour rate per hour ({cur()})</h3>
+      <div className="mu small">By make: the Model Grp of a price-book line decides its rate (Toyota covers every "Toyota ..." group; any other group is Others). Hours x this rate fills the labour cost; the price can still be typed over.</div>
       <div className="row">
-        {SECTIONS.map(s => <Field key={s} label={`${SECTION_CODE[s]} · ${s}`} type="number" min="0" step="any" placeholder={String(rates.default)} value={f[s]} onChange={e => setF(x => ({ ...x, [s]: e.target.value }))} />)}
+        {MAKES.map(m => box(m, m, String(DEFAULT_MAKE_RATE[m])))}
         <Btn onClick={save}>Save rates</Btn>
       </div>
-      <div className="mu small">An empty box uses the standard rate ({rates.default} {cur()}/h). Hours x the rate of the section fills the labour cost; the price can still be typed over.</div>
+      <div className="mu small mt">For work with no make (typed by hand), the rate of its section is used; an empty box uses the standard rate ({rates.default} {cur()}/h).</div>
+      <div className="row">{SECTIONS.map(s => box(s, `${SECTION_CODE[s]} · ${s}`, String(rates.default)))}</div>
     </div>
   );
 }

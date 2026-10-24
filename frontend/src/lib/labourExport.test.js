@@ -31,3 +31,13 @@ describe('labour export', () => {
     }
   });
 });
+
+describe('labour rate by make', () => {
+  const byMake = { default: 350, 'Body & Paints': 400, Suzuki: 350, Toyota: 400, Others: 450 };
+  it('prices a line by its make: Suzuki 350, Toyota 400, Others 450', () => {
+    const t = (model_grp, section = 'Body & Paints') => ({ id: model_grp, code: 'BP-' + model_grp, model_grp, task: '', name: 'x', section, hours: 2, price: 0 });
+    const cost = m => labourRows([t(m)], byMake)[0].cost;
+    expect(cost('Suzuki')).toBe(700); expect(cost('Toyota (SEDAN)')).toBe(800); expect(cost('TOYOTA ( SUV)')).toBe(800); expect(cost('Others')).toBe(900);
+    expect(labourRows([t('')], byMake)[0].cost).toBe(800);   // no model group: the section's rate
+  });
+});
