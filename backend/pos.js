@@ -189,6 +189,68 @@ export function mountStock({ app, db, cfg, auth, wrap, notifier }) {
     });
     s.json(grnRow((await db.q('SELECT * FROM grns WHERE id = ?', [grn]))[0]));
   }));
+  // The Manager edits a GRN: supplier, invoice number, note and every line's quantity, cost and price (a line can be removed or a part added).
+  // Stock follows the change in quantity: a quantity cannot go below what has already been sold or issued.
+  app.put('/api/grns/:id', auth('MGR'), wrap(async (q, s) => {
+    const supplier = str(q.body.supplier, 200);
+    if (!supplier) fail(400, 'Enter the supplier');
+    if (!Array.isArray(q.body.lines) || !q.body.lines.length) fail(400, 'A GRN needs at least one part. To remove the whole GRN, ask the Administrator to delete it.');
+    if (q.body.lines.length > 200) fail(400, 'A GRN can have up to 200 lines');
+    const seen = new Set();
+    const want = new Map(q.body.lines.map(l => {
+      const qty = qn(l.qty), cost = S.money0(l.cost, 'Cost');
+      if (!l.pid || !(qty > 0)) fail(400, 'Every line needs a part and a quantity above zero');
+      if (seen.has(l.pid)) fail(400, 'The same part is on two lines: put the quantities on one line');
+      seen.add(l.pid);
+      return [String(l.pid), { qty, cost, price: l.price === undefined || l.price === null || String(l.price).trim() === '' ? null : S.money0(l.price, 'Price') }];
+    }));
+    await db.tx(async c => {
+      const [row] = await c.q('SELECT * FROM grns WHERE id = ? FOR UPDATE', [q.params.id]);
+      if (!row) fail(404, 'GRN not found');
+      const old = new Map(J(row.lines, []).map(l => [l.pid, l])), pids = [...new Set([...want.keys(), ...old.keys()])].sort(), out = [];
+      const ref = str(q.body.ref, 80), note = [supplier, ref].filter(Boolean).join(' · ');
+      let total = 0;
+      for (const pid of pids) {
+        const [p] = await c.q('SELECT * FROM inventory WHERE id = ? FOR UPDATE', [pid]);
+        const o = old.get(pid), w = want.get(pid);
+        if (!p) fail(404, 'A part on this GRN is no longer in the stock list');
+        if (!o && !p.active) fail(404, 'A part on this GRN is no longer in the stock list');
+        const diff = r2((w ? w.qty : 0) - (o ? +o.qty : 0));
+        if (diff < 0 && +p.stock < -diff) fail(409, `${p.name}: only ${+p.stock} on hand, so the quantity cannot go down by ${-diff} (the rest was already sold or issued)`);
+        if (diff) await stock(c, pid, diff, 'GRN edited', row.id, q.u.name, note);
+        if (!w) continue;   // line removed: its quantity left stock above
+        const bal = +p.stock + diff;
+        const auto = (+p.cost === 0 && +p.price === 0) || (+p.cost > 0 && Math.abs(+p.price - S.priceFromCost(+p.cost)) < 0.01);
+        let price = +p.price;
+        if (w.price !== null && w.price !== +p.price) price = w.price; else if (auto && w.cost !== +p.cost) price = S.priceFromCost(w.cost);
+        if (w.cost !== +p.cost || price !== +p.price) {
+          await c.q('UPDATE inventory SET cost = ?, price = ? WHERE id = ?', [w.cost, price, pid]);
+          await priceNote(c, pid, bal, `${row.id} edited: cost ${+p.cost} → ${w.cost}; price ${+p.price} → ${price}`, q.u.name);
+        }
+        total = r2(total + w.qty * w.cost);
+        out.push({ pid, code: p.code, name: p.name, qty: w.qty, cost: w.cost, price_before: o ? o.price_before : +p.price, price_after: price });
+      }
+      await c.q('UPDATE grns SET supplier = ?, ref = ?, note = ?, `lines` = ?, total = ? WHERE id = ?', [supplier, ref, str(q.body.note, 500), sendJson(out), total, row.id]);
+    });
+    s.json(grnRow((await db.q('SELECT * FROM grns WHERE id = ?', [q.params.id]))[0]));
+  }));
+
+  // Only the Administrator deletes a GRN: the parts it added leave stock again (refused when some were already sold: reduce nothing, change nothing).
+  // Costs and prices that the GRN set on the parts are kept as they are now.
+  app.delete('/api/grns/:id', auth('ADMIN'), wrap(async (q, s) => {
+    await db.tx(async c => {
+      const [row] = await c.q('SELECT * FROM grns WHERE id = ? FOR UPDATE', [q.params.id]);
+      if (!row) fail(404, 'GRN not found');
+      for (const l of J(row.lines, []).sort((a, b) => (a.pid < b.pid ? -1 : 1))) {
+        const [p] = await c.q('SELECT name, stock FROM inventory WHERE id = ? FOR UPDATE', [l.pid]);
+        if (!p) continue;   // the part itself is gone: nothing to take out
+        if (+p.stock < +l.qty) fail(409, `${p.name}: only ${+p.stock} on hand but this GRN added ${+l.qty}. Some were already sold or issued, so the GRN cannot be deleted. Edit its quantity instead.`);
+        await stock(c, l.pid, -l.qty, 'GRN deleted', row.id, q.u.name);
+      }
+      await c.q('DELETE FROM grns WHERE id = ?', [row.id]);
+    });
+    s.json({ ok: true });
+  }));
   app.get('/api/grns', auth('SA'), wrap(async (q, s) => s.json((await db.q('SELECT * FROM grns ORDER BY created DESC, id DESC LIMIT 200')).map(grnRow))));
 
   // ================= point of sale =================
@@ -254,6 +316,63 @@ export function mountStock({ app, db, cfg, auth, wrap, notifier }) {
       await c.q("UPDATE sales SET status = 'Cancelled', cancelled_at = UTC_TIMESTAMP(3), cancelled_by = ?, cancel_reason = ? WHERE id = ?", [q.u.name, reason, row.id]);
     });
     s.json(await getSale(q.params.id));
+  }));
+
+  // The Manager edits a sale or proforma that is still open (not cancelled / converted): customer, note, quantities and PRICES of the lines.
+  // Stock follows the change in quantity (a cash/credit sale only). A line's price stays as it is unless the Manager types another one.
+  app.put('/api/sales/:id', auth('MGR'), wrap(async (q, s) => {
+    const raw = q.body.lines;
+    if (!Array.isArray(raw) || !raw.length) fail(400, 'Add at least one part');
+    if (raw.length > 100) fail(400, 'A sale can have up to 100 lines');
+    const want = new Map();
+    for (const l of raw) {
+      const qty = r2(Number(l.qty)), price = l.price === undefined || l.price === null || l.price === '' ? null : r2(Number(l.price));
+      if (!l.pid || !(qty > 0)) fail(400, 'Every line needs a part and a quantity above zero');
+      if (price !== null && !(price >= 0)) fail(400, 'A price must be zero or more');
+      want.set(l.pid, { qty: r2((want.get(l.pid)?.qty || 0) + qty), price });
+    }
+    const cust = custForm(q.body);
+    await db.tx(async c => {
+      const [row] = await c.q('SELECT * FROM sales WHERE id = ? FOR UPDATE', [q.params.id]);
+      if (!row) fail(404, 'Sale not found');
+      if (row.status !== 'Issued') fail(409, `This ${row.kind === 'Proforma' ? 'proforma' : 'sale'} is already ${row.status.toLowerCase()}: it cannot be edited`);
+      const old = new Map(J(row.lines, []).map(l => [l.pid, l]));
+      const pids = [...new Set([...want.keys(), ...old.keys()])].sort();
+      const parts = new Map((await c.q('SELECT * FROM inventory WHERE id IN (?) ORDER BY id FOR UPDATE', [pids])).map(p => [p.id, p]));
+      const out = [], short = [];
+      for (const pid of [...want.keys()].sort()) {
+        const w = want.get(pid), o = old.get(pid), p = parts.get(pid);
+        if (!p || (!o && !p.active)) fail(404, 'A part on this sale is no longer in the stock list');
+        const diff = r2(w.qty - (o ? +o.qty : 0));
+        if (row.kind !== 'Proforma' && diff > 0 && +p.stock < diff) short.push(`${p.name} (${+p.stock} on hand, ${diff} more needed)`);
+        out.push({ pid, code: p.code, name: p.name, qty: w.qty, price: w.price ?? (o ? +o.price : +p.price) });
+      }
+      if (short.length) fail(409, 'Not enough stock of ' + short.join('; '));
+      if (row.kind !== 'Proforma') for (const pid of pids) {
+        const diff = r2((want.get(pid)?.qty || 0) - (old.get(pid) ? +old.get(pid).qty : 0));
+        if (diff) await stock(c, pid, -diff, 'Sale edited', row.id, q.u.name);
+      }
+      const name = cust.name || row.cust_name;
+      await c.q('UPDATE sales SET cust_name = ?, cust_phone = ?, cust_tin = ?, `lines` = ?, totals = ?, note = ? WHERE id = ?',
+        [name, cust.phone, cust.tin, sendJson(out), sendJson(S.saleTotals(out, cfg.vat)), str(q.body.note, 500), row.id]);
+    });
+    s.json(await getSale(q.params.id));
+  }));
+
+  // Only the Administrator deletes a sale or proforma for good. A sale still counted (Issued) puts its parts back into stock first;
+  // its payments are deleted with it. The audit trail keeps who did it.
+  app.delete('/api/sales/:id', auth('ADMIN'), wrap(async (q, s) => {
+    await db.tx(async c => {
+      const [row] = await c.q('SELECT * FROM sales WHERE id = ? FOR UPDATE', [q.params.id]);
+      if (!row) fail(404, 'Sale not found');
+      if (row.kind !== 'Proforma' && row.status === 'Issued') {
+        const lines = J(row.lines, []).sort((a, b) => (a.pid < b.pid ? -1 : 1));
+        for (const l of lines) await stock(c, l.pid, l.qty, 'Sale deleted', row.id, q.u.name);
+      }
+      await c.q("DELETE FROM payments WHERE source = 'sale' AND ref = ?", [row.id]);
+      await c.q('DELETE FROM sales WHERE id = ?', [row.id]);
+    });
+    s.json({ ok: true });
   }));
 
   // A proforma becomes a cash or credit sale (parts leave stock now, at today's prices)

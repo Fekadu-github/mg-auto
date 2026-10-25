@@ -7,7 +7,7 @@ import Icon from '../components/Icon.jsx';
 import { clearNavParams, readNavParams } from '../lib/navParams.js';
 import { nextSort, sortRows } from '../lib/sort.js';
 import { usePersistedForm, usePersistedState } from '../lib/autosave.js';
-import { isMgr, isSA } from '../lib/constants.js';
+import { isAdmin, isMgr, isSA } from '../lib/constants.js';
 import { dt, money, cur } from '../lib/format.js';
 import { MAKES, NO_MODEL, downloadInventory, inMake, lowKey, lowParts, makeOf, priceFromCost } from '../lib/stock.js';
 import { usePrint } from '../print/PrintHost.jsx';
@@ -75,10 +75,25 @@ export function Parts() {
 
 // ---- purchases: every GRN ----
 export function Purchases() {
-  const { db, me, openModal, say } = useApp(), { print } = usePrint();
+  const { db, me, openModal, say, run } = useApp(), { print } = usePrint();
   const [rows, setRows] = useState(null), [q, setQ] = useState('');
   const load = () => api('/grns').then(setRows).catch(e => say(e.message));
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [db.p]);   // again whenever stock changes (a GRN was just saved)
+  // Manager: edit a GRN (quantity, cost, price). Administrator: also delete it.
+  const [ed, setEd] = useState(null), setL = (i, p) => setEd(e => ({ ...e, lines: e.lines.map((l, k) => (k === i ? { ...l, ...p } : l)) }));
+  const openEdit = g => setEd({ id: g.id, supplier: g.supplier || '', ref: g.ref || '', note: g.note || '', lines: g.lines.map(l => ({ pid: l.pid, code: l.code, name: l.name, qty: String(l.qty), cost: String(l.cost), price: String(l.price_after ?? ''), was: String(l.price_after ?? '') })) });
+  const saveEdit = async () => {
+    if (!ed.supplier.trim()) return say('Enter the supplier.');
+    if (!ed.lines.length) return say('A GRN needs at least one part. To remove the whole GRN, ask the Administrator to delete it.');
+    const n = v => parseFloat(v) || 0;
+    const r = await run(() => api(`/grns/${ed.id}`, 'PUT', { supplier: ed.supplier, ref: ed.ref, note: ed.note, lines: ed.lines.map(l => ({ pid: l.pid, qty: n(l.qty), cost: n(l.cost), price: l.price !== l.was ? n(l.price) : null })) }));
+    if (r.ok) { say(`${ed.id} updated.`); setEd(null); load(); }
+  };
+  const del = async g => {
+    if (!confirm(`Delete ${g.id} (${g.supplier}, ${cur()} ${money(g.total)}) for good?\n\nThe parts it added leave stock again. This cannot be undone.`)) return;
+    const r = await run(() => api(`/grns/${g.id}`, 'DELETE'));
+    if (r.ok) { say(`${g.id} deleted.`); load(); }
+  };
   const list = (rows || []).filter(g => (g.id + g.supplier + g.ref + g.lines.map(l => l.code + ' ' + l.name).join(' ')).toLowerCase().includes(q.toLowerCase()));
   return (
     <>
@@ -87,10 +102,27 @@ export function Purchases() {
         {list.map(g => (
           <tr key={g.id}>
             <td><b>{g.id}</b></td><td>{dt(g.created)}</td><td>{g.supplier}</td><td>{g.ref}</td><td>{g.lines.length} line(s): {g.lines.slice(0, 3).map(l => `${l.qty} x ${l.code}`).join(', ')}{g.lines.length > 3 ? '…' : ''}</td>
-            <td className="r">{money(g.total)}</td><td>{g.by_name}</td><td className="acts"><Btn kind="ol" onClick={() => print(<GrnDoc grn={g} garage={db.cfg.garage} />, 'a4')}>Print</Btn></td>
+            <td className="r">{money(g.total)}</td><td>{g.by_name}</td><td className="acts"><Btn kind="ol" onClick={() => print(<GrnDoc grn={g} garage={db.cfg.garage} />, 'a4')}>Print</Btn>{isMgr(me) && <Btn kind="ol" onClick={() => openEdit(g)}>Edit</Btn>}{isAdmin(me) && <Btn kind="ol" onClick={() => del(g)}>Delete</Btn>}</td>
           </tr>
         ))}
       </Table></div>
+      {ed && <Dialog title={`Edit ${ed.id}`} onClose={() => setEd(null)} actions={<><Btn onClick={saveEdit}>Save changes</Btn><Btn kind="ol" onClick={() => setEd(null)}>Cancel</Btn></>}>
+        <div className="row">
+          <Field label="Supplier" value={ed.supplier} onChange={e => setEd(x => ({ ...x, supplier: e.target.value }))} />
+          <Field label="Invoice no" value={ed.ref} onChange={e => setEd(x => ({ ...x, ref: e.target.value }))} />
+        </div>
+        <div className="mt"><Table head={['Part number', 'Description', { t: 'Qty', r: 1 }, { t: `Cost (${cur()})`, r: 1 }, { t: `Selling price (${cur()})`, r: 1 }, '']}>
+          {ed.lines.map((l, i) => <tr key={l.pid}>
+            <td><b>{l.code}</b></td><td>{l.name}</td>
+            <td className="r"><input aria-label="Quantity" type="number" min="0.01" step="any" style={{ width: 90 }} value={l.qty} onChange={e => setL(i, { qty: e.target.value })} /></td>
+            <td className="r"><input aria-label="Cost" type="number" min="0" step="any" style={{ width: 110 }} value={l.cost} onChange={e => setL(i, { cost: e.target.value })} /></td>
+            <td className="r"><input aria-label="Selling price" type="number" min="0" step="any" style={{ width: 110 }} value={l.price} onChange={e => setL(i, { price: e.target.value })} /></td>
+            <td className="acts"><Btn kind="ol" onClick={() => setEd(x => ({ ...x, lines: x.lines.filter((_, k) => k !== i) }))}>Remove</Btn></td>
+          </tr>)}
+        </Table></div>
+        <Field label="Note" value={ed.note} onChange={e => setEd(x => ({ ...x, note: e.target.value }))} />
+        <p className="mu small">Stock follows the change in quantity (it cannot go below what was already sold or issued). A changed cost also updates the part's cost; the selling price follows only if you type one or it was following the cost. Written to the audit trail.</p>
+      </Dialog>}
     </>
   );
 }
