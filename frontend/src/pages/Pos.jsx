@@ -4,7 +4,7 @@ import { api } from '../api.js';
 import { useApp } from '../store.jsx';
 import { Btn, Dialog, Field, Pill, Stat, Table, useForm } from '../components/ui.jsx';
 import PartSearch from '../components/PartSearch.jsx';
-import { isMgr, isSA } from '../lib/constants.js';
+import { isAdmin, isMgr, isSA } from '../lib/constants.js';
 import { dt, money, pct, r2, today, cur } from '../lib/format.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import { usePersistedState } from '../lib/autosave.js';
@@ -42,6 +42,19 @@ export function PointOfSale() {
     setBusy(false);
     if (r.ok) { setLines([]); setF({ ...EMPTY, kind: f.kind }); loadSales(); print(<SaleDoc sale={r.data} garage={db.cfg.garage} />, saleSize(r.data)); }
     else loadSales();    // a refused sale (not enough stock) was written down as a lost sale
+  };
+  // Manager: edit the quantities and prices of a sale or proforma. Administrator: delete it.
+  const [ed, setEd] = useState(null), setL = (i, p) => setEd(e => ({ ...e, lines: e.lines.map((l, k) => (k === i ? { ...l, ...p } : l)) }));
+  const openEdit = s => setEd({ id: s.id, kind: s.kind, name: s.cust_name || '', phone: s.cust_phone || '', tin: s.cust_tin || '', note: s.note || '', lines: s.lines.map(l => ({ pid: l.pid, code: l.code, name: l.name, qty: String(l.qty), price: String(l.price) })) });
+  const saveEdit = async () => {
+    if (!ed.lines.length) return say('A sale needs at least one part. To remove the whole sale, ask the Administrator to delete it.');
+    const r = await run(() => api(`/sales/${ed.id}`, 'PUT', { name: ed.name, phone: ed.phone, tin: ed.tin, note: ed.note, lines: ed.lines.map(l => ({ pid: l.pid, qty: num(l.qty), price: num(l.price) })) }));
+    if (r.ok) { say(`${ed.id} updated.`); setEd(null); loadSales(); }
+  };
+  const del = async s => {
+    if (!confirm(`Delete ${s.id} (${cur()} ${money(s.totals.total)}) for good?\n\n${s.kind !== 'Proforma' && s.status === 'Issued' ? 'The parts go back into stock. ' : ''}Its payments are deleted too. This cannot be undone.`)) return;
+    const r = await run(() => api(`/sales/${s.id}`, 'DELETE'));
+    if (r.ok) { say(`${s.id} deleted.`); loadSales(); }
   };
   const reprint = s => print(<SaleDoc sale={s} garage={db.cfg.garage} />, saleSize(s));
   const cancel = async s => {
@@ -106,11 +119,31 @@ export function PointOfSale() {
             <td className="acts">
               <Btn kind="ol" onClick={() => reprint(s)}>Print</Btn>
               {s.kind === 'Proforma' && s.status === 'Issued' && <><Btn kind="ol" onClick={() => convert(s, 'Cash')}>Make cash sale</Btn><Btn kind="ol" onClick={() => convert(s, 'Credit')}>Make credit sale</Btn></>}
+              {mgr && s.status === 'Issued' && <Btn kind="ol" onClick={() => openEdit(s)}>Edit</Btn>}
               {mgr && s.kind !== 'Proforma' && s.status === 'Issued' && <Btn kind="ol" onClick={() => cancel(s)}>Cancel sale</Btn>}
+              {isAdmin(me) && <Btn kind="ol" onClick={() => del(s)}>Delete</Btn>}
             </td>
           </tr>
         ))}
       </Table></div>
+      {ed && <Dialog title={`Edit ${ed.id}`} onClose={() => setEd(null)} actions={<><Btn onClick={saveEdit}>Save changes</Btn><Btn kind="ol" onClick={() => setEd(null)}>Cancel</Btn></>}>
+        <div className="row">
+          <Field label="Customer" value={ed.name} onChange={e => setEd(x => ({ ...x, name: e.target.value }))} />
+          <Field label="Phone" value={ed.phone} onChange={e => setEd(x => ({ ...x, phone: e.target.value }))} />
+          <Field label="TIN" value={ed.tin} onChange={e => setEd(x => ({ ...x, tin: e.target.value }))} />
+        </div>
+        <div className="mt"><Table head={['Part number', 'Description', { t: 'Qty', r: 1 }, { t: `Price (${cur()})`, r: 1 }, { t: 'Line total', r: 1 }, '']}>
+          {ed.lines.map((l, i) => <tr key={l.pid}>
+            <td><b>{l.code}</b></td><td>{l.name}</td>
+            <td className="r"><input aria-label="Quantity" type="number" min="0.01" step="any" style={{ width: 90 }} value={l.qty} onChange={e => setL(i, { qty: e.target.value })} /></td>
+            <td className="r"><input aria-label="Price" type="number" min="0" step="any" style={{ width: 110 }} value={l.price} onChange={e => setL(i, { price: e.target.value })} /></td>
+            <td className="r">{money(r2(num(l.qty) * num(l.price)))}</td>
+            <td className="acts"><Btn kind="ol" onClick={() => setEd(x => ({ ...x, lines: x.lines.filter((_, k) => k !== i) }))}>Remove</Btn></td>
+          </tr>)}
+        </Table></div>
+        <Field label="Note" value={ed.note} onChange={e => setEd(x => ({ ...x, note: e.target.value }))} />
+        <p className="mu small">{ed.kind === 'Proforma' ? 'A proforma is a quote: stock does not change.' : 'Stock follows the change in quantity.'} VAT is added on the total. The change is written to the audit trail.</p>
+      </Dialog>}
     </>
   );
 }

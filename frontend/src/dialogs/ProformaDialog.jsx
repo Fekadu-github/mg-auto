@@ -146,7 +146,7 @@ export default function ProformaDialog({ id }) {
         <Btn kind="ol" onClick={pdfIt}>Download PDF</Btn>
         {open && <Btn onClick={save}>Save</Btn>}
         {open && p.status === 'Draft' && <Btn kind="gr" onClick={issue}>Finalize proforma</Btn>}
-        {open && p.status === 'Draft' && <Btn kind="ol" onClick={remove}>Delete draft</Btn>}
+        {open && p.status === 'Draft' && isAdmin(me) && <Btn kind="ol" onClick={remove}>Delete draft</Btn>}
         {open && p.status === 'Issued' && isAdmin(me) && <Btn kind="ol" onClick={remove}>Delete finalized proforma</Btn>}
         {converted && p.job && <Btn kind="ol" onClick={() => openModal('job', { id: p.job })}>Open job card {p.job}</Btn>}
       </div>

@@ -587,7 +587,7 @@ export function createApp({ cfg, db, notifier }) {
     rules.checkReopen(e); e.status = 'Draft'; e.finalized_at = null; e.by_name = null;
     await c.q("UPDATE proformas SET status = 'Draft', updated = UTC_TIMESTAMP(3) WHERE id = ? AND status = 'Issued'", [e.id]);
   }).slice(1));   // only the Manager and the Administrator can send a finalized estimate back to draft
-  app.delete('/api/estimates/:id', auth('SA'), wrap(async (q, s) => {
+  app.delete('/api/estimates/:id', auth('ADMIN'), wrap(async (q, s) => {
     await db.tx(async c => {
       const [row] = await c.q('SELECT * FROM estimates WHERE id = ? FOR UPDATE', [q.params.id]);
       if (!row) fail(404, 'Estimate not found');
@@ -726,7 +726,7 @@ export function createApp({ cfg, db, notifier }) {
     else if (!er.used_in) await c.q("UPDATE estimates SET cid = COALESCE(cid, ?), vid = COALESCE(vid, ?), note = ?, status = 'Finalized', labours = ?, parts = ?, finalized_at = COALESCE(finalized_at, UTC_TIMESTAMP(3)), by_name = COALESCE(by_name, ?), pro = ? WHERE id = ?",
       [p.cid, p.vid, p.note, sendJson(p.labours), sendJson(p.parts), p.estimator || u.name, p.id, p.id]);
   }));
-  app.delete('/api/proformas/:id', auth('SA'), wrap(async (q, s) => {
+  app.delete('/api/proformas/:id', auth('ADMIN'), wrap(async (q, s) => {
     await db.tx(async c => {
       const [row] = await c.q('SELECT status FROM proformas WHERE id = ? FOR UPDATE', [q.params.id]);
       if (!row) fail(404, 'Proforma not found');

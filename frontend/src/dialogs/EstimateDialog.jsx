@@ -105,7 +105,7 @@ export default function EstimateDialog({ id, jid }) {
         <Btn kind="ol" onClick={printIt}>Print estimate (A4)</Btn>
         <Btn kind="ol" onClick={pdfIt}>Download PDF</Btn>
         <Btn kind="ol" onClick={download}>Download (Excel)</Btn>
-        {edit && <><Btn onClick={save}>Save</Btn><Btn kind="gr" onClick={finalize}>Finalize estimate</Btn><Btn kind="ol" onClick={remove}>Delete draft</Btn></>}
+        {edit && <><Btn onClick={save}>Save</Btn><Btn kind="gr" onClick={finalize}>Finalize estimate</Btn>{isAdmin(me) && <Btn kind="ol" onClick={remove}>Delete draft</Btn>}</>}
         {isAdmin(me) && !draft && !e.used_in && <Btn kind="ol" onClick={remove}>Delete estimate</Btn>}
         {sa && !draft && !e.used_in && jc && jc.status === 'Created' && !jc.est && (!e.vid || jc.vid === e.vid) && <Btn kind="gr" onClick={loadOnJob}>Load on {jid}</Btn>}
         {isMgr(me) && !draft && !e.used_in && <Btn kind="ol" onClick={reopen}>Back to draft</Btn>}
