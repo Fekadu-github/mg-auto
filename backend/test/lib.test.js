@@ -53,3 +53,15 @@ test('hours: clip to range, split at midnight, running clock, completed count, p
   assert.deepEqual(wide.byDay.filter(d => d.tech === 'Dawit').map(d => [d.day, d.hours]), [['2026-10-06', 2], ['2026-10-07', 4]]);
   assert.deepEqual(hoursReport(jobs, a, b, now, 'Sara').byTech.map(t => t.tech), ['Sara']);
 });
+
+test('referral discount comes off the subtotal before VAT, and is frozen with who referred', () => {
+  const ref = { type: 'pct', value: 10, ref_cid: null, ref_name: 'Abebe', ref_phone: '0911000000' };
+  const j = { labours: [{ price: 600 }], parts: [{ qty: 2, price: 200 }], disc: ref };
+  const t = totals(j, 0.15);
+  assert.equal(t.sub, 1000); assert.equal(t.disc, 100); assert.equal(t.vat, 135); assert.equal(t.total, 1035);
+  assert.deepEqual(t.discRef, ref);
+  assert.equal(totals({ ...j, disc: { type: 'amt', value: 250, ref_name: 'A', ref_phone: '1' } }, 0.15).total, 862.5);
+  assert.equal(totals({ ...j, disc: { type: 'amt', value: 5000, ref_name: 'A', ref_phone: '1' } }, 0.15).total, 0);   // never below zero
+  const none = totals({ labours: j.labours, parts: j.parts }, 0.15);
+  assert.equal(none.total, 1150); assert.ok(!('disc' in none));
+});

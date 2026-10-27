@@ -10,7 +10,7 @@ import PartSearch from '../components/PartSearch.jsx';
 import EstimatePicker, { EstimatePreview } from '../components/EstimatePicker.jsx';
 import { usePersistedForm as useForm } from '../lib/autosave.js';
 import { CLOCK_REASONS, SECTIONS, SECTION_CODE, STATUSES, STATUS_NAME, isAdmin, isMgr, isSA, isTech, isWS, sectionOption } from '../lib/constants.js';
-import { activeClock, dt, jobTotals, km, labourHours, lastDoc, matchPart, money, pct, rateOf, tot, vehicleName, cur } from '../lib/format.js';
+import { activeClock, dt, jobTotals, km, labourHours, lastDoc, matchPart, money, pct, rateOf, tot, vehicleName, cur, discNote } from '../lib/format.js';
 import { suggestService } from '../lib/services.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import InvoiceDoc, { invoiceSize } from '../print/InvoiceDoc.jsx';
@@ -178,9 +178,11 @@ export default function JobCardDialog({ id }) {
           <br /><span className="mu small">Prices are before VAT; the totals include VAT. Final = estimate + added.</span>
           <hr />
         </>}
-        Final labour {money(t.l)} · Final parts {money(t.p)} · VAT {pct(t.rate)}% {money(t.vat)}
+        Final labour {money(t.l)} · Final parts {money(t.p)}{t.disc ? <> · <b>Referral discount −{money(t.disc)}</b></> : null} · VAT {pct(t.rate)}% {money(t.vat)}
         <br /><b className="cn total">Total {cur()} {money(t.total)}</b>
+        {t.disc ? <div className="mu small">{discNote(t.discRef)}</div> : null}
       </div>
+      <ReferralDiscount docId={j.id} disc={j.inv ? undefined : j.disc} customerId={j.cid} editable={sa && !j.inv} />
       {priceOpen && <p className="mu small">Labour, parts and selling prices can be edited here until the invoice is issued{done ? ' (the card is closed, so added tasks are billing lines; use "Return to workshop" for work that must be done)' : ''}. Every price change is written in the job card history.</p>}
       <div className="row mt">{actions || <span className="mu">No action for your role at this stage.</span>}{isAdmin(me) && <Btn kind="ol" onClick={removeJob}>Delete job card</Btn>}</div>
     </Dialog>

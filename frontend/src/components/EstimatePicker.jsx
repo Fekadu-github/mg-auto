@@ -4,7 +4,7 @@ import { useApp } from '../store.jsx';
 import { Table } from './ui.jsx';
 import { searchEstimates } from '../lib/search.js';
 import { SECTION_CODE } from '../lib/constants.js';
-import { money, tot, cur } from '../lib/format.js';
+import { money, tot, cur, discNote } from '../lib/format.js';
 
 // "Mohammed A · AA-12345": who an estimate is for. An estimate made before the customer was registered shows the walk-in written on its proforma.
 export function useEstimateWho() {
@@ -73,7 +73,7 @@ export function EstimatePreview({ est }) {
       <Table head={['Part', { t: 'Qty', r: 1 }, { t: 'Selling price', r: 1 }, { t: 'Total', r: 1 }]} empty={!est.parts.length && 'No parts.'}>
         {est.parts.map((p, i) => <tr key={i}><td>{p.code && <span className="mu">{p.code} </span>}{p.name}</td><td className="r">{p.qty}</td><td className="r">{money(p.price)}</td><td className="r">{money(p.qty * p.price)}</td></tr>)}
       </Table>
-      <div className="r mt">Labour {money(t.l)} · Parts {money(t.p)} · VAT {money(t.vat)} · <b>Total {cur()} {money(t.total)}</b></div>
+      <div className="r mt">Labour {money(t.l)} · Parts {money(t.p)}{t.disc ? ` · Referral discount −${money(t.disc)}` : ''} · VAT {money(t.vat)} · <b>Total {cur()} {money(t.total)}</b>{t.disc ? <div className="mu small">{discNote(t.discRef)}</div> : null}</div>
     </div>
   );
 }

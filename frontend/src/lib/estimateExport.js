@@ -1,4 +1,4 @@
-import { dt, tot, vehicleName, cur } from './format.js';
+import { dt, tot, vehicleName, cur, discNote } from './format.js';
 import { SECTION_CODE } from './constants.js';
 
 const num = v => parseFloat(v) || 0;
@@ -7,7 +7,7 @@ const num = v => parseFloat(v) || 0;
  *  est: { id, status, note, created, finalized_at, by_name, used_in, labours, parts } */
 export function estimateRows(est, { customer: c = {}, vehicle: v = {}, vat = 0.15 } = {}) {
   const labours = est.labours.map(l => ({ ...l, price: num(l.price) })), parts = est.parts.map(p => ({ ...p, qty: num(p.qty), price: num(p.price) }));
-  const t = tot({ labours, parts }, vat);
+  const t = tot({ labours, parts, disc: est.disc }, vat);
   let n = 0;
   return [
     [`Estimate ${est.id}`, est.status],
@@ -23,6 +23,7 @@ export function estimateRows(est, { customer: c = {}, vehicle: v = {}, vat = 0.1
     ...parts.map(p => [++n, `${p.code ? p.code + ' ' : ''}${p.name}`, 'Part', '', p.qty, p.price, Math.round(p.qty * p.price * 100) / 100]),
     [],
     ['', '', '', '', '', 'Labour', t.l], ['', '', '', '', '', 'Parts', t.p], ['', '', '', '', '', 'Subtotal', t.sub],
+    ...(t.disc ? [['', '', '', '', '', 'Referral discount', -t.disc], ['', '', '', '', '', 'Reason', discNote(t.discRef)]] : []),
     ['', '', '', '', '', `VAT ${Math.round(t.rate * 1000) / 10}%`, t.vat], ['', '', '', '', '', `Total (${cur()})`, t.total]
   ];
 }

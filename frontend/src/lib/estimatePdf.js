@@ -5,7 +5,7 @@
 // signatures and footer together at the BOTTOM of the last page. A long estimate is first shrunk a little to fit one page; only if it still
 // does not fit does it run on to more pages (the table heading repeats, a draft carries its watermark on every page).
 // The built-in PDF font (Helvetica) covers Latin letters, digits and common punctuation; any other character (for example Amharic) prints as "?".
-import { TZ, birrInWords, dt, money, pct, splitCode, tot, cur } from './format.js';
+import { TZ, birrInWords, dt, money, pct, splitCode, tot, cur, discNote } from './format.js';
 import { DEFAULT_TERMS } from './constants.js';
 import { BRAND_LOGOS } from './brands.js';
 
@@ -100,7 +100,7 @@ function layout(d, s, logo, brands = []) {
   newPage(false);
 
   const L = (d.labours || []).map(l => ({ ...l, price: num(l.price) })), P = (d.parts || []).map(p => ({ ...p, qty: num(p.qty), price: num(p.price) }));
-  const t = tot({ labours: L, parts: P }, d.vat ?? 0.15), c = d.customer || {}, v = d.vehicle || {}, ins = d.insurer;
+  const t = tot({ labours: L, parts: P, disc: d.disc }, d.vat ?? 0.15), c = d.customer || {}, v = d.vehicle || {}, ins = d.insurer;
   const type = ins ? 'Insurance' : d.walkIn ? 'Walk-in customer (private)' : 'Private';
 
   // the makes we serve: one centred row at the very top (same height for each, so they look even)
@@ -190,8 +190,9 @@ function layout(d, s, logo, brands = []) {
   y += 7 * s;
 
   // totals, amount in words, remark
-  const totW = 196 * s, tr = 12.6 * s, grandH = 17 * s, totH = 2 * tr + grandH;
+  const totW = 196 * s, tr = 12.6 * s, grandH = 17 * s, totRows = [['Total Est. Amount', t.sub], ...(t.disc ? [['Referral discount', -t.disc]] : []), [`${pct(t.rate)}% VAT`, t.vat]], totH = totRows.length * tr + grandH;
   const wordLines = wrap(`** ${birrInWords(t.total)} ***`, 'i', 8.4 * s, CW - 16 * s), wordsH = wordLines.length * 10.4 * s + 6 * s;
+  const discLines = t.disc ? wrap(discNote(t.discRef), 'i', 8.4 * s, CW) : [], discH = discLines.length ? discLines.length * 10.4 * s + 5 * s : 0;   // why the discount was given
   const remLines = d.terms ? wrap(`REMARK: ${d.terms}`, 'r', 8.4 * s, CW) : [], remH = remLines.length ? remLines.length * 10.4 * s + 5 * s : 0;
 
   // the terms, slogan, signatures: one block that sits at the bottom of the last page
@@ -200,19 +201,20 @@ function layout(d, s, logo, brands = []) {
   const termLines = terms.map(x => wrap(x, 'r', ts2, termW));
   const termsH = 7 * s + 9.4 * s + termLines.reduce((a, l) => a + l.length * tl + .8 * s, 0) + 5 * s;
   const sigH = 44 * s, tailH = termsH + 7 * s + 11 * s + 5 * s + sigH;
-  const endH = totH + 6 * s + wordsH + (remH ? 4 * s + remH : 0);
+  const endH = totH + 6 * s + wordsH + (discH ? 4 * s + discH : 0) + (remH ? 4 * s + remH : 0);
 
   if (y + endH + 8 * s + tailH > LIMIT) newPage(true);   // totals travel to the last page together with the terms and signatures
 
   const tx1 = M + CW - totW;
   strokeRect(pg, tx1, y, totW, totH, COL.pl, .5);
-  [['Total Est. Amount', t.sub], [`${pct(t.rate)}% VAT`, t.vat]].forEach(([l, val], i) => { const by = y + (i + 1) * tr - 3.8 * s; text(pg, l, tx1 + 7 * s, by, { f: 'b', size: 8.6 * s }); text(pg, money(val), tx1 + totW - 7 * s, by, { f: 'b', size: 8.6 * s, align: 'r' }); });
-  fillRect(pg, tx1, y + 2 * tr, totW, grandH, COL.pt); hline(pg, tx1, tx1 + totW, y + 2 * tr, COL.pb, 1.3);
+  totRows.forEach(([l, val], i) => { const by = y + (i + 1) * tr - 3.8 * s; text(pg, l, tx1 + 7 * s, by, { f: 'b', size: 8.6 * s }); text(pg, money(val), tx1 + totW - 7 * s, by, { f: 'b', size: 8.6 * s, align: 'r' }); });
+  fillRect(pg, tx1, y + totRows.length * tr, totW, grandH, COL.pt); hline(pg, tx1, tx1 + totW, y + totRows.length * tr, COL.pb, 1.3);
   text(pg, 'Total Inc. VAT', tx1 + 7 * s, y + totH - 5 * s, { f: 'b', size: 10 * s, color: COL.pd }); text(pg, money(t.total), tx1 + totW - 7 * s, y + totH - 5 * s, { f: 'b', size: 10 * s, color: COL.pd, align: 'r' });
   y += totH + 6 * s;
   fillRect(pg, M, y, CW, wordsH, COL.pt); fillRect(pg, M, y, 3.4 * s, wordsH, COL.pg);
   wordLines.forEach((ln, i) => text(pg, ln, M + 10 * s, y + 3 * s + 7.6 * s + i * 10.4 * s, { f: 'i', size: 8.4 * s, color: COL.pd }));
   y += wordsH;
+  if (discLines.length) { y += 4 * s; discLines.forEach((ln, i) => text(pg, ln, M, y + 7.6 * s + i * 10.4 * s, { f: 'i', size: 8.4 * s })); y += discLines.length * 10.4 * s + 1 * s; }
   if (remLines.length) { y += 4 * s; remLines.forEach((ln, i) => { if (!i) { text(pg, 'REMARK:', M, y + 7.6 * s, { f: 'b', size: 8.4 * s }); text(pg, ln.replace(/^REMARK:\s*/, ''), M + tw('REMARK: ', 'b', 8.4 * s), y + 7.6 * s, { size: 8.4 * s }); } else text(pg, ln, M, y + 7.6 * s + i * 10.4 * s, { size: 8.4 * s }); }); y += remH - 4 * s; }
 
   // tail, anchored to the bottom

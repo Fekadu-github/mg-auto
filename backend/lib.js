@@ -16,10 +16,12 @@ export function range(qs) {
 }
 
 // Money for a job card at a given VAT rate (rate is a fraction, e.g. 0.15)
+// A referral discount (j.disc = { type: 'pct' | 'amt', value, ref_name, ref_phone, ref_cid }) comes off the subtotal before VAT.
+export const discountOf = (sub, d) => (d && +d.value > 0 ? Math.min(sub, d.type === 'pct' ? r2(sub * Math.min(+d.value, 100) / 100) : r2(+d.value)) : 0);
 export function totals(j, rate) {
   const labour = r2(j.labours.reduce((s, x) => s + x.price, 0)), parts = r2(j.parts.reduce((s, x) => s + x.qty * x.price, 0));
-  const sub = r2(labour + parts), vat = r2(sub * rate);
-  return { labour, parts, sub, vat, total: r2(sub + vat), rate };
+  const sub = r2(labour + parts), disc = discountOf(sub, j.disc), vat = r2((sub - disc) * rate);
+  return { labour, parts, sub, ...(disc > 0 && { disc, discRef: j.disc }), vat, total: r2(sub - disc + vat), rate };
 }
 
 // Ethiopian-friendly phone normaliser -> +2519XXXXXXXX, or null when it cannot be a mobile number

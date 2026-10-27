@@ -10,6 +10,7 @@ import { usePersistedForm } from '../lib/autosave.js';
 import { suggestService } from '../lib/services.js';
 import EstimatePicker, { EstimatePreview } from '../components/EstimatePicker.jsx';
 import CustomerPicker from '../components/CustomerPicker.jsx';
+import { ReferrerFields } from '../components/ReferralDiscount.jsx';
 import { PartLines } from '../components/Lines.jsx';
 import { shrink } from '../components/Inspection.jsx';
 import JobCardDialog from './JobCardDialog.jsx';
@@ -38,6 +39,9 @@ export function NewJobDialog() {
   };
   const dropPhoto = i => setPhotos(ps => { URL.revokeObjectURL(ps[i].url); return ps.filter((_, k) => k !== i); });
   const [f, bind, set, reset] = usePersistedForm('form:new-job', { cid: db.c[0]?.id || '', vid: '', note: '', km: '', est: '' });
+  const [ref, setRef] = useState(null);   // the referrer typed or chosen here (null = leave what the customer already has)
+  const cu = db.c.find(x => x.id === f.cid), savedRef = cu && (cu.ref_cid || cu.ref_name) ? cu : null;
+  const referredBy = cu ? db.c.filter(x => x.id !== cu.id && ((x.ref_cid && x.ref_cid === cu.id) || (cu.phone && x.ref_phone && x.ref_phone === cu.phone))) : [];   // customers this one sent to the garage
   const vehicles = db.v.filter(v => v.cid === f.cid), cur = vehicles.find(v => v.id === f.vid) || vehicles[0], vid = cur?.id || '';
   const kmShown = f.km !== '' ? f.km : cur?.mileage ?? '';                       // the vehicle's last mileage until the advisor types the reading
   const sug = kmShown !== '' ? suggestService(cur, +kmShown, db.st) : null;
@@ -48,14 +52,15 @@ export function NewJobDialog() {
     if (!vid) return;
     if (kmShown === '') return alert('Enter the vehicle mileage (km).');
     if (typed && !picked) return alert(`${typed} is not a finalized estimate for this vehicle. Pick one from the list, or clear the box to create the job card without an estimate.`);
+    if (ref && !ref.cid && (ref.name || '').trim() && !(ref.phone || '').trim()) return alert("Enter the referring person's phone number too.");
     if (!photos.length) return alert('Add at least one photo of the vehicle first (scratches, dents, broken parts, dashboard warning lights). A job card cannot be created without it.');
-    const r = await run(() => api('/jobs', 'POST', { cid: f.cid, vid, note: f.note, mileage: parseFloat(kmShown), photos: photos.map(({ label: l, data }) => ({ label: l, data })), ...(picked ? { est: picked.id } : {}) }));
-    if (r.ok) { photos.forEach(p => URL.revokeObjectURL(p.url)); reset(); openModal('job', { id: r.data.id }); }
+    const r = await run(() => api('/jobs', 'POST', { cid: f.cid, vid, note: f.note, mileage: parseFloat(kmShown), photos: photos.map(({ label: l, data }) => ({ label: l, data })), ...(picked ? { est: picked.id } : {}), ...(ref ? { ref_cid: ref.cid || '', ref_name: ref.name || '', ref_phone: ref.phone || '' } : {}) }));
+    if (r.ok) { photos.forEach(p => URL.revokeObjectURL(p.url)); reset(); setRef(null); openModal('job', { id: r.data.id }); }
   };
   return (
     <Dialog title="New job card" onClose={closeModal} actions={<><Btn onClick={create} disabled={!vid || !photos.length || busy}>Create job card</Btn><Btn kind="ol" onClick={closeModal}>Cancel</Btn></>}>
       <div className="row mt">
-        <CustomerPicker label="Customer" value={f.cid} onPick={id => set({ cid: id, vid: '', km: '', est: '' })} />
+        <CustomerPicker label="Customer" value={f.cid} onPick={id => { setRef(null); set({ cid: id, vid: '', km: '', est: '' }); }} />
         <Field label="Vehicle"><select value={vid} onChange={e => set({ vid: e.target.value, km: '', est: '' })}>
           {vehicles.length ? vehicles.map(v => <option key={v.id} value={v.id}>{v.plate} · {vehicleName(v)}</option>) : <option value="">No vehicle – add one in Customers</option>}
         </select></Field>
@@ -63,6 +68,19 @@ export function NewJobDialog() {
       </div>
       {cur && <div className="mu small">{cur.mileage != null ? `Last recorded: ${km(cur.mileage)}. ` : 'No mileage recorded yet. '}{sug ? `Service suggestion: ${sug.name} (due at ${km(sug.km)}).` : ''}</div>}
       <Field label="Customer complaint / notes" {...bind('note')} />
+      {referredBy.length > 0 && <div className="box mt"><b>This customer referred:</b> {referredBy.map(x => `${x.name}, ${x.phone} (${x.id})`).join('; ')}. Enter his referral discount on the job card or the estimate.</div>}
+      <div className="box mt"><h3 style={{ marginTop: 0 }}>Referred by (optional)</h3>
+        {savedRef && !ref
+          ? <div className="row" style={{ alignItems: 'center' }}>
+              <span>Referred by <b>{savedRef.ref_name}</b>{savedRef.ref_phone ? `, ${savedRef.ref_phone}` : ''}{savedRef.ref_cid ? ` (customer no. ${savedRef.ref_cid})` : ''}. </span>
+              <Btn kind="ol" onClick={() => setRef({ cid: '', name: '', phone: '' })}>Change</Btn>
+              <Btn kind="ol" onClick={() => setRef({ cid: '', name: '', phone: '' })}>Not referred</Btn>
+            </div>
+          : <>
+              <div className="mu small">If somebody referred this customer to the garage, say who: choose a registered customer (his customer number is the referral code) or type the name and phone. It is saved on the customer. The referrer gets his discount when he comes himself: it is entered on his own job card or estimate.</div>
+              <div className="mt"><ReferrerFields value={ref || { cid: '', name: '', phone: '' }} onChange={setRef} /></div>
+            </>}
+      </div>
       <div className="box mt"><h3 style={{ marginTop: 0 }}>Photos of the vehicle (required)</h3>
         <div className="mu small">Take or choose photos of the vehicle as it arrives: scratches, dents, broken parts, dashboard warning lights. A job card cannot be created, and work cannot start, without at least one photo.</div>
         <div className="row mt"><Field label="Photo of"><select value={label} onChange={e => setLabel(e.target.value)}>{PHOTO_LABELS.map(x => <option key={x} value={x}>{x}</option>)}</select></Field>
@@ -93,7 +111,7 @@ const CUSTOMER_FIELDS = [['name', 'Name'], ['phone', 'Phone'], ['city', 'City'],
 export function CustomerDialog({ id }) {
   const { db, cust, run, closeModal } = useApp();
   const c = cust(id);
-  const [f, bind] = useForm({ ...c, dob: c.dob || '', notify: c.notify || 'both', insurer_id: c.insurer_id || '', policy_no: c.policy_no || '', tin: c.tin || '' });
+  const [f, bind, set] = useForm({ ...c, ref_cid: c.ref_cid || '', ref_name: c.ref_name || '', ref_phone: c.ref_phone || '', dob: c.dob || '', notify: c.notify || 'both', insurer_id: c.insurer_id || '', policy_no: c.policy_no || '', tin: c.tin || '' });
   const save = async () => {
     if (!f.name?.trim() || !f.phone?.trim()) return;
     const r = await run(() => api('/customers/' + id, 'PUT', { ...f, dob: f.dob || null }));
@@ -106,6 +124,9 @@ export function CustomerDialog({ id }) {
         <Field label="Date of birth" type="date" {...bind('dob')} />
         <NotifySelect bind={bind} />
         <InsuranceFields db={db} bind={bind} />
+      </div>
+      <div className="box mt"><h3 style={{ marginTop: 0 }}>Referred by</h3>
+        <ReferrerFields value={{ cid: f.ref_cid || '', name: f.ref_name || '', phone: f.ref_phone || '' }} onChange={v => set({ ref_cid: v.cid || '', ref_name: v.name || '', ref_phone: v.phone || '' })} />
       </div>
     </Dialog>
   );

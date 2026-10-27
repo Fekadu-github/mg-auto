@@ -1,4 +1,4 @@
-import { dt, invoiceLines, money, pct, snap, vehicleName, cur } from '../lib/format.js';
+import { dt, invoiceLines, money, pct, snap, vehicleName, cur, discNote, discLabel } from '../lib/format.js';
 
 export const GARAGE = { name: 'MADEG GENERAL TRADING PLC', brand: 'MG Auto', address: 'Gurdshola, around Top Ten Hotel, Addis Ababa', phone: '0980766566', tin: '', motto: 'Your car, our care' };
 
@@ -39,10 +39,12 @@ export default function InvoiceDoc({ job, customer: c = {}, vehicle: v = {}, doc
           <tr><td colSpan="5" className="r">Labour</td><td className="r">{money(t.l)}</td></tr>
           <tr><td colSpan="5" className="r">Parts</td><td className="r">{money(t.p)}</td></tr>
           <tr><td colSpan="5" className="r">Subtotal</td><td className="r">{money(t.sub)}</td></tr>
+          {t.disc ? <tr><td colSpan="5" className="r">{discLabel(t.discRef)}</td><td className="r">−{money(t.disc)}</td></tr> : null}
           <tr><td colSpan="5" className="r">VAT {pct(t.rate)}%</td><td className="r">{money(t.vat)}</td></tr>
           <tr className="grand"><td colSpan="5" className="r">Total ({cur()})</td><td className="r">{money(t.total)}</td></tr>
         </tfoot>
       </table>
+      {t.disc ? <p className="fine"><b>{discNote(t.discRef)}</b></p> : null}
       <p className="fine">This is a quotation, not a tax invoice. Amounts can change if the work changes.</p>
       <p className="motto">{g.motto}</p>
     </article>
@@ -69,6 +71,8 @@ export default function InvoiceDoc({ job, customer: c = {}, vehicle: v = {}, doc
       ))}
       <hr />
       <div className="kv"><span>Subtotal</span><span>{money(t.sub)}</span></div>
+      {t.disc ? <div className="kv"><span>{discLabel(t.discRef)}</span><span>−{money(t.disc)}</span></div> : null}
+      {t.disc ? <div className="c small">{discNote(t.discRef)}</div> : null}
       <div className="kv"><span>VAT {pct(t.rate)}%</span><span>{money(t.vat)}</span></div>
       <div className="kv tot"><span>TOTAL ({cur()})</span><span>{money(t.total)}</span></div>
       <hr />

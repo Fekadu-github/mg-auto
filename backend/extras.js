@@ -7,6 +7,7 @@ import { fail } from './errors.js';
 import { newId, J } from './db.js';
 import { str } from './rules.js';
 import { newSecret, otpauthUri, verifyTotp } from './totp.js';
+import { discountOf } from './lib.js';
 
 export const INSPECTION_ITEMS = ['body_front', 'body_rear', 'body_left', 'body_right', 'windscreen', 'lights', 'tyres', 'spare', 'mirrors', 'wipers', 'dash_lights', 'interior', 'audio', 'tools', 'fluids'];
 const STATES = ['ok', 'attn', 'na'], FUEL = ['E', '1/4', '1/2', '3/4', 'F'];
@@ -16,9 +17,10 @@ const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
 // What the file's first bytes say it is (a photo upload is accepted only if it really is a picture)
 export const sniffImage = b => (b?.length > 12 && b[0] === 0xff && b[1] === 0xd8 ? 'image/jpeg' : b?.length > 12 && b.slice(1, 4).toString() === 'PNG' ? 'image/png' : b?.length > 12 && b.slice(0, 4).toString() === 'RIFF' && b.slice(8, 12).toString() === 'WEBP' ? 'image/webp' : null);
 
-export function approvalTotals(labours, parts, vat) {
-  const l = r2((labours || []).reduce((s, x) => s + (+x.price || 0), 0)), p = r2((parts || []).reduce((s, x) => s + (+x.qty || 0) * (+x.price || 0), 0)), sub = r2(l + p), v = r2(sub * vat);
-  return { labour: l, parts: p, sub, vat: v, total: r2(sub + v), rate: vat };
+export function approvalTotals(labours, parts, vat, disc) {
+  const l = r2((labours || []).reduce((s, x) => s + (+x.price || 0), 0)), p = r2((parts || []).reduce((s, x) => s + (+x.qty || 0) * (+x.price || 0), 0)), sub = r2(l + p);
+  const d = discountOf(sub, disc), v = r2((sub - d) * vat);   // a referral discount comes off before VAT
+  return { labour: l, parts: p, sub, ...(d > 0 && { disc: d, discRef: disc }), vat: v, total: r2(sub - d + v), rate: vat };
 }
 
 export function mountExtras({ app, db, cfg, auth, wrap, getSetting }) {
@@ -64,11 +66,13 @@ export function mountExtras({ app, db, cfg, auth, wrap, getSetting }) {
     const [ve] = row.vid ? await db.q('SELECT plate, brand, model FROM vehicles WHERE id = ?', [row.vid]) : [];
     const labours = J(row.labours, []), parts = J(row.parts, []);
     if (!labours.length && !parts.length) fail(400, 'Add labour or parts first');
+    const [dr] = await db.q('SELECT kind, value, ref_cid, ref_name, ref_phone FROM doc_discounts WHERE doc_id = ?', [row.id]);
+    const disc = dr ? { type: dr.kind, value: +dr.value, ref_cid: dr.ref_cid || null, ref_name: dr.ref_name || '', ref_phone: dr.ref_phone || '' } : null;
     return {
       no: row.id, date: row.pdate || row.finalized_at || row.created, note: row.note || '',
       customer: cu?.name || row.guest_name || '', plate: ve?.plate || row.guest_plate || '', vehicle: [ve?.brand || row.guest_brand, ve?.model || row.guest_model].filter(Boolean).join(' '),
       labours: labours.map(l => ({ desc: l.desc, hours: l.hours ?? null, price: +l.price || 0 })), parts: parts.map(p => ({ name: p.name, code: p.code || '', qty: +p.qty || 0, price: +p.price || 0 })),
-      totals: approvalTotals(labours, parts, cfg.vat), terms: row.terms || ''
+      totals: approvalTotals(labours, parts, cfg.vat, disc), terms: row.terms || ''
     };
   };
   const apRow = r => ({ token: r.token, kind: r.kind, ref: r.ref, status: r.status, created: r.created, expires: r.expires, decided_at: r.decided_at, decided_name: r.decided_name, decided_note: r.decided_note });

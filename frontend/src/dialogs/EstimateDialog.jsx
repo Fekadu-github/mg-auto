@@ -6,18 +6,20 @@ import { Btn, Dialog, Field, Pill, SaveState, Table } from '../components/ui.jsx
 import { isAdmin, isMgr, isSA, SECTION_CODE } from '../lib/constants.js';
 import { LabourLines, PartLines } from '../components/Lines.jsx';
 import { restoreDraft, useAutosave } from '../lib/autosave.js';
-import { dt, money, pct, r2, rateOf, tot, vehicleName, cur } from '../lib/format.js';
+import { dt, money, pct, r2, rateOf, tot, vehicleName, cur, discNote } from '../lib/format.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import EstimateDoc, { estimateProps } from '../print/EstimateDoc.jsx';
 import { downloadEstimatePdf } from '../lib/estimatePdf.js';
 import { downloadXlsx } from '../lib/xlsx.js';
 import { estimateRows } from '../lib/estimateExport.js';
+import ReferralDiscount from '../components/ReferralDiscount.jsx';
 
 const num = v => parseFloat(v) || 0;
 const Total = ({ t }) => (
   <div className="box mt r">
-    Labour {money(t.l)} · Parts {money(t.p)} · VAT {pct(t.rate)}% {money(t.vat)}
+    Labour {money(t.l)} · Parts {money(t.p)}{t.disc ? <> · <b>Referral discount −{money(t.disc)}</b></> : null} · VAT {pct(t.rate)}% {money(t.vat)}
     <br /><b className="cn total">Estimate total {cur()} {money(t.total)}</b>
+    {t.disc ? <div className="mu small">{discNote(t.discRef)}</div> : null}
   </div>
 );
 
@@ -38,7 +40,7 @@ export default function EstimateDialog({ id, jid }) {
   const sa = isSA(me), draft = e.status === 'Draft', edit = sa && draft, rate = db.cfg.labourRates || db.cfg.labourRate, vat = db.cfg.vat;
   const c = cust(e.cid), v = veh(e.vid), jc = jid && job(jid);
   const shownLabs = edit ? labs : e.labours, shownParts = edit ? parts : e.parts;
-  const t = tot({ labours: shownLabs.map(l => ({ price: num(l.price) })), parts: shownParts.map(p => ({ qty: num(p.qty), price: num(p.price) })) }, vat);
+  const t = tot({ labours: shownLabs.map(l => ({ price: num(l.price) })), parts: shownParts.map(p => ({ qty: num(p.qty), price: num(p.price) })), disc: e.disc }, vat);
 
   // What is printed or downloaded: exactly what is on the screen, draft or finalized (an empty labour cost counts hours x rate, as the server does when saving)
   const doc = () => ({
@@ -100,6 +102,7 @@ export default function EstimateDialog({ id, jid }) {
       )}
 
       <Total t={t} />
+      <ReferralDiscount docId={e.id} disc={e.disc} customerId={e.cid} editable={sa && !e.used_in} />
       {!draft && isSA(me) && <ApprovalBox kind="estimate" id={e.id} />}
       <div className="row mt">
         <Btn kind="ol" onClick={printIt}>Print estimate (A4)</Btn>

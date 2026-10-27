@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { birrInWords, invoiceLines, jobTotals, lastDoc, money, pct, rateOf, snap, splitCode, tot, vehicleName } from './format.js';
+import { birrInWords, discNote, invoiceLines, jobTotals, lastDoc, money, pct, rateOf, snap, splitCode, tot, vehicleName } from './format.js';
 
 const job = { id: 'TC-1', labours: [{ id: 'L1', desc: 'Oil change', price: 700 }], parts: [{ name: 'Oil', code: 'OIL-001', qty: 2, price: 450 }], log: [] };
 
@@ -54,5 +54,27 @@ describe('estimation sheet helpers', () => {
     expect(splitCode('Bumper, Repair - Front (BP-BR114B)')).toEqual({ code: 'BP-BR114B', text: 'Bumper, Repair - Front' });
     expect(splitCode('Oil change')).toEqual({ code: '', text: 'Oil change' });
     expect(splitCode('Wheel balance (front) ')).toEqual({ code: '', text: 'Wheel balance (front) ' });
+  });
+});
+
+describe('referral discount', () => {
+  const disc = { type: 'pct', value: 10, ref_cid: 'CUS-20261001-0003', ref_name: 'Abebe Kebede', ref_phone: '0911223344' };
+  it('comes off the subtotal before VAT and keeps who referred the customer', () => {
+    const t = tot({ labours: [{ price: 600 }], parts: [{ qty: 2, price: 200 }], disc }, 0.15);
+    expect([t.sub, t.disc, t.vat, t.total]).toEqual([1000, 100, 135, 1035]);
+    expect(t.discRef).toBe(disc);
+  });
+  it('an amount discount never takes the total below zero, and no discount adds no fields', () => {
+    expect(tot({ labours: [{ price: 100 }], parts: [], disc: { type: 'amt', value: 500, ref_name: 'A', ref_phone: '1' } }, 0.15).total).toBe(0);
+    expect('disc' in tot({ labours: [{ price: 100 }], parts: [] }, 0.15)).toBe(false);
+  });
+  it('an issued invoice keeps its frozen discount', () => {
+    const t = snap({ labours: [], parts: [] }, { totals: { labour: 600, parts: 400, sub: 1000, disc: 100, discRef: disc, vat: 135, total: 1035, rate: 0.15 } }, 0.2);
+    expect(t.disc).toBe(100); expect(t.total).toBe(1035);
+  });
+  it('states the person, the phone and the customer number', () => {
+    const n = discNote(disc);
+    expect(n).toContain('10% discount given because this customer referred Abebe Kebede'); expect(n).toContain('0911223344'); expect(n).toContain('customer no. CUS-20261001-0003');
+    expect(discNote(null)).toBe('');
   });
 });

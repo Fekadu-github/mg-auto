@@ -23,7 +23,10 @@ import { encryptPassword, decryptPassword } from './passwords.js';
 const jobRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, created: r.created, mileage: r.mileage ?? null, est: r.est || null, payer: r.payer || null, policy_no: r.policy_no || null, mileage_out: r.mileage_out ?? null, claim_no: r.claim_no || null, due_date: r.due_date || null, priority: r.priority || null, price_reqs: J(r.price_reqs, []), services: J(r.services, []), requests: J(r.requests, []), labours: J(r.labours, []), parts: J(r.parts, []), inv: J(r.inv, null), log: J(r.log, []) });
 const estRow = r => r && ({ id: r.id, cid: r.cid, vid: r.vid, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), created: r.created, finalized_at: r.finalized_at, by_name: r.by_name, used_in: r.used_in, pro: r.pro || null, guest_name: r.guest_name || '', guest_phone: r.guest_phone || '', guest_plate: r.guest_plate || '', guest_brand: r.guest_brand || '', guest_model: r.guest_model || '', guest_vin: r.guest_vin || '', guest_eng: r.guest_eng || '' });
 const proRow = r => r && ({ id: r.id, cid: r.cid || null, vid: r.vid || null, guest_name: r.guest_name || '', guest_phone: r.guest_phone || '', guest_plate: r.guest_plate || '', guest_brand: r.guest_brand || '', guest_model: r.guest_model || '', guest_vin: r.guest_vin || '', guest_eng: r.guest_eng || '', insurer_id: r.insurer_id || null, policy_no: r.policy_no, estimator_id: r.estimator_id || null, estimator: r.estimator, estimator_role: r.estimator_role, pdate: r.pdate, note: r.note, status: r.status, labours: J(r.labours, []), parts: J(r.parts, []), est: r.est || null, job: r.job || null, claim_no: r.claim_no || '', priority: r.priority || '', due_date: r.due_date || null, terms: r.terms || '', created: r.created, updated: r.updated });
-const CUS = 'id, name, phone, city, sub, woreda, house, dob, notify, insurer_id, policy_no, tin, (tg_chat IS NOT NULL) AS tg, created_at';   // never the Telegram chat id or link token
+// A referral discount row as the screens see it (attached to a job card, estimate or proforma as .disc)
+const discView = r => ({ type: r.kind, value: +r.value, ref_cid: r.ref_cid || null, ref_name: r.ref_name || '', ref_phone: r.ref_phone || '' });
+const withDisc = (o, m) => (m.has(o.id) ? { ...o, disc: m.get(o.id) } : o);
+const CUS = 'id, name, phone, city, sub, woreda, house, dob, notify, insurer_id, policy_no, tin, ref_cid, ref_name, ref_phone, (tg_chat IS NOT NULL) AS tg, created_at';   // never the Telegram chat id or link token
 const svcRow = r => r && ({ code: r.code, name: r.name, interval_km: r.interval_km, labours: J(r.labours, []), parts: J(r.parts, []) });
 const VEH = 'id, cid, plate, vin, eng, col, brand, model, mileage, next_km, next_type, created_at';
 const partRow = r => r && ({ ...r, price: +r.price, stock: +r.stock, reorder: +r.reorder, active: !!r.active });
@@ -192,7 +195,8 @@ export function createApp({ cfg, db, notifier }) {
       staff ? db.q("SELECT id, name, role FROM app_users WHERE role IN ('SA','WS','MGR','ADMIN') ORDER BY name") : [],
       staff ? db.q("SELECT id, name FROM app_users WHERE role = 'TECH' ORDER BY name") : []]);   // the workshop supervisor picks from these   // estimators: advisors and above, not technicians
     const rates = await labourRates(db);
-    s.json({ c: c.map(r => ({ ...r, tg: !!r.tg })), v, j: j.map(jobRow), ...(sendParts ? { p: p.map(r => S.partView(r, mgr)) } : {}), pv, e: e.map(estRow), st: st.map(svcRow), pr: pr.map(proRow), ins, lt: lt.map(t => ({ ...t, hours: +t.hours, price: +t.price })), staff: people, techs,
+    const dm = staff ? new Map((await db.q('SELECT * FROM doc_discounts')).map(r => [r.doc_id, discView(r)])) : new Map();
+    s.json({ c: c.map(r => ({ ...r, tg: !!r.tg })), v, j: j.map(r => withDisc(jobRow(r), dm)), ...(sendParts ? { p: p.map(r => S.partView(r, mgr)) } : {}), pv, e: e.map(r => withDisc(estRow(r), dm)), st: st.map(svcRow), pr: pr.map(r => withDisc(proRow(r), dm)), ins, lt: lt.map(t => ({ ...t, hours: +t.hours, price: +t.price })), staff: people, techs,
       cfg: { vat: cfg.vat, markup: S.DEFAULT_MARKUP, labourRate: cfg.labourRate, currency: await getSetting(db, 'currency', 'ETB'), labourRates: rateMap(rates), priceLimitPct: cfg.priceLimitPct, workEnd: cfg.workEnd, tgBot: notifier.botName, sms: notifier.smsReady, garage: cfg.garage } });
   }));
 
@@ -202,12 +206,36 @@ export function createApp({ cfg, db, notifier }) {
   const customer = async id => (await db.q(`SELECT ${CUS} FROM customers WHERE id = ?`, [id]))[0];
   const vehicle = async id => (await db.q(`SELECT ${VEH} FROM vehicles WHERE id = ?`, [id]))[0];
 
+  // ---- referral: who sent the customer to the garage, and the discount given because of it ----
+  // A registered customer is chosen by his number (his name and phone come from his record); anyone else is typed as name + phone.
+  const refOf = async (c, b, ownId) => {
+    const cid = str(b.ref_cid, 40);
+    if (cid) {
+      if (cid === ownId) fail(400, 'A customer cannot refer himself');
+      const [r] = await c.q('SELECT id, name, phone FROM customers WHERE id = ?', [cid]);
+      if (r) return { cid: r.id, name: r.name, phone: r.phone };
+      if (!str(b.ref_name, 200)) fail(400, 'The referring customer is not registered');
+    }
+    return { cid: null, name: str(b.ref_name, 200), phone: str(b.ref_phone, 30) };
+  };
+  // Saves the referrer on the customer when the request carries it (an empty name clears it). A request without the fields leaves it as it is.
+  const setReferrer = async (c, id, b) => {
+    if (b.ref_cid === undefined && b.ref_name === undefined && b.ref_phone === undefined) return;
+    const r = await refOf(c, b, id);
+    if (!r.cid && !r.name) r.phone = '';
+    else if (!r.cid && !r.phone) fail(400, "Enter the referring person's phone number too");
+    await c.q('UPDATE customers SET ref_cid = ?, ref_name = ?, ref_phone = ? WHERE id = ?', [r.cid, r.name, r.phone, id]);
+  };
+  // The discount follows the estimate onto its job card (a copy: the estimate keeps its own)
+  const copyDisc = (c, from, to) => c.q('INSERT INTO doc_discounts (doc_id, kind, value, ref_cid, ref_name, ref_phone, by_name) SELECT ?, kind, value, ref_cid, ref_name, ref_phone, by_name FROM doc_discounts WHERE doc_id = ? ON DUPLICATE KEY UPDATE kind = VALUES(kind), value = VALUES(value), ref_cid = VALUES(ref_cid), ref_name = VALUES(ref_name), ref_phone = VALUES(ref_phone), by_name = VALUES(by_name), updated = UTC_TIMESTAMP(3)', [to, from]);
+
   app.post('/api/customers', auth('SA'), wrap(async (q, s) => {
     if (!str(q.body.name) || !str(q.body.phone)) fail(400, 'Name and phone are required');
     const f = cf(q.body);
     const id = await db.tx(async c => {
       const id = await numberFor(c, 'customer', 'CUS-');
       await c.q('INSERT INTO customers (id, name, phone, city, sub, woreda, house, dob, notify, insurer_id, policy_no, tin, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?, UTC_TIMESTAMP(3))', [id, f.name, f.phone, f.city, f.sub, f.woreda, f.house, f.dob, f.notify, f.insurer_id, f.policy_no, f.tin]);
+      await setReferrer(c, id, q.body);
       return id;
     });
     const c = await customer(id);
@@ -218,8 +246,46 @@ export function createApp({ cfg, db, notifier }) {
     const f = cf(q.body);
     const r = await db.q('UPDATE customers SET name=?, phone=?, city=?, sub=?, woreda=?, house=?, dob=?, notify=?, insurer_id=?, policy_no=?, tin=? WHERE id=?', [f.name, f.phone, f.city, f.sub, f.woreda, f.house, f.dob, f.notify, f.insurer_id, f.policy_no, f.tin, q.params.id]);
     if (!r.affectedRows && !(await customer(q.params.id))) fail(404, 'Customer not found');   // MySQL counts "matched but unchanged" as 0 affected rows
+    await db.tx(c => setReferrer(c, q.params.id, q.body));
     s.json({ ok: true });
   }));
+  // ---- referral discount (typed by hand), on a job card (TC-) or an estimate / proforma (EST-) ----
+  const discGuard = async (c, rawId) => {
+    const id = str(rawId, 40).toUpperCase();
+    if (id.startsWith('TC-')) {
+      const [j] = await c.q('SELECT id, cid, inv FROM jobs WHERE id = ? FOR UPDATE', [id]);
+      if (!j) fail(404, 'Job card not found');
+      if (j.inv) fail(409, 'The invoice is issued: the discount can no longer be changed');
+      return { id, cid: j.cid };
+    }
+    if (id.startsWith('EST-')) {
+      const [e] = await c.q('SELECT id, cid, used_in FROM estimates WHERE id = ? FOR UPDATE', [id]);
+      const [p] = await c.q('SELECT id, cid, status, job FROM proformas WHERE id = ? FOR UPDATE', [id]);
+      if (!e && !p) fail(404, 'Estimate not found');
+      const on = (e && e.used_in) || (p && p.status === 'Converted' && p.job);
+      if (on) fail(409, `${id} is on job card ${on}: change the discount there`);
+      return { id, cid: (e && e.cid) || (p && p.cid) || null };
+    }
+    fail(400, 'A discount belongs to an estimate, a proforma or a job card');
+  };
+  app.put('/api/discounts/:id', auth('SA'), wrap(async (q, s) => {
+    const kind = q.body.type === 'amt' ? 'amt' : q.body.type === 'pct' ? 'pct' : fail(400, 'Choose percent or amount');
+    const value = Math.round((Number(q.body.value) + Number.EPSILON) * 100) / 100;
+    if (!(value > 0)) fail(400, 'Enter the discount: a percent or an amount above 0');
+    if (kind === 'pct' && value > 100) fail(400, 'A percent discount cannot be more than 100');
+    await db.tx(async c => {
+      const d = await discGuard(c, q.params.id);
+      const r = await refOf(c, q.body, d.cid);
+      if (!r.cid && (!r.name || !r.phone)) fail(400, "Say whom this customer referred: choose the registered customer, or type the person's name and phone");
+      await c.q('INSERT INTO doc_discounts (doc_id, kind, value, ref_cid, ref_name, ref_phone, by_name) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE kind = VALUES(kind), value = VALUES(value), ref_cid = VALUES(ref_cid), ref_name = VALUES(ref_name), ref_phone = VALUES(ref_phone), by_name = VALUES(by_name), updated = UTC_TIMESTAMP(3)', [d.id, kind, value, r.cid, r.name, r.phone, q.u.name]);
+    });
+    s.json({ ok: true });
+  }));
+  app.delete('/api/discounts/:id', auth('SA'), wrap(async (q, s) => {
+    await db.tx(async c => { const d = await discGuard(c, q.params.id); await c.q('DELETE FROM doc_discounts WHERE doc_id = ?', [d.id]); });
+    s.json({ ok: true });
+  }));
+
   // Administrator only. Deleting a job card puts its issued parts back in stock, frees the estimate / proforma that was loaded on it,
   // and removes its payments and notifications.
   const dropJob = async (c, id, by) => {
@@ -231,6 +297,7 @@ export function createApp({ cfg, db, notifier }) {
     await c.q("UPDATE proformas SET status = 'Issued', job = NULL, est = NULL, updated = UTC_TIMESTAMP(3) WHERE job = ?", [id]);
     await c.q("DELETE FROM payments WHERE source = 'job' AND ref = ?", [id]);
     await c.q('DELETE FROM notifications WHERE job = ?', [id]);
+    await c.q('DELETE FROM doc_discounts WHERE doc_id = ?', [id]);
     await c.q('DELETE FROM jobs WHERE id = ?', [id]);
     return true;
   };
@@ -336,6 +403,7 @@ export function createApp({ cfg, db, notifier }) {
       const id = await numberFor(c, 'job', 'TC-');
       await c.q('INSERT INTO jobs (id, cid, vid, note, status, created, labours, parts, inv, `log`, mileage, services, est, requests) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3), ?, ?, NULL, ?, ?, ?, NULL, ?)',
         [id, cid, vid, str(q.body.note, 500), 'Created', '[]', '[]', sendJson([{ s: 'Created', t: Date.now(), by: q.u.name }]), km, '[]', '[]']);
+      await setReferrer(c, cid, q.body);   // who referred this customer (optional)
       for (const p of photos) await c.q('INSERT INTO job_photos (id, job_id, label, mime, data, by_name, created) VALUES (?,?,?,?,?,?, UTC_TIMESTAMP(3))', [newId(), id, p.label, p.mime, p.buf, q.u.name]);
       if (estNo) {   // a problem with the estimate (draft, used, another vehicle) undoes the card too, so nothing is half-created
         const [row] = await c.q('SELECT * FROM jobs WHERE id = ? FOR UPDATE', [id]);
@@ -474,6 +542,7 @@ export function createApp({ cfg, db, notifier }) {
     }
     for (const p of e.parts) await issueLine(j, p, c, u, { waiting: true });   // a part that is short waits for stock instead of stopping the whole load
     j.est = e.id;
+    await copyDisc(c, e.id, j.id);
     const [pr] = await c.q('SELECT * FROM proformas WHERE id = ? FOR UPDATE', [e.id]);
     if (pr && pr.status !== 'Converted') {
       const p = proRow(pr);
@@ -542,6 +611,8 @@ export function createApp({ cfg, db, notifier }) {
   app.post('/api/jobs/:id/labour/:lid/clockout', ...edit(['TECH', 'WS'], (j, { params, body, u }) => rules.clockOut(j, params.lid, body.reason, u)));
   app.post('/api/jobs/:id/invoice', ...edit(['SA'], async (j, { body, u, c }) => {
     rules.checkInvoice(j, body.type);
+    const [dr] = await c.q('SELECT * FROM doc_discounts WHERE doc_id = ?', [j.id]);
+    if (dr) j.disc = discView(dr);   // the amounts are frozen on the invoice with the discount
     rules.issueInvoice(j, body.type, cfg.vat, await numberFor(c, 'invoice', 'INV-'), u);
   }));
 
@@ -793,6 +864,7 @@ export function createApp({ cfg, db, notifier }) {
         [eid, p.cid, p.vid, p.note, 'Finalized', sendJson(p.labours), sendJson(p.parts), p.estimator || q.u.name, jid, p.id]);
       await c.q('INSERT INTO jobs (id, cid, vid, note, status, created, labours, parts, inv, `log`, mileage, services, est, requests, payer, policy_no, claim_no, due_date, priority) VALUES (?,?,?,?,?, UTC_TIMESTAMP(3), ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [jid, p.cid, p.vid, note, 'Created', sendJson(j.labours), sendJson(j.parts), sendJson(j.log), km, '[]', eid, '[]', ins ? ins.name : null, ins ? p.policy_no || null : null, p.claim_no || null, p.due_date || null, p.priority || null]);   // the invoice is made out to the insurance company
+      await copyDisc(c, p.id, jid);
       await c.q("UPDATE proformas SET status = 'Converted', est = ?, job = ?, updated = UTC_TIMESTAMP(3) WHERE id = ?", [eid, jid, p.id]);
       return jid;
     });

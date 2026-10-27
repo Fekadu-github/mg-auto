@@ -357,3 +357,16 @@ CREATE TABLE IF NOT EXISTS service_reminders (
   by_name VARCHAR(120) NULL,
   KEY service_reminders_vid (vid, `at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Referral discount on a document. doc_id is an EST number (the estimate and its proforma share it) or a TC number (job card).
+-- Entered by hand. It states who referred the customer, and the totals (and the printed documents) show it before VAT.
+CREATE TABLE IF NOT EXISTS doc_discounts (
+  doc_id VARCHAR(40) NOT NULL PRIMARY KEY,
+  kind ENUM('pct','amt') NOT NULL,
+  value DECIMAL(12,2) NOT NULL,
+  ref_cid VARCHAR(40) NULL,
+  ref_name VARCHAR(200) NOT NULL DEFAULT '',
+  ref_phone VARCHAR(30) NOT NULL DEFAULT '',
+  by_name VARCHAR(120) NULL,
+  updated DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

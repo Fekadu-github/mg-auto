@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { t } from '../lib/i18n.js';
-import { money, setCurrency, cur } from '../lib/format.js';
+import { money, setCurrency, cur, discNote } from '../lib/format.js';
 import LangToggle from '../components/LangToggle.jsx';
 
 // The customer's page, opened from the link (no sign-in): shows the frozen estimate and takes his decision
@@ -31,6 +31,7 @@ export default function Approve({ token }) {
           </tbody>
           <tfoot>
             <tr><td style={td} colSpan={2}>{t('Subtotal')}</td><td style={tdr}>{money(x.totals.sub)}</td></tr>
+            {x.totals.disc > 0 && <tr><td style={td} colSpan={2}>{t('Referral discount')}<br /><small style={{ opacity: .7 }}>{discNote(x.totals.discRef)}</small></td><td style={tdr}>−{money(x.totals.disc)}</td></tr>}
             <tr><td style={td} colSpan={2}>{t('VAT')} {Math.round(x.totals.rate * 1000) / 10}%</td><td style={tdr}>{money(x.totals.vat)}</td></tr>
             <tr><td style={{ ...td, fontWeight: 700 }} colSpan={2}>{t('Total')} ({cur()})</td><td style={{ ...tdr, fontWeight: 700, fontSize: 18 }}>{money(x.totals.total)}</td></tr>
           </tfoot>

@@ -24,15 +24,20 @@ export const rateOf = (rate, section, model) => {
 };
 
 // Totals at a VAT rate (a fraction, 0.15 = 15%). Same arithmetic as the server.
+// A referral discount (j.disc = { type: 'pct' | 'amt', value, ref_name, ref_phone, ref_cid }) comes off the subtotal before VAT.
+export const discountOf = (sub, d) => (d && +d.value > 0 ? Math.min(sub, d.type === 'pct' ? r2(sub * Math.min(+d.value, 100) / 100) : r2(+d.value)) : 0);
 export function tot(j, rate) {
   const l = r2(j.labours.reduce((s, x) => s + x.price, 0)), p = r2(j.parts.reduce((s, x) => s + x.qty * x.price, 0));
-  const sub = r2(l + p), vat = r2(sub * rate);
-  return { l, p, sub, vat, total: r2(sub + vat), rate };
+  const sub = r2(l + p), disc = discountOf(sub, j.disc), vat = r2((sub - disc) * rate);
+  return { l, p, sub, ...(disc > 0 && { disc, discRef: j.disc }), vat, total: r2(sub - disc + vat), rate };
 }
+// The sentence printed with a discount: how much, and who referred the customer (his phone, and his customer number when he is registered)
+export const discNote = d => (d ? `${d.type === 'pct' ? `${d.value}%` : `${cur()} ${money(d.value)}`} discount given because this customer referred ${d.ref_name || 'a registered customer'}${d.ref_phone ? `, ${d.ref_phone}` : ''}${d.ref_cid ? ` (customer no. ${d.ref_cid})` : ''}` : '');
+export const discLabel = d => `Referral discount${d && d.type === 'pct' ? ` ${d.value}%` : ''}`;
 // Issued documents keep the amounts they were issued with, so a later VAT change never alters them
 export function snap(j, doc, rate) {
   const t = doc && doc.totals;
-  return t ? { l: t.labour, p: t.parts, sub: t.sub, vat: t.vat, total: t.total, rate: t.rate } : tot(j, rate);
+  return t ? { l: t.labour, p: t.parts, sub: t.sub, ...(t.disc > 0 && { disc: t.disc, discRef: t.discRef }), vat: t.vat, total: t.total, rate: t.rate } : tot(j, rate);
 }
 // The amounts to show for a job card: the invoice's frozen amounts once there is one
 export const jobTotals = (j, rate) => snap(j, j.inv, rate);

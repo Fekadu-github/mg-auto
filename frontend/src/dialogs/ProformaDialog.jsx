@@ -7,9 +7,10 @@ import { LabourLines, PartLines } from '../components/Lines.jsx';
 import CustomerPicker from '../components/CustomerPicker.jsx';
 import { ROLES, isAdmin, isSA } from '../lib/constants.js';
 import { restoreDraft, useAutosave } from '../lib/autosave.js';
-import { dt, km, money, pct, rateOf, tot, vehicleName, cur } from '../lib/format.js';
+import { dt, km, money, pct, rateOf, tot, vehicleName, cur, discNote } from '../lib/format.js';
 import { usePrint } from '../print/PrintHost.jsx';
 import ProformaDoc, { proformaProps } from '../print/ProformaDoc.jsx';
+import ReferralDiscount from '../components/ReferralDiscount.jsx';
 import { downloadEstimatePdf } from '../lib/estimatePdf.js';
 
 const r2 = n => Math.round(n * 100) / 100;
@@ -42,7 +43,7 @@ export default function ProformaDialog({ id }) {
     setEcid(id); setEvid(match ? match.id : ''); setKm('');
   };
   const setLabs = fn => setF(s => ({ ...s, labours: fn(s.labours) })), setParts = fn => setF(s => ({ ...s, parts: fn(s.parts) }));
-  const t = tot({ labours: f.labours.map(l => ({ price: num(l.price) })), parts: f.parts.map(x => ({ qty: num(x.qty), price: num(x.price) })) }, vat);
+  const t = tot({ labours: f.labours.map(l => ({ price: num(l.price) })), parts: f.parts.map(x => ({ qty: num(x.qty), price: num(x.price) })), disc: p.disc }, vat);
   const saved = async () => { if (await flush()) return true; say('The proforma is not saved yet. Wait a moment and try again.'); return false; };
 
   // What is printed: exactly what is on the screen (an empty labour cost counts hours x rate, as the server does when saving)
@@ -127,9 +128,11 @@ export default function ProformaDialog({ id }) {
       {open ? <PartLines parts={f.parts} setParts={setParts} stock={db.p} /> : <p className="mu">{p.parts.map(x => `${x.qty} x ${x.name} (${money(x.price)})`).join(', ') || 'No parts.'}</p>}
 
       <div className="box mt r">
-        Labour {money(t.l)} · Parts {money(t.p)} · VAT {pct(t.rate)}% {money(t.vat)}
+        Labour {money(t.l)} · Parts {money(t.p)}{t.disc ? <> · <b>Referral discount −{money(t.disc)}</b></> : null} · VAT {pct(t.rate)}% {money(t.vat)}
         <br /><b className="cn total">Proforma total {cur()} {money(t.total)}</b>
+        {t.disc ? <div className="mu small">{discNote(t.discRef)}</div> : null}
       </div>
+      <ReferralDiscount docId={p.id} disc={p.disc} customerId={p.cid} editable={isSA(me) && p.status !== 'Converted'} />
       {open && <div className="mt"><SaveState state={state} restored={init.restored} /></div>}
       {isSA(me) && p.status !== 'Draft' && <ApprovalBox kind="proforma" id={p.id} />}
 

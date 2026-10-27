@@ -1,4 +1,4 @@
-import { TZ, birrInWords, dt, money, pct, splitCode, tot, cur } from '../lib/format.js';
+import { TZ, birrInWords, dt, money, pct, splitCode, tot, cur, discNote, discLabel } from '../lib/format.js';
 import { DEFAULT_TERMS } from '../lib/constants.js';
 import { GARAGE, Letterhead } from './InvoiceDoc.jsx';
 import { BRAND_LOGOS } from '../lib/brands.js';
@@ -14,10 +14,10 @@ const F = ({ l, children }) => <div className="f"><span>{l}</span><b>{children}<
 /** The "Service Price Estimation" sheet (A4) used for the insurance proforma and for the body & paint estimate.
  *  Header with the garage and the estimation number, customer + insurance on the left, vehicle on the right, labour and other charges,
  *  totals with the amount in words, terms and the Prepared / Checked / Approved signature line. */
-export default function EstimationSheet({ no, date, draft, walkIn, customer: c = {}, vehicle: v = {}, insurer, policyNo, claimNo, dueDate, note, labours, parts, vat = 0.15, terms, garage = {}, preparedBy, preparedRole, label = 'Estimation' }) {
+export default function EstimationSheet({ no, date, draft, walkIn, customer: c = {}, vehicle: v = {}, insurer, policyNo, claimNo, dueDate, note, labours, parts, disc, vat = 0.15, terms, garage = {}, preparedBy, preparedRole, label = 'Estimation' }) {
   const g = { ...GARAGE, ...garage };
   const L = labours.map(l => ({ ...l, price: num(l.price) })), P = parts.map(p => ({ ...p, qty: num(p.qty), price: num(p.price) }));
-  const t = tot({ labours: L, parts: P }, vat);
+  const t = tot({ labours: L, parts: P, disc }, vat);
   const type = insurer ? 'Insurance' : walkIn ? 'Walk-in customer (private)' : 'Private';
   return (
     <article className={`doc a4 est${draft ? ' is-draft' : ''}`} data-density="normal">
@@ -78,10 +78,12 @@ export default function EstimationSheet({ no, date, draft, walkIn, customer: c =
       <table className="est-tot">
         <tbody>
           <tr><td>Total Est. Amount</td><td className="r">{money(t.sub)}</td></tr>
+          {t.disc ? <tr><td>{discLabel(t.discRef)}</td><td className="r">−{money(t.disc)}</td></tr> : null}
           <tr><td>{pct(t.rate)}% VAT</td><td className="r">{money(t.vat)}</td></tr>
           <tr className="grand"><td>Total Inc. VAT</td><td className="r">{money(t.total)}</td></tr>
         </tbody>
       </table>
+      {t.disc ? <p className="est-words"><b>{discNote(t.discRef)}</b></p> : null}
       <p className="est-words">** {birrInWords(t.total)} ***</p>
 
       {terms && <div className="est-remark"><b>REMARK:</b> {terms}</div>}
